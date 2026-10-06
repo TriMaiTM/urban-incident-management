@@ -1,0 +1,134 @@
+# ==========================================
+# Urban Incident Management Platform - .gitignore
+# ==========================================
+
+# --- Environments & Secrets ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Unit test & coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# Type checking & Linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# --- Node.js & Next.js ---
+node_modules/
+jspm_packages/
+.npm
+.yarn/
+*.tsbuildinfo
+
+# Next.js build output
+.next/
+out/
+dist/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Database & Persistent Storage ---
+postgres_data/
+pgdata/
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Uploads & Media Files ---
+backend/uploads/
+backend/media/
+uploads/
+media/
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.mp4
+# Keep placeholder or seed files if needed
+!backend/app/static/**
+!frontend/public/**
+
+# --- Operating System & Editor Artifacts ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDEs
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+
+# Docker
+.docker/
