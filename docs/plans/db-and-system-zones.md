@@ -3,7 +3,7 @@
 * **Mã tính năng:** `db-and-system-zones`
 * **Nhánh dự kiến:** `feat/db-and-system-zones`
 * **Mục tiêu:** Thiết lập kết nối PostGIS 16, định nghĩa toàn bộ SQLAlchemy ORM Models lõi theo kiến trúc trong `docs/spec.md`, viết script nạp GeoJSON ranh giới hành chính Đà Nẵng vào bảng `system_zones`, và cung cấp API kiểm tra hàng rào địa lý (`ST_Contains`).
-* **Trạng thái:** Chờ phê duyệt (Pending Approval)
+* **Trạng thái:** Đã hoàn thành (Done)
 
 ---
 
@@ -83,11 +83,12 @@
 * **Hành động:** Chạy `py -m py_compile` toàn bộ backend và chạy test suite `test_zones.py`.
 * **Cách kiểm chứng:** Kiểm thử không gian tự động 3/3 passed với pytest (`cau_rong`, `cau_song_han`, `ngu_hanh_son`, `hoa_khanh` nằm trong vùng; `ha_noi`, `hcm`, `bien_dong` bị loại).
 
-### [ ] Bước 1 (Chờ bật Docker Desktop): Khởi động PostGIS và nạp dữ liệu vào Database
-* **Hành động:** Bật Docker Desktop trên Windows, chạy `docker compose up -d db` và thực thi:
-  * `py backend/scripts/init_db.py`
-  * `py backend/scripts/seed_data.py`
-* **Cách kiểm chứng:** Kiểm tra các bảng và bản ghi trong PostgreSQL qua lệnh query.
+### [x] Bước 1: Khởi động PostGIS và nạp dữ liệu vào Database
+* **Hành động:** 
+  * Khởi động Docker container `urban_incident_db` (`docker compose up -d db`).
+  * Thực thi `py backend/scripts/init_db.py` kích hoạt `postgis` (3.4) và `uuid-ossp`, tạo 8 bảng ORM.
+  * Thực thi `py backend/scripts/seed_data.py` nạp vùng `DANANG_CORE`, 7 đơn vị sở/quận, 6 danh mục sự cố và tài khoản admin.
+* **Cách kiểm chứng:** Cả 2 script đều hoàn thành thành công và commit dữ liệu vào PostgreSQL.
 
 ---
 
