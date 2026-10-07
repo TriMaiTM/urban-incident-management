@@ -4,6 +4,12 @@ import os
 import sys
 from uuid import uuid4
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Add backend directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -119,22 +125,66 @@ async def seed_all_data():
                 cat_obj.default_sla_hours = c["sla"]
                 cat_obj.default_department_id = dept_id
 
-        # 4. Seed Default Admin User
-        existing_admin = await session.execute(
-            select(User).where(User.email == "admin@danang.gov.vn")
-        )
-        if not existing_admin.scalar_one_or_none():
-            admin_user = User(
-                id=uuid4(),
-                email="admin@danang.gov.vn",
-                phone="0905000001",
-                full_name="Quản Trị Viên Trung Tâm IOC Đà Nẵng",
-                auth_provider="LOCAL",
-                role="ADMIN",
-                department_id=dept_map.get("UBND_HC").id if "UBND_HC" in dept_map else None
+        # 4. Seed 4 Demo Users with Hashed Passwords
+        from app.core.security import get_password_hash
+        default_pwd_hash = get_password_hash("Password123@")
+
+        users_to_seed = [
+            {
+                "email": "admin@danang.gov.vn",
+                "phone": "0905000001",
+                "full_name": "Quản Trị Viên Trung Tâm IOC Đà Nẵng",
+                "role": "ADMIN",
+                "dept": "UBND_HC"
+            },
+            {
+                "email": "dispatcher@danang.gov.vn",
+                "phone": "0905000002",
+                "full_name": "Điều Phối Viên Tổng Đài 1022 Đà Nẵng",
+                "role": "DISPATCHER",
+                "dept": "UBND_HC"
+            },
+            {
+                "email": "technician@danang.gov.vn",
+                "phone": "0905000003",
+                "full_name": "Kỹ Thuật Viên Xử Lý Thoát Nước Hiện Trường",
+                "role": "TECHNICIAN",
+                "dept": "CTN_DN"
+            },
+            {
+                "email": "citizen@danang.gov.vn",
+                "phone": "0905000004",
+                "full_name": "Nguyễn Văn Công Dân Đà Nẵng",
+                "role": "CITIZEN",
+                "dept": None
+            },
+        ]
+
+        for u in users_to_seed:
+            existing_user = await session.execute(
+                select(User).where(User.email == u["email"])
             )
-            session.add(admin_user)
-            print("4. [CREATED] Default Admin User: admin@danang.gov.vn")
+            user_obj = existing_user.scalar_one_or_none()
+            user_dept_id = dept_map.get(u["dept"]).id if u["dept"] and u["dept"] in dept_map else None
+
+            if not user_obj:
+                user_obj = User(
+                    id=uuid4(),
+                    email=u["email"],
+                    phone=u["phone"],
+                    full_name=u["full_name"],
+                    password_hash=default_pwd_hash,
+                    auth_provider="LOCAL",
+                    role=u["role"],
+                    department_id=user_dept_id
+                )
+                session.add(user_obj)
+                print(f"4. [CREATED] User: {u['email']} (Role: {u['role']})")
+            else:
+                user_obj.password_hash = default_pwd_hash
+                user_obj.role = u["role"]
+                user_obj.department_id = user_dept_id
+                print(f"4. [UPDATED] User: {u['email']} (Role: {u['role']})")
 
         await session.commit()
         print("\nAll seed data committed successfully!")
