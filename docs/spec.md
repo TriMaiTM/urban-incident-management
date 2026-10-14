@@ -69,22 +69,22 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
 ┌────────────────────────┐      ┌────────────────────────┐
 │    AI & Vision Engine   │      │ Database (PostgreSQL)  │
 │ - DeepSeek Vision API  │      │ - PostGIS (Spatial GIS)│
-│ - OpenCV Anonymization │      │ - pgvector (Similarity)│
+│ - OpenCV Anonymization │      │ - Spatial Deduplication│
 │   (Face/Plate Blurring)│      │ - Relational Data      │
 └────────────────────────┘      └────────────────────────┘
 ```
 
 ### 2.2 Ngăn xếp công nghệ chi tiết (Tech Stack)
 
-| Thành phần                | Công nghệ lựa chọn                                                    | Lý do và Giá trị                                                                                                                                  |
-| :------------------------ | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Frontend Web**          | Next.js 14+ (TypeScript, App Router), Tailwind CSS, Lucide Icons, PWA | Giao diện hiện đại, responsive hoàn hảo trên Mobile & Desktop; hỗ trợ cài đặt PWA trực tiếp không qua kho ứng dụng.                               |
-| **GIS / Bản đồ**          | MapLibre GL JS + OpenStreetMap Tiles + Goong Geocoding API            | Hiển thị bản đồ vector mượt mà, định vị chính xác tên đường/kiệt/hẻm tại Đà Nẵng với chi phí 0đ (Gói Free Goong 30.000 req/tháng).                |
-| **Backend API**           | Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2.0 (asyncio)          | Tốc độ cao, cú pháp chặt chẽ, tích hợp bất đồng bộ xuất sắc với các thư viện xử lý ảnh và API AI.                                                 |
-| **Cơ sở dữ liệu**         | PostgreSQL 16 + PostGIS 3.4 + pgvector                                | Lưu trữ toàn bộ dữ liệu quan hệ, tính toán không gian địa lý (`ST_DWithin`, `ST_Contains`) và tìm kiếm vector trùng lặp trong 1 cụm duy nhất.     |
-| **Mô hình Thị giác & AI** | DeepSeek Vision API (`deepseek-flash` multimodal endpoint)            | Phân loại loại khuyết tật hạ tầng từ ảnh, trích xuất thực thể, xác định mức độ khẩn cấp và đề xuất đơn vị xử lý mà không tốn chi phí GPU máy chủ. |
-| **Bảo vệ quyền riêng tư** | OpenCV (Gaussian Blur)                                                | Tự động quét và làm mờ khuôn mặt, biển số xe trong ảnh hiện trường trước khi lưu trữ công khai (Tuân thủ Nghị định 13/2023/NĐ-CP).                |
-| **Kênh phụ trợ**          | Facebook Graph API & Messenger Webhook                                | Tiếp nhận sự cố qua tin nhắn Fanpage (ảnh + định vị GPS) và phản hồi mã tra cứu tự động cho công dân.                                             |
+| Thành phần                | Công nghệ lựa chọn                                                    | Lý do và Giá trị                                                                                                                                      |
+| :------------------------ | :-------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Frontend Web**          | Next.js 14+ (TypeScript, App Router), Tailwind CSS, Lucide Icons, PWA | Giao diện hiện đại, responsive hoàn hảo trên Mobile & Desktop; hỗ trợ cài đặt PWA trực tiếp không qua kho ứng dụng.                                   |
+| **GIS / Bản đồ**          | MapLibre GL JS + OpenStreetMap Tiles + Goong Geocoding API            | Hiển thị bản đồ vector mượt mà, định vị chính xác tên đường/kiệt/hẻm tại Đà Nẵng với chi phí 0đ (Gói Free Goong 30.000 req/tháng).                    |
+| **Backend API**           | Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2.0 (asyncio)          | Tốc độ cao, cú pháp chặt chẽ, tích hợp bất đồng bộ xuất sắc với các thư viện xử lý ảnh và API AI.                                                     |
+| **Cơ sở dữ liệu**         | PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4-alpine`)         | Lưu trữ dữ liệu quan hệ, tính toán không gian địa lý (`ST_DWithin`, `ST_Contains`) và lọc trùng lặp bán kính 50m (hỗ trợ mở rộng `pgvector` sau MVP). |
+| **Mô hình Thị giác & AI** | DeepSeek Vision API (`deepseek-flash` multimodal endpoint)            | Phân loại loại khuyết tật hạ tầng từ ảnh, trích xuất thực thể, xác định mức độ khẩn cấp và đề xuất đơn vị xử lý mà không tốn chi phí GPU máy chủ.     |
+| **Bảo vệ quyền riêng tư** | OpenCV (Gaussian Blur)                                                | Tự động quét và làm mờ khuôn mặt, biển số xe trong ảnh hiện trường trước khi lưu trữ công khai (Tuân thủ Nghị định 13/2023/NĐ-CP).                    |
+| **Kênh phụ trợ**          | Facebook Graph API & Messenger Webhook                                | Tiếp nhận sự cố qua tin nhắn Fanpage (ảnh + định vị GPS) và phản hồi mã tra cứu tự động cho công dân.                                                 |
 
 ---
 
@@ -109,7 +109,7 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
 
 - `id` (UUID, Primary Key)
 - `name` (VARCHAR): Ví dụ _"Công ty Thoát nước và Xử lý nước thải Đà Nẵng"_, _"Công ty Công viên - Cây xanh"_, _"UBND Quận Hải Châu"_...
-- `code` (VARCHAR, Unique): `SXD_DN`, `SGTVT_DN`, `CTN_DN`, `CCX_DN`, `UBND_HC`...
+- `code` (VARCHAR, Unique): Khớp với dữ liệu mồi trong `seed_data.py` (bao gồm cả đơn vị giao thông, thoát nước, cây xanh, môi trường đô thị, chiếu sáng công cộng và UBND các quận/huyện).
 - `level` (ENUM: `CITY_DEPT`, `UTILITY_COMPANY`, `DISTRICT_GOV`, `WARD_GOV`)
 - `contact_email`, `contact_phone` (VARCHAR)
 
@@ -207,9 +207,9 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
                          │
         ┌────────────────┴────────────────┐
         │                                 │
-(Công dân đánh giá / Hài lòng)   (Công dân khiếu nại / Chưa hài lòng)
+(Đánh giá >= 3 sao / Quá 48h)   (Khiếu nại: Rating <= 2 sao)
         ▼                                 ▼
-   CONFIRMED ──▶ CLOSED               REOPENED ──▶ IN_PROGRESS
+   CONFIRMED ──▶ CLOSED               IN_PROGRESS (Ghi log Reopened vào incident_history)
 ```
 
 ### 4.2 Các quy tắc chuyển đổi trạng thái (Transition Rules)
@@ -217,7 +217,9 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
 1. **Kiểm tra hợp lệ trước khi gửi (Pre-creation Validation):** Tọa độ GPS bắt buộc phải nằm trong phân vùng có `is_active = True` trong bảng `system_zones`. Nếu nằm ngoài, hệ thống từ chối tạo phiếu và gửi phản hồi giải thích phạm vi thử nghiệm.
 2. **Từ `SUBMITTED` sang `TRIAGED`:** Hệ thống gọi DeepSeek Vision API chạy ngầm để điền trước nhãn sự cố, mức độ ưu tiên và gợi ý đơn vị. Điều phối viên bấm "Chấp thuận đề xuất" hoặc chỉnh sửa lại.
 3. **Từ `IN_PROGRESS` sang `RESOLVED`:** Bắt buộc phải có ít nhất 1 bản ghi `incident_media` với `media_type = AFTER_PROOF` (Ảnh minh chứng sau khi hoàn thành sửa chữa). Hệ thống sẽ từ chối chuyển trạng thái nếu thiếu ảnh chứng minh.
-4. **Từ `RESOLVED` sang `CLOSED`:** Tự động đóng sau 48 giờ nếu người dân không có khiếu nại hoặc đóng ngay khi người dân hoàn thành biểu mẫu đánh giá.
+4. **Từ `RESOLVED` sang `CONFIRMED` / `CLOSED` hoặc Mở lại (`IN_PROGRESS`):**
+   - Nếu công dân đánh giá `rating >= 3`: Chuyển trạng thái sang `CONFIRMED` (hoặc tự động `CLOSED` sau 48 giờ nếu không có khiếu nại).
+   - Nếu công dân đánh giá không hài lòng (`rating <= 2`): Chuyển trực tiếp `status` từ `RESOLVED` về lại `IN_PROGRESS` (đặt lại `resolved_at = NULL`) và ghi vào `incident_history` (`from_status='RESOLVED'`, `to_status='IN_PROGRESS'`, `note='Citizen rejected resolution'`).
 
 ---
 
@@ -239,18 +241,18 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
      - Thông điệp: _"Hiện tại hệ thống đang được triển khai thử nghiệm tại Khu vực Đô thị Trung tâm Đà Nẵng (Hải Châu, Thanh Khê, Sơn Trà, Ngũ Hành Sơn, Cẩm Lệ, Liên Chiểu, Hòa Vang). Vị trí bạn chọn hiện nằm ngoài phạm vi thí điểm đợt 1."_
   3. **Khung nhìn bản đồ (Map Viewport Restriction):** Frontend MapLibre GL áp dụng cấu hình `maxBounds` giới hạn trong khung tọa độ `[[107.80, 15.80], [108.50, 16.35]]` để người dùng không kéo bản đồ đi quá xa phạm vi đề tài.
 
-### 5.2 DeepSeek Vision API Pipeline (Triage & Classification)
+### 5.2 DeepSeek Vision API Pipeline (Triage & Classification) & Goong Geocoding
 
-- **Kích hoạt:** Bất đồng bộ qua Background Task ngay khi tạo bản ghi sự cố.
+- **Kích hoạt:** Bất đồng bộ qua Background Task ngay khi tạo bản ghi sự cố (bắt buộc Mock khi chạy `pytest`).
 - **Cấu trúc Prompt gửi DeepSeek:**
-  - **Role:** System Prompt định nghĩa ngữ cảnh chuyên gia quản lý đô thị TP. Đà Nẵng.
-  - **Input:** Ảnh hiện trường (URL công khai hoặc Base64) + Nội dung văn bản mô tả của công dân + Tọa độ (Quận/Phường).
+  - **Role:** System Prompt định nghĩa ngữ cảnh chuyên gia quản lý đô thị TP. Đà Nẵng, nạp động danh sách `code` từ bảng `categories` và `departments` hiện có trong CSDL.
+  - **Input:** Ảnh hiện trường mã hóa dạng **Base64 Data URI (`data:image/jpeg;base64,...`)** + Nội dung văn bản mô tả của công dân + Tọa độ (Quận/Phường từ Goong Reverse Geocoding).
   - **Output Schema (Strict JSON):**
     ```json
     {
       "category_code": "ROAD_DAMAGE | FLOODING | FALLEN_TREE | GARBAGE | STREETLIGHT | OTHER",
-      "damage_severity": "LOW | MEDIUM | HIGH | CRITICAL",
-      "suggested_department_code": "SGTVT_DN | CTN_DN | CCX_DN | SXD_DN | UBND_DISTRICT",
+      "priority": "LOW | NORMAL | HIGH | EMERGENCY",
+      "suggested_department_code": "<Mã code hợp lệ trong bảng departments>",
       "summary_vi": "Tóm tắt ngắn gọn sự cố bằng tiếng Việt chuẩn",
       "hazard_warning": "Cảnh báo nguy hiểm nếu có (ví dụ: cản trở giao thông giờ cao điểm, nguy cơ điện giật...)",
       "confidence": 0.92
@@ -260,10 +262,9 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
 ### 5.3 Cơ chế Làm mờ ảnh (OpenCV Privacy Anonymization)
 
 - Trước khi ảnh được công khai trên giao diện cộng đồng hoặc bản đồ sự cố:
-  - Backend chạy luồng xử lý ảnh bằng OpenCV.
-  - Nhận diện các vùng chứa khuôn mặt (Face detection) và biển số xe (License plate contours).
-  - Áp dụng bộ lọc Gaussian Blur ($ksize=35$) lên các tọa độ bounding box phát hiện được.
-  - Lưu ảnh đã làm mờ vào `media_type = BEFORE_ANONYMIZED` để hiển thị cho công chúng. Ảnh gốc `BEFORE_ORIGINAL` chỉ mở quyền truy cập cho cán bộ điều hành có thẩm quyền phục vụ xác minh.
+  - Backend chạy luồng xử lý ảnh bằng OpenCV (`cv2.CascadeClassifier` sử dụng `haarcascade_frontalface_default.xml` cho khuôn mặt kết hợp `haarcascade_russian_plate_number.xml` và lọc tỷ lệ khung chữ nhật cho biển số xe).
+  - Áp dụng bộ lọc Gaussian Blur (`ksize=(35, 35)`) lên các tọa độ bounding box phát hiện được.
+  - **Phân tách lưu trữ:** Lưu ảnh đã làm mờ (`BEFORE_ANONYMIZED`) và ảnh minh chứng (`AFTER_PROOF`) vào `backend/uploads/public/` (mount qua FastAPI StaticFiles). Ảnh gốc (`BEFORE_ORIGINAL`) lưu vào `backend/uploads/private/`, tuyệt đối không public trực tiếp và chỉ cho phép `DISPATCHER` hoặc `ADMIN` truy cập qua endpoint có kiểm tra quyền.
 
 ### 5.4 Cơ chế Lọc trùng lặp Không gian & Ngữ nghĩa (Spatial-Semantic Deduplication)
 
@@ -275,7 +276,7 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
            ST_Distance(location, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography) AS distance_meters
     FROM incidents
     WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, 50)
-      AND status NOT IN ('RESOLVED', 'CONFIRMED', 'CLOSED')
+      AND status NOT IN ('RESOLVED', 'CONFIRMED', 'CLOSED', 'REJECTED')
     ORDER BY distance_meters ASC
     LIMIT 5;
     ```
@@ -287,8 +288,8 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
 - **Khai báo Webhook:** Endpoint `POST /api/v1/webhooks/facebook` xác thực token với Meta for Developers.
 - **Kịch bản hội thoại tự động (Chatbot Flow):**
   1. Người dân gửi tin nhắn $\rightarrow$ Bot chào mừng và hướng dẫn: _"Vui lòng gửi 01 bức ảnh hiện trường sự cố và chia sẻ vị trí của bạn"_.
-  2. Người dân gửi ảnh (Attachment type = `image`) $\rightarrow$ Bot lưu URL ảnh tạm.
-  3. Người dân gửi vị trí (Attachment type = `location` chứa $lat, lon$) $\rightarrow$ Bot tạo bản ghi sự cố mới kênh `MESSENGER`, kích hoạt DeepSeek Vision phân loại.
+  2. Người dân gửi ảnh (`image`) hoặc gửi vị trí (`location` chứa `lat, lon`) theo bất kỳ thứ tự nào $\rightarrow$ Bot lưu trạng thái phiên tạm theo `sender_psid` (TTL 15 phút).
+  3. Ngay khi gom đủ cả Ảnh và Vị trí (đã qua kiểm tra hàng rào `system_zones`), Bot tải ảnh chạy làm mờ OpenCV, tạo bản ghi sự cố kênh `MESSENGER` và kích hoạt DeepSeek Vision phân loại.
   4. Bot phản hồi: _"Cảm ơn bạn! Phản ánh đã được tiếp nhận với mã tra cứu: [MÃ]. Bạn có thể theo dõi tiến độ tại: [LINK_WEB]"_.
 
 ---
@@ -309,6 +310,9 @@ Do dự án gồm 2 thành viên thực hiện, toàn bộ 4 vai trò sẽ đư�
 
 ### 6.3 Nhóm Quản lý Sự cố (`/api/v1/incidents`)
 
+- `GET /api/v1/categories`: Lấy danh sách danh mục sự cố và định mức SLA mặc định.
+- `GET /api/v1/departments`: Lấy danh sách các sở/ban ngành và đơn vị xử lý sự cố.
+- `GET /api/v1/incidents/analytics/summary`: Thống kê số lượng sự cố theo trạng thái, tỷ lệ đúng/trễ hạn SLA và phân bố theo quận/huyện phục vụ Dashboard IOC/Admin.
 - `GET /api/v1/incidents`: Lấy danh sách sự cố (hỗ trợ phân trang, lọc theo quận/huyện, danh mục, trạng thái).
 - `GET /api/v1/incidents/map`: Lấy danh sách GeoJSON sự cố đang mở hiển thị trên bản đồ số.
 - `GET /api/v1/incidents/nearby`: Quét các sự cố trong bán kính $R$ mét quanh tọa độ.

@@ -1,12 +1,13 @@
 # Kế hoạch Triển khai: Khởi tạo Khung Dự án (Project Scaffolding)
 
-* **Tính năng:** Khởi tạo cấu trúc monorepo cho Nền tảng Quản lý Sự cố Hạ tầng Đô thị Đà Nẵng
-* **Mục tiêu:** Thiết lập cấu trúc thư mục hoàn chỉnh, cấu hình `.gitignore` toàn diện, dựng khung Backend (FastAPI), Frontend (Next.js), CSDL (Docker PostGIS), và cấu hình biến môi trường `.env.example`.
-* **Trạng thái:** Đang thực hiện
+- **Tính năng:** Khởi tạo cấu trúc monorepo cho Nền tảng Quản lý Sự cố Hạ tầng Đô thị Đà Nẵng
+- **Mục tiêu:** Thiết lập cấu trúc thư mục hoàn chỉnh, cấu hình `.gitignore` toàn diện, dựng khung Backend (FastAPI), Frontend (Next.js), CSDL (Docker PostGIS), và cấu hình biến môi trường `.env.example`.
+- **Trạng thái:** Đã hoàn thành (completed)
 
 ---
 
 ## 1. Danh sách các file & thư mục tạo mới
+
 - [x] `.gitignore`: Bao quát Python, Node/Next.js, PostGIS data, upload media, OS, IDEs, .env.
 - [x] `docker-compose.yml`: Dịch vụ PostgreSQL 16 + PostGIS 3.4, Backend FastAPI, Frontend Next.js.
 - [x] `backend/`:
@@ -26,21 +27,26 @@
 
 ## 2. Các bước thực hiện tuần tự
 
-### Bước 1: Thiết lập `.gitignore` toàn diện
-* **Hành động:** Viết file `.gitignore` bao quát đầy đủ mọi thành phần môi trường (Python virtualenv, cache bytecode, node_modules, .next, .env, docker volume data, upload files, OS artifacts).
-* **Kiểm chứng:** Chạy `git status` xác nhận các file nhạy cảm và cache không bị track.
+### [x] Bước 1: Thiết lập `.gitignore` toàn diện
 
-### Bước 2: Thiết lập Docker Compose cho Cơ sở dữ liệu PostGIS
-* **Hành động:** Tạo `docker-compose.yml` với image `postgis/postgis:16-3.4-alpine`, expose port 5432, cấu hình persistent volume và healthcheck.
-* **Kiểm chứng:** Cú pháp docker-compose hợp lệ (`docker compose config`).
+- **Hành động:** Viết file `.gitignore` bao quát đầy đủ mọi thành phần môi trường (Python virtualenv, cache bytecode, node_modules, .next, .env, docker volume data, upload files, OS artifacts).
+- **Kiểm chứng:** Chạy `git status` xác nhận các file nhạy cảm và cache không bị track.
 
-### Bước 3: Khởi tạo khung Backend (FastAPI)
-* **Hành động:** Tạo cấu trúc thư mục `backend/app/`, file `requirements.txt`, `backend/.env.example`, `backend/Dockerfile`, và `main.py` với endpoint `/api/health`.
-* **Kiểm chứng:** Kiểm tra cấu trúc code bằng lệnh `py` syntax check.
+### [x] Bước 2: Thiết lập Docker Compose cho Cơ sở dữ liệu PostGIS
 
-### Bước 4: Khởi tạo khung Frontend (Next.js)
-* **Hành động:** Khởi tạo Next.js App Router với TypeScript và Tailwind CSS trong thư mục `frontend/`.
-* **Kiểm chứng:** Kiểm tra file `package.json`, cấu hình Tailwind, và file layout/page.
+- **Hành động:** Tạo `docker-compose.yml` với image `postgis/postgis:16-3.4-alpine`, expose port 5432, cấu hình persistent volume và healthcheck.
+- **Kiểm chứng:** Cú pháp docker-compose hợp lệ (`docker compose config`).
 
-### Bước 5: Báo cáo kết quả và danh mục tệp cho User commit
-* **Hành động:** Liệt kê các tệp đã tạo, kiểm tra `git status` và thông báo cho người dùng để commit.
+### [x] Bước 3: Khởi tạo khung Backend (FastAPI)
+
+- **Hành động:** Tạo cấu trúc thư mục `backend/app/`, file `requirements.txt`, `backend/.env.example`, `backend/Dockerfile`, và `main.py` với endpoint `/api/health`.
+- **Kiểm chứng:** Kiểm tra cấu trúc code bằng lệnh `py` syntax check.
+
+### [x] Bước 4: Khởi tạo khung Frontend (Next.js)
+
+- **Hành động:** Khởi tạo Next.js App Router với TypeScript và Tailwind CSS trong thư mục `frontend/`.
+- **Kiểm chứng:** Kiểm tra file `package.json`, cấu hình Tailwind, và file layout/page.
+
+### [x] Bước 5: Báo cáo kết quả và danh mục tệp cho User commit
+
+- **Hành động:** Liệt kê các tệp đã tạo, kiểm tra `git status` và thông báo cho người dùng để commit.
