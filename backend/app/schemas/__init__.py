@@ -1,5 +1,19 @@
 from app.schemas.zone import LocationValidateIn, LocationValidateOut, ZoneOut
 from app.schemas.auth import UserRegisterIn, UserLoginIn, GoogleLoginIn, UserOut, TokenOut
+from app.schemas.incident import (
+    CategoryOut,
+    DepartmentOut,
+    IncidentMediaOut,
+    IncidentHistoryOut,
+    IncidentCreateForm,
+    IncidentCreateIn,
+    IncidentOut,
+    IncidentDetailOut,
+    IncidentNearbyItem,
+    IncidentNearbyOut,
+    IncidentVoteDuplicateOut,
+    IncidentListOut,
+)
 
 __all__ = [
     "LocationValidateIn",
@@ -10,4 +24,17 @@ __all__ = [
     "GoogleLoginIn",
     "UserOut",
     "TokenOut",
+    "CategoryOut",
+    "DepartmentOut",
+    "IncidentMediaOut",
+    "IncidentHistoryOut",
+    "IncidentCreateForm",
+    "IncidentCreateIn",
+    "IncidentOut",
+    "IncidentDetailOut",
+    "IncidentNearbyItem",
+    "IncidentNearbyOut",
+    "IncidentVoteDuplicateOut",
+    "IncidentListOut",
 ]
+

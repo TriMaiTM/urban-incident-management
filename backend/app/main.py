@@ -8,10 +8,13 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 
 
+UPLOAD_PUBLIC_DIR = os.path.join(settings.UPLOAD_DIR, "public")
+UPLOAD_PRIVATE_DIR = os.path.join(settings.UPLOAD_DIR, "private")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure upload directory exists
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    # Upload directories are initialized upon startup
     yield
 
 
@@ -34,9 +37,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount uploads static directory if exists
-os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+# Mount public uploads static directory (private directory is protected from direct public access)
+os.makedirs(UPLOAD_PUBLIC_DIR, exist_ok=True)
+os.makedirs(UPLOAD_PRIVATE_DIR, exist_ok=True)
+app.mount("/uploads/public", StaticFiles(directory=UPLOAD_PUBLIC_DIR), name="uploads_public")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_PUBLIC_DIR), name="uploads")
 
 
 @app.get("/api/health", tags=["Health"])

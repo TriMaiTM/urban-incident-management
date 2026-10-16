@@ -51,6 +51,27 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+    """Dependency trích xuất người dùng nếu có token hợp lệ, nếu không có hoặc không hợp lệ trả về None."""
+    if not credentials or not credentials.credentials:
+        return None
+
+    payload = decode_access_token(credentials.credentials)
+    if not payload or "sub" not in payload:
+        return None
+
+    try:
+        user_id = UUID(payload["sub"])
+    except (ValueError, TypeError):
+        return None
+
+    user = await db.get(User, user_id)
+    return user
+
+
 def require_roles(allowed_roles: List[str]) -> Callable:
     """Dependency factory kiểm tra vai trò người dùng theo cơ chế RBAC."""
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:
