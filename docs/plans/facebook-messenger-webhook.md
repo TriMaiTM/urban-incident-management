@@ -66,7 +66,7 @@ Xây dựng trọn vẹn kênh tiếp nhận phản ánh sự cố đa phương 
 
 ---
 
-### [ ] Bước 3: Xây dựng Endpoint Xác minh Webhook (`GET /api/v1/webhooks/facebook`)
+### [x] Bước 3: Xây dựng Endpoint Xác minh Webhook (`GET /api/v1/webhooks/facebook`)
 * **Mục tiêu:** Hỗ trợ Meta Developer Platform bắt tay xác thực (Webhook Verification).
 * **Hành động:**
   * Tạo `backend/app/api/v1/endpoints/webhooks.py`:

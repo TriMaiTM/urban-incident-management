@@ -117,3 +117,10 @@
 - **Quy tắc ngăn chặn:**
   - Thứ tự ưu tiên trích xuất bắt buộc theo trình tự: `AFTER_PROOF` > `BEFORE_ANONYMIZED` > `None`.
   - Tuyệt đối lọc bỏ và không fallback về `BEFORE_ORIGINAL` dù danh sách không có ảnh nào khác.
+
+### 🔴 Lỗi 15: Định dạng Response và Chốt chặn Token rỗng trong Xác minh Meta Webhook
+- **Triệu chứng 1:** Dùng `return hub_challenge` trực tiếp trong FastAPI khiến response mặc định là `application/json` và bọc chuỗi trong dấu ngoặc kép (`"11582012"`), dẫn đến Meta Developer Platform báo lỗi xác thực bắt tay.
+- **Triệu chứng 2:** Nếu server chưa cấu hình `FACEBOOK_VERIFY_TOKEN=""` và không kiểm tra `not settings.FACEBOOK_VERIFY_TOKEN`, một request gửi `hub.verify_token=""` sẽ được `secrets.compare_digest("", "") == True`, kích hoạt webhook giả mạo ngoài ý muốn.
+- **Quy tắc ngăn chặn:**
+  - Luôn trả về `Response(content=str(hub_challenge or ""), media_type="text/plain")`.
+  - Bắt buộc kiểm tra `if not settings.FACEBOOK_VERIFY_TOKEN or not secrets.compare_digest(...)` trước khi chấp thuận.
