@@ -30,17 +30,19 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user_optional, require_roles
+from app.api.deps import get_current_user, get_current_user_optional, require_roles
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.category import Category
 from app.models.department import Department
-from app.models.incident import Incident, IncidentHistory, IncidentMedia
+from app.models.incident import Incident, IncidentFeedback, IncidentHistory, IncidentMedia
 from app.models.user import User
 from app.models.zone import SystemZone
 from app.schemas.incident import (
     IncidentAssignIn,
     IncidentDetailOut,
+    IncidentFeedbackCreateIn,
+    IncidentFeedbackOut,
     IncidentListOut,
     IncidentNearbyItem,
     IncidentNearbyOut,
@@ -932,6 +934,112 @@ async def update_incident_status(
         detail_out.media = [m for m in detail_out.media if m.media_type != "BEFORE_ORIGINAL"]
 
     return detail_out
+
+
+@router.post(
+    "/{id}/feedback",
+    response_model=IncidentFeedbackOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Đánh giá mức độ hài lòng hoặc khiếu nại mở lại sự cố sau khắc phục",
+)
+async def submit_incident_feedback(
+    id: UUID,
+    payload: IncidentFeedbackCreateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IncidentFeedbackOut:
+    """
+    Công dân đánh giá chất lượng khắc phục sự cố:
+    - Bắt buộc người dùng đã đăng nhập (current_user).
+    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Sự cố bắt buộc đang ở trạng thái RESOLVED. Nếu không: 400 Bad Request.
+    - Kiểm tra sự cố chưa có feedback trước đó (incident.feedback is not None): Nếu có: 400 Bad Request.
+    - Tạo bản ghi IncidentFeedback (rating từ 1 đến 5 sao).
+    - Nếu rating >= 3:
+        - Chuyển status sang CONFIRMED.
+        - Ghi nhận IncidentHistory (note="Công dân hài lòng...").
+    - Nếu rating <= 2:
+        - Chuyển status về IN_PROGRESS.
+        - Đặt lại resolved_at = None (bắt buộc theo domain invariant).
+        - Ghi nhận IncidentHistory (note="Công dân không hài lòng...").
+    - db.commit() và trả về IncidentFeedbackOut.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    if incident.status != "RESOLVED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chỉ có thể đánh giá đối với sự cố đã được khắc phục (trạng thái RESOLVED).",
+        )
+
+    if incident.feedback is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sự cố này đã được gửi đánh giá phản hồi trước đó.",
+        )
+
+    now = datetime.now(timezone.utc)
+    feedback = IncidentFeedback(
+        id=uuid4(),
+        incident_id=incident.id,
+        citizen_id=current_user.id,
+        rating=payload.rating,
+        comment=payload.comment,
+        created_at=now,
+    )
+    db.add(feedback)
+    incident.feedback = feedback
+
+    if payload.rating >= 3:
+        old_status = incident.status
+        incident.status = "CONFIRMED"
+        history = IncidentHistory(
+            incident_id=incident.id,
+            actor_id=current_user.id,
+            from_status=old_status,
+            to_status="CONFIRMED",
+            note=f"Công dân hài lòng ({payload.rating} sao): {payload.comment or 'Đồng ý nghiệm thu'}",
+            created_at=now,
+        )
+    else:
+        old_status = incident.status
+        incident.status = "IN_PROGRESS"
+        incident.resolved_at = None
+        history = IncidentHistory(
+            incident_id=incident.id,
+            actor_id=current_user.id,
+            from_status=old_status,
+            to_status="IN_PROGRESS",
+            note=f"Công dân không hài lòng ({payload.rating} sao), yêu cầu xử lý lại: {payload.comment or 'Chưa đạt yêu cầu'}",
+            created_at=now,
+        )
+
+    db.add(history)
+    if incident.history is not None and history not in incident.history:
+        incident.history.append(history)
+
+    db.add(incident)
+    await db.commit()
+
+    return IncidentFeedbackOut.model_validate(feedback)
 
 
 @router.get(

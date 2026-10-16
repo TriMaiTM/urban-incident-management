@@ -18,7 +18,7 @@ from app.api.deps import get_current_user, get_db
 from app.main import app
 from app.models.category import Category
 from app.models.department import Department
-from app.models.incident import Incident, IncidentHistory, IncidentMedia
+from app.models.incident import Incident, IncidentFeedback, IncidentHistory, IncidentMedia
 from app.models.user import User
 
 
@@ -72,6 +72,7 @@ def _make_mock_incident(
     history: list[IncidentHistory] | None = None,
     category: Category | None = None,
     assigned_department: Department | None = None,
+    feedback: IncidentFeedback | None = None,
 ) -> Incident:
     """Helper constructing Incident model instance with populated relationships."""
     inc_id = id or uuid4()
@@ -133,6 +134,7 @@ def _make_mock_incident(
 
     inc.category = category
     inc.assigned_department = assigned_department
+    inc.feedback = feedback
     return inc
 
 
@@ -897,5 +899,154 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
     )
     assert response_rej.status_code == 400
     assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response_rej.json()["detail"]
+
+
+# ============================================================================
+# Test Cases for Step 4: Citizen Feedback & Dispute Reopen
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Citizen rates 5 stars on RESOLVED incident -> status CONFIRMED, creates feedback record and audit history."""
+    citizen = _make_mock_user(role="CITIZEN", email="citizen@danang.gov.vn", full_name="Lê Văn Dân")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    incident = _make_mock_incident(status="RESOLVED")
+    mock_session.seed(citizen, incident)
+
+    payload = {
+        "rating": 5,
+        "comment": "Đội ngũ kỹ thuật xử lý rất nhanh và sạch sẽ, tôi rất hài lòng.",
+    }
+
+    response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+
+    assert response.status_code == 201, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["rating"] == 5
+    assert data["comment"] == payload["comment"]
+    assert data["incident_id"] == str(incident.id)
+    assert data["citizen_id"] == str(citizen.id)
+    assert data["created_at"] is not None
+
+    assert incident.status == "CONFIRMED"
+    assert mock_session.committed is True
+
+    feedbacks = [o for o in mock_session.added if isinstance(o, IncidentFeedback)]
+    assert len(feedbacks) >= 1
+    assert feedbacks[-1].rating == 5
+
+    histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
+    conf_hist = [h for h in histories if h.to_status == "CONFIRMED"]
+    assert len(conf_hist) >= 1
+    assert conf_hist[-1].from_status == "RESOLVED"
+    assert conf_hist[-1].actor_id == citizen.id
+    assert "Công dân hài lòng (5 sao)" in (conf_hist[-1].note or "")
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_disputed_reopens_to_in_progress(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Citizen rates <= 2 stars (dispute) -> reopens to IN_PROGRESS, resets resolved_at to None."""
+    citizen = _make_mock_user(role="CITIZEN", email="citizen@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    incident = _make_mock_incident(status="RESOLVED")
+    incident.resolved_at = datetime.now(timezone.utc)
+    mock_session.seed(citizen, incident)
+
+    payload = {
+        "rating": 2,
+        "comment": "Chưa hoàn trả mặt đường phẳng, vẫn còn gồ ghề nguy hiểm.",
+    }
+
+    response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+
+    assert response.status_code == 201, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["rating"] == 2
+    assert incident.status == "IN_PROGRESS"
+    assert incident.resolved_at is None
+    assert mock_session.committed is True
+
+    histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
+    reopen_hist = [h for h in histories if h.to_status == "IN_PROGRESS"]
+    assert len(reopen_hist) >= 1
+    assert reopen_hist[-1].from_status == "RESOLVED"
+    assert reopen_hist[-1].actor_id == citizen.id
+    assert "Công dân không hài lòng (2 sao)" in (reopen_hist[-1].note or "")
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_on_unresolved_incident_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Submitting feedback on incident not in RESOLVED status -> 400 Bad Request."""
+    citizen = _make_mock_user(role="CITIZEN")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    incident = _make_mock_incident(status="IN_PROGRESS")
+    mock_session.seed(citizen, incident)
+
+    payload = {"rating": 4, "comment": "Tốt"}
+    response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+
+    assert response.status_code == 400
+    assert "Chỉ có thể đánh giá đối với sự cố đã được khắc phục" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Submitting feedback when incident already has feedback -> 400 Bad Request."""
+    citizen = _make_mock_user(role="CITIZEN")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    existing_feedback = IncidentFeedback(
+        id=uuid4(),
+        incident_id=uuid4(),
+        citizen_id=citizen.id,
+        rating=4,
+        comment="Đã đánh giá trước đó",
+        created_at=datetime.now(timezone.utc),
+    )
+    incident = _make_mock_incident(status="RESOLVED", feedback=existing_feedback)
+    existing_feedback.incident_id = incident.id
+    mock_session.seed(citizen, incident, existing_feedback)
+
+    payload = {"rating": 5, "comment": "Thử đánh giá lần 2"}
+    response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+
+    assert response.status_code == 400
+    assert "Sự cố này đã được gửi đánh giá phản hồi trước đó." in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_unauthenticated_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Calling feedback without authentication -> 401 Unauthorized."""
+    if get_current_user in app.dependency_overrides:
+        del app.dependency_overrides[get_current_user]
+
+    incident = _make_mock_incident(status="RESOLVED")
+    mock_session.seed(incident)
+
+    payload = {"rating": 5, "comment": "Không đăng nhập"}
+    response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+
+    assert response.status_code == 401
+    assert "Yêu cầu xác thực" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_incident_not_found_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Submitting feedback for non-existent incident -> 404 Not Found."""
+    citizen = _make_mock_user(role="CITIZEN")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    non_existent_id = uuid4()
+    payload = {"rating": 5, "comment": "Không tìm thấy"}
+    response = await client.post(f"/api/v1/incidents/{non_existent_id}/feedback", json=payload)
+
+    assert response.status_code == 404
+    assert "Không tìm thấy sự cố" in response.json()["detail"]
+
 
 

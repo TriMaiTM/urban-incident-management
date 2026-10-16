@@ -107,7 +107,7 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
 
 ---
 
-### [ ] Bước 4: Xây dựng Endpoint Đánh giá Hài lòng & Khiếu nại Mở lại (`POST /{id}/feedback`)
+### [x] Bước 4: Xây dựng Endpoint Đánh giá Hài lòng & Khiếu nại Mở lại (`POST /{id}/feedback`)
 * **Mục tiêu:** Cho phép người dân chấm điểm sau khắc phục và tự động kích hoạt cơ chế mở lại nếu không hài lòng.
 * **Hành động:**
   * Thêm `POST /api/v1/incidents/{id}/feedback`:
@@ -119,7 +119,9 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
       * Nếu `rating >= 3`: Chuyển `status = "CONFIRMED"`, ghi `IncidentHistory` (`note="Citizen accepted resolution"`).
       * Nếu `rating <= 2` (khiếu nại): Chuyển ngược `status = "IN_PROGRESS"`, đặt lại `resolved_at = None`, ghi `IncidentHistory` (`note=f"Khiếu nại chưa hài lòng ({rating} sao): {comment or ''}"`).
 * **Kiểm chứng:**
-  * `py -m compileall -q backend/app`
+  * `py -m compileall -q backend/app backend/tests`
+  * `py -m pytest backend/tests/test_incident_workflow.py -v`
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 32/32 unit tests passed.
 
 ---
 
