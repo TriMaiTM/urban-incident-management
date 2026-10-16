@@ -61,22 +61,26 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
 
 ---
 
-### [ ] Bước 2: Xây dựng Endpoint Điều phối Triage & Phân công (`PATCH /{id}/triage`, `PATCH /{id}/assign`)
+### [x] Bước 2: Xây dựng Endpoint Điều phối Triage & Phân công (`PATCH /{id}/triage`, `PATCH /{id}/assign`)
 * **Mục tiêu:** Cung cấp API cho Điều phối viên (IOC Dispatcher) duyệt phân loại và giao đơn vị chịu trách nhiệm.
 * **Hành động:**
   * Thêm `PATCH /api/v1/incidents/{id}/triage` vào `backend/app/api/v1/endpoints/incidents.py`:
     * Kiểm tra quyền RBAC: `current_user` phải có role `DISPATCHER` hoặc `ADMIN`.
     * Kiểm tra `category_id` và `assigned_department_id` hợp lệ trong CSDL.
+    * Terminal status guard: Chặn không cho triage sự cố đã `CLOSED` hoặc `REJECTED`.
     * Tính toán `sla_due_at`: lấy `default_sla_hours` từ category, tính `now + timedelta(hours=sla_hours)` (nếu `priority == "EMERGENCY"` có thể rút ngắn 50%).
-    * Chuyển trạng thái `status = "TRIAGED"` (hoặc `"ASSIGNED"` nếu gán trực tiếp).
+    * Chuyển trạng thái `status = "TRIAGED"`.
     * Ghi `IncidentHistory` (`from_status`, `to_status`, `actor_id = current_user.id`, `note`).
   * Thêm `PATCH /api/v1/incidents/{id}/assign`:
     * Kiểm tra quyền RBAC: `DISPATCHER` hoặc `ADMIN`.
-    * Gán `assigned_department_id` và/hoặc `assigned_technician_id`.
+    * Terminal status guard: Chặn không cho assign sự cố đã `CLOSED` hoặc `REJECTED`.
+    * Gán `assigned_department_id` và/hoặc `assigned_technician_id` (xác thực role thuộc `TECHNICIAN`, `DISPATCHER`, `ADMIN`).
     * Chuyển trạng thái sang `"ASSIGNED"`.
     * Ghi `IncidentHistory`.
 * **Kiểm chứng:**
-  * `py -m compileall -q backend/app`
+  * `py -m compileall -q backend/app backend/tests`
+  * `py -m pytest backend/tests/test_incident_workflow.py -v`
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 13/13 unit tests passed.
 
 ---
 

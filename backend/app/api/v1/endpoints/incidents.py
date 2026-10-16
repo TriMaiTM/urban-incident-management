@@ -30,7 +30,7 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user_optional
+from app.api.deps import get_current_user_optional, require_roles
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.category import Category
@@ -39,11 +39,13 @@ from app.models.incident import Incident, IncidentHistory, IncidentMedia
 from app.models.user import User
 from app.models.zone import SystemZone
 from app.schemas.incident import (
+    IncidentAssignIn,
     IncidentDetailOut,
     IncidentListOut,
     IncidentNearbyItem,
     IncidentNearbyOut,
     IncidentOut,
+    IncidentTriageIn,
     IncidentVoteDuplicateOut,
     _extract_lat_lon,
 )
@@ -434,6 +436,276 @@ async def vote_duplicate(
         duplicate_count=incident.duplicate_count,
         message="Ghi nhận phản ánh trùng lặp thành công. Cảm ơn đóng góp của bạn.",
     )
+
+
+@router.patch(
+    "/{id}/triage",
+    response_model=IncidentDetailOut,
+    summary="Duyệt phân loại sự cố và ấn định hạn xử lý SLA",
+)
+async def triage_incident(
+    id: UUID,
+    payload: IncidentTriageIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
+) -> IncidentDetailOut:
+    """
+    Điều phối viên (IOC Dispatcher) duyệt phân loại sự cố:
+    - Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).
+    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Kiểm tra danh mục (Category) và phòng ban/đơn vị (Department) hợp lệ.
+    - Thẩm định mức độ ưu tiên (LOW, NORMAL, HIGH, EMERGENCY).
+    - Tính hạn SLA: lấy default_sla_hours từ Category (nếu EMERGENCY: giảm 50%, tối thiểu 1 giờ).
+    - Chuyển trạng thái sang TRIAGED và cập nhật category_id, priority, assigned_department_id.
+    - Ghi lịch sử biến động trạng thái vào IncidentHistory.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    if incident.status in {"CLOSED", "REJECTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể điều phối sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+
+    category = await db.get(Category, payload.category_id)
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy danh mục sự cố với ID '{payload.category_id}'.",
+        )
+
+    department = await db.get(Department, payload.assigned_department_id)
+    if not department:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy phòng ban/đơn vị với ID '{payload.assigned_department_id}'.",
+        )
+
+    allowed_priorities = {"LOW", "NORMAL", "HIGH", "EMERGENCY"}
+    if payload.priority not in allowed_priorities:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Mức độ ưu tiên '{payload.priority}' không hợp lệ. Phải thuộc {allowed_priorities}.",
+        )
+
+    sla_hours = category.default_sla_hours or 24
+    if payload.priority == "EMERGENCY":
+        sla_hours = max(1, sla_hours // 2)
+
+    now = datetime.now(timezone.utc)
+    incident.sla_due_at = now + timedelta(hours=sla_hours)
+
+    old_status = incident.status
+    incident.category_id = payload.category_id
+    incident.category = category
+    incident.priority = payload.priority
+    incident.assigned_department_id = payload.assigned_department_id
+    incident.assigned_department = department
+    incident.status = "TRIAGED"
+
+    history_note = (
+        payload.note
+        if payload.note
+        else f"Điều phối viên duyệt phân loại sự cố: Danh mục {category.name}, mức ưu tiên {incident.priority}, giao đơn vị {department.name}"
+    )
+    history = IncidentHistory(
+        incident_id=incident.id,
+        actor_id=current_user.id,
+        from_status=old_status,
+        to_status="TRIAGED",
+        note=history_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(incident)
+    await db.commit()
+
+    reload_stmt = (
+        select(Incident)
+        .where(Incident.id == incident.id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    loaded_res = await db.execute(reload_stmt)
+    loaded_incident = loaded_res.scalar_one_or_none()
+    if not loaded_incident:
+        loaded_incident = incident
+    else:
+        if loaded_incident.category is None:
+            loaded_incident.category = category
+        if loaded_incident.assigned_department is None:
+            loaded_incident.assigned_department = department
+
+    coords = _extract_lat_lon(loaded_incident.location)
+    if coords:
+        setattr(loaded_incident, "latitude", coords[0])
+        setattr(loaded_incident, "longitude", coords[1])
+    elif hasattr(incident, "latitude") and hasattr(incident, "longitude"):
+        setattr(loaded_incident, "latitude", getattr(incident, "latitude"))
+        setattr(loaded_incident, "longitude", getattr(incident, "longitude"))
+
+    if loaded_incident.history is not None and history not in loaded_incident.history:
+        loaded_incident.history.append(history)
+
+    return IncidentDetailOut.model_validate(loaded_incident)
+
+
+@router.patch(
+    "/{id}/assign",
+    response_model=IncidentDetailOut,
+    summary="Phân công đơn vị hoặc cán bộ kỹ thuật xử lý sự cố hiện trường",
+)
+async def assign_incident(
+    id: UUID,
+    payload: IncidentAssignIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
+) -> IncidentDetailOut:
+    """
+    Phân công sự cố cho đơn vị hoặc kỹ thuật viên hiện trường:
+    - Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).
+    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Nếu gán assigned_department_id: kiểm tra Department tồn tại.
+    - Nếu gán assigned_technician_id: kiểm tra User tồn tại và có vai trò TECHNICIAN, DISPATCHER hoặc ADMIN.
+    - Chuyển trạng thái sự cố sang ASSIGNED.
+    - Ghi lịch sử biến động trạng thái vào IncidentHistory.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    if incident.status in {"CLOSED", "REJECTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể phân công sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+
+    if payload.assigned_department_id is None and payload.assigned_technician_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vui lòng cung cấp ít nhất đơn vị xử lý hoặc cán bộ kỹ thuật phụ trách.",
+        )
+
+    assigned_dept: Department | None = None
+    if payload.assigned_department_id is not None:
+        assigned_dept = await db.get(Department, payload.assigned_department_id)
+        if not assigned_dept:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Không tìm thấy phòng ban/đơn vị với ID '{payload.assigned_department_id}'.",
+            )
+        incident.assigned_department_id = payload.assigned_department_id
+        incident.assigned_department = assigned_dept
+
+    assigned_tech: User | None = None
+    if payload.assigned_technician_id is not None:
+        assigned_tech = await db.get(User, payload.assigned_technician_id)
+        if not assigned_tech:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Không tìm thấy cán bộ kỹ thuật với ID '{payload.assigned_technician_id}'.",
+            )
+        allowed_roles = {"TECHNICIAN", "DISPATCHER", "ADMIN"}
+        if assigned_tech.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Người dùng có vai trò '{assigned_tech.role}', không thuộc danh sách vai trò hợp lệ để tiếp nhận xử lý {allowed_roles}.",
+            )
+        incident.assigned_technician_id = payload.assigned_technician_id
+        incident.assigned_technician = assigned_tech
+
+    old_status = incident.status
+    incident.status = "ASSIGNED"
+
+    now = datetime.now(timezone.utc)
+    history_note = payload.note or "Phân công đơn vị/kỹ thuật viên phụ trách xử lý hiện trường"
+    history = IncidentHistory(
+        incident_id=incident.id,
+        actor_id=current_user.id,
+        from_status=old_status,
+        to_status="ASSIGNED",
+        note=history_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(incident)
+    await db.commit()
+
+    reload_stmt = (
+        select(Incident)
+        .where(Incident.id == incident.id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    loaded_res = await db.execute(reload_stmt)
+    loaded_incident = loaded_res.scalar_one_or_none()
+    if not loaded_incident:
+        loaded_incident = incident
+    else:
+        if loaded_incident.category is None and incident.category is not None:
+            loaded_incident.category = incident.category
+        if loaded_incident.assigned_department is None and incident.assigned_department is not None:
+            loaded_incident.assigned_department = incident.assigned_department
+        if loaded_incident.assigned_technician is None and incident.assigned_technician is not None:
+            loaded_incident.assigned_technician = incident.assigned_technician
+
+    coords = _extract_lat_lon(loaded_incident.location)
+    if coords:
+        setattr(loaded_incident, "latitude", coords[0])
+        setattr(loaded_incident, "longitude", coords[1])
+    elif hasattr(incident, "latitude") and hasattr(incident, "longitude"):
+        setattr(loaded_incident, "latitude", getattr(incident, "latitude"))
+        setattr(loaded_incident, "longitude", getattr(incident, "longitude"))
+
+    if loaded_incident.history is not None and history not in loaded_incident.history:
+        loaded_incident.history.append(history)
+
+    return IncidentDetailOut.model_validate(loaded_incident)
 
 
 @router.get(

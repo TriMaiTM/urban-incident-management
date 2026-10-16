@@ -96,3 +96,13 @@
 - **Triệu chứng:** Khi công dân chấm điểm $\le 2$ sao, sự cố chuyển lại `IN_PROGRESS` nhưng trường `resolved_at` vẫn giữ mốc thời gian cũ, dẫn đến sai lệch báo cáo SLA.
 - **Quy tắc ngăn chặn:**
   - Bắt buộc gán `incident.resolved_at = None` khi Reopen và ghi chú rõ trong `IncidentHistory`.
+
+### 🔴 Lỗi 11: Thiếu `selectinload` cho `assigned_technician` trong khối Reload
+- **Triệu chứng:** Khi gán quan hệ mới (`assigned_technician`), nếu câu query `reload_stmt` thiếu `selectinload(Incident.assigned_technician)` mà code lại đọc `if loaded_incident.assigned_technician is None:`, SQLAlchemy AsyncSession sẽ ném `MissingGreenlet`.
+- **Quy tắc ngăn chặn:**
+  - Mọi quan hệ được kiểm tra hoặc truy cập sau khi reload **bắt buộc** phải có `selectinload` tương ứng trong `.options(...)` (`category`, `assigned_department`, `assigned_technician`, `media`, `history`, `feedback`).
+
+### 🔴 Lỗi 12: Thiếu Terminal Status Guard khi điều phối/phân công sự cố
+- **Triệu chứng:** Cho phép gọi `PATCH /{id}/triage` hoặc `PATCH /{id}/assign` trên sự cố đã kết thúc (`CLOSED` hoặc `REJECTED`), làm sai lệch máy trạng thái (state machine) và sinh lịch sử sai.
+- **Quy tắc ngăn chặn:**
+  - Bắt buộc kiểm tra `if incident.status in {"CLOSED", "REJECTED"}: raise HTTPException(400, "Không thể điều phối/phân công sự cố đã kết thúc.")`.
