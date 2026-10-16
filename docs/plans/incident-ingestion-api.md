@@ -86,17 +86,13 @@
   * Hỗ trợ heuristic mode khi không có API key / dev và 100% mocked trong test suite.
 * **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 17/17 unit tests đạt 100%.
 
-### [ ] Bước 3: Định nghĩa Pydantic Schemas (`schemas/incident.py`)
+### [x] Bước 3: Định nghĩa Pydantic Schemas (`schemas/incident.py`)
 * **Hành động:**
-  * Tạo `backend/app/schemas/incident.py`:
-    * `IncidentCreateForm`: Nhận dữ liệu multipart từ request.
-    * `IncidentOut`: Dữ liệu tóm tắt sự cố (kèm `ticket_code`, `status`, `priority`, `distance_meters`, `anonymized_image_url`).
-    * `IncidentDetailOut`: Dữ liệu chi tiết đầy đủ (kèm lịch sử `history`, thông tin cơ quan, danh mục, tọa độ).
-    * `IncidentNearbyOut`: Danh sách sự cố lân cận trong 50m.
-    * `CategoryOut`, `DepartmentOut`: Schema danh mục và phòng ban.
+  * Tạo `backend/app/schemas/incident.py`: `CategoryOut`, `DepartmentOut`, `IncidentMediaOut`, `IncidentHistoryOut`, `IncidentOut`, `IncidentDetailOut`, `IncidentNearbyItem`, `IncidentNearbyOut`, `IncidentVoteDuplicateOut`, `IncidentListOut`.
+  * Hỗ trợ tự động trích xuất tọa độ PostGIS WGS84 `(latitude, longitude)` từ Shapely `Point(lon, lat)` và GeoAlchemy2 Geometry.
+  * Tự động trích xuất `BEFORE_ANONYMIZED` media URL mà không để lộ ảnh gốc.
   * Export trong `backend/app/schemas/__init__.py`.
-* **Kiểm chứng:**
-  * Lệnh: `py -m compileall -q backend/app`.
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 14/14 unit tests đạt 100%.
 
 ### [ ] Bước 4: Xây dựng Endpoints Danh mục (`/categories`, `/departments`)
 * **Hành động:**
