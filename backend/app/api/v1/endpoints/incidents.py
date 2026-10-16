@@ -708,6 +708,232 @@ async def assign_incident(
     return IncidentDetailOut.model_validate(loaded_incident)
 
 
+@router.patch(
+    "/{id}/status",
+    response_model=IncidentDetailOut,
+    summary="Cập nhật tiến độ xử lý và minh chứng hoàn thành sự cố hiện trường",
+)
+async def update_incident_status(
+    id: UUID,
+    to_status: str = Form(..., description="Trạng thái: IN_PROGRESS, RESOLVED, REJECTED, CLOSED"),
+    note: str | None = Form(None, description="Ghi chú cập nhật tiến độ hoặc lý do từ chối"),
+    proof_image: UploadFile | None = File(None, description="Ảnh minh chứng sau khắc phục (bắt buộc khi chuyển sang RESOLVED)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER", "TECHNICIAN"])),
+) -> IncidentDetailOut:
+    """
+    Cập nhật trạng thái sự cố hiện trường theo quy trình (State Machine):
+    - RBAC: Yêu cầu vai trò ADMIN, DISPATCHER hoặc TECHNICIAN.
+    - Validate to_status thuộc {'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'CLOSED'}.
+    - Chặn cập nhật đối với sự cố đã ở trạng thái kết thúc ('CLOSED', 'REJECTED').
+    - Chuyển sang 'IN_PROGRESS': chỉ cho phép khi trạng thái hiện tại là 'ASSIGNED' hoặc 'RESOLVED' (mở lại).
+      Nếu mở lại từ 'RESOLVED', đặt lại resolved_at = None.
+    - Chuyển sang 'RESOLVED': chỉ cho phép khi trạng thái hiện tại là 'IN_PROGRESS', bắt buộc có ảnh
+      minh chứng sau sửa chữa (AFTER_PROOF). Làm mờ khuôn mặt/biển số xe (Nghị định 13) và lưu công khai.
+    - Chuyển sang 'REJECTED': chỉ DISPATCHER hoặc ADMIN có quyền, bắt buộc phải có ghi chú giải trình lý do.
+    - Chuyển sang 'CLOSED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' hoặc 'CONFIRMED'.
+    - Ghi nhận biến động trạng thái vào IncidentHistory.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    allowed_statuses = {"IN_PROGRESS", "RESOLVED", "REJECTED", "CLOSED"}
+    clean_to_status = to_status.strip()
+    if clean_to_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Trạng thái '{to_status}' không hợp lệ. Phải thuộc {allowed_statuses}.",
+        )
+
+    if incident.status in {"CLOSED", "REJECTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể cập nhật trạng thái sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    if clean_to_status == "IN_PROGRESS":
+        if incident.status not in {"ASSIGNED", "RESOLVED"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể chuyển sang 'IN_PROGRESS' khi sự cố đang ở trạng thái 'ASSIGNED' hoặc 'RESOLVED' (khiếu nại mở lại) (trạng thái hiện tại: '{incident.status}').",
+            )
+        if incident.status == "RESOLVED":
+            incident.resolved_at = None
+
+    elif clean_to_status == "RESOLVED":
+        if incident.status != "IN_PROGRESS":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể chuyển sang 'RESOLVED' khi sự cố đang ở trạng thái 'IN_PROGRESS' (trạng thái hiện tại: '{incident.status}').",
+            )
+
+        has_existing_proof = any(
+            getattr(m, "media_type", None) == "AFTER_PROOF" for m in (incident.media or [])
+        )
+        has_new_proof = proof_image is not None and bool(proof_image.filename)
+
+        if not has_existing_proof and not has_new_proof:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bắt buộc phải tải lên hình ảnh minh chứng sau sửa chữa (AFTER_PROOF) để chuyển sang trạng thái RESOLVED.",
+            )
+
+        if has_new_proof:
+            assert proof_image is not None
+            proof_content = await proof_image.read()
+            if not proof_content:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Tệp ảnh minh chứng rỗng. Vui lòng tải lên ảnh chụp hiện trường sau khắc phục.",
+                )
+            max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+            if len(proof_content) > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Dung lượng tệp vượt quá giới hạn cho phép ({settings.MAX_UPLOAD_SIZE_MB}MB).",
+                )
+
+            raw_filename = Path(proof_image.filename or "proof.jpg").name
+            clean_filename = "".join(c for c in raw_filename if c.isalnum() or c in "._-") or "proof.jpg"
+            saved_filename = f"{incident.id.hex}_proof_{clean_filename}"
+
+            private_dir, public_dir = _get_upload_dirs()
+            temp_input_path = private_dir / f"tmp_{saved_filename}"
+            target_proof_path = public_dir / saved_filename
+
+            with open(temp_input_path, "wb") as f:
+                f.write(proof_content)
+
+            try:
+                anonymize_image(temp_input_path, target_proof_path)
+            except Exception as exc:
+                target_proof_path.unlink(missing_ok=True)
+                logger.exception("Anonymization failed for proof image %s: %s", temp_input_path, exc)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Không thể xử lý hình ảnh minh chứng: {exc}",
+                )
+            finally:
+                temp_input_path.unlink(missing_ok=True)
+
+            proof_media = IncidentMedia(
+                incident_id=incident.id,
+                media_type="AFTER_PROOF",
+                file_url=f"/uploads/public/{saved_filename}",
+                created_at=now,
+            )
+            db.add(proof_media)
+            if incident.media is not None:
+                incident.media.append(proof_media)
+
+        incident.resolved_at = now
+
+    elif clean_to_status == "REJECTED":
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền từ chối sự cố.",
+            )
+        if not note or not note.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bắt buộc phải cung cấp lý do giải trình khi từ chối sự cố (note).",
+            )
+
+    elif clean_to_status == "CLOSED":
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền đóng sự cố.",
+            )
+        if incident.status not in {"RESOLVED", "CONFIRMED"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể đóng sự cố khi ở trạng thái 'RESOLVED' hoặc 'CONFIRMED' (trạng thái hiện tại: '{incident.status}').",
+            )
+
+    old_status = incident.status
+    incident.status = clean_to_status
+
+    history_note = note.strip() if note and note.strip() else f"Cập nhật trạng thái sự cố sang {clean_to_status}"
+    history = IncidentHistory(
+        incident_id=incident.id,
+        actor_id=current_user.id,
+        from_status=old_status,
+        to_status=clean_to_status,
+        note=history_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(incident)
+    await db.commit()
+
+    reload_stmt = (
+        select(Incident)
+        .where(Incident.id == incident.id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    loaded_res = await db.execute(reload_stmt)
+    loaded_incident = loaded_res.scalar_one_or_none()
+    if not loaded_incident:
+        loaded_incident = incident
+    else:
+        if loaded_incident.category is None and incident.category is not None:
+            loaded_incident.category = incident.category
+        if loaded_incident.assigned_department is None and incident.assigned_department is not None:
+            loaded_incident.assigned_department = incident.assigned_department
+        if loaded_incident.assigned_technician is None and incident.assigned_technician is not None:
+            loaded_incident.assigned_technician = incident.assigned_technician
+        if loaded_incident.media is None and incident.media is not None:
+            loaded_incident.media = incident.media
+
+    coords = _extract_lat_lon(loaded_incident.location)
+    if coords:
+        setattr(loaded_incident, "latitude", coords[0])
+        setattr(loaded_incident, "longitude", coords[1])
+    elif hasattr(incident, "latitude") and hasattr(incident, "longitude"):
+        setattr(loaded_incident, "latitude", getattr(incident, "latitude"))
+        setattr(loaded_incident, "longitude", getattr(incident, "longitude"))
+
+    if loaded_incident.history is not None and history not in loaded_incident.history:
+        loaded_incident.history.append(history)
+
+    detail_out = IncidentDetailOut.model_validate(loaded_incident)
+    is_privileged = current_user.role in ["ADMIN", "DISPATCHER"]
+    if not is_privileged:
+        if detail_out.citizen_contact:
+            detail_out.citizen_contact = mask_citizen_contact(detail_out.citizen_contact)
+        detail_out.media = [m for m in detail_out.media if m.media_type != "BEFORE_ORIGINAL"]
+
+    return detail_out
+
+
 @router.get(
     "",
     response_model=IncidentListOut,

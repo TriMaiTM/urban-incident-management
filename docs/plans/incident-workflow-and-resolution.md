@@ -84,22 +84,26 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
 
 ---
 
-### [ ] Bước 3: Xây dựng Endpoint Cập nhật Tiến độ & Minh chứng Hoàn thành (`PATCH /{id}/status`)
+### [x] Bước 3: Xây dựng Endpoint Cập nhật Tiến độ & Minh chứng Hoàn thành (`PATCH /{id}/status`)
 * **Mục tiêu:** Quản lý vòng đời xử lý và bắt buộc có minh chứng hình ảnh (`AFTER_PROOF`) khi chuyển sang `RESOLVED`.
 * **Hành động:**
   * Thêm `PATCH /api/v1/incidents/{id}/status`:
     * Nhận dữ liệu qua Form: `to_status: str = Form(...)`, `note: str | None = Form(None)`, `proof_image: UploadFile | None = File(None)`.
-    * RBAC: `TECHNICIAN`, `DISPATCHER`, `ADMIN`.
+    * RBAC: `TECHNICIAN`, `DISPATCHER`, `ADMIN` (riêng `REJECTED` và `CLOSED` chỉ `DISPATCHER`, `ADMIN`).
+    * Terminal status guard: Chặn cập nhật với sự cố đã ở trạng thái kết thúc (`CLOSED`, `REJECTED`).
     * Kiểm tra chuyển đổi trạng thái hợp lệ:
-      * Sang `IN_PROGRESS`: Chỉ cho phép khi trạng thái hiện tại là `ASSIGNED` hoặc `RESOLVED` (mở lại).
+      * Sang `IN_PROGRESS`: Chỉ cho phép khi trạng thái hiện tại là `ASSIGNED` hoặc `RESOLVED` (mở lại; tự động đặt lại `resolved_at = None`).
       * Sang `RESOLVED`: BẮT BUỘC phải cung cấp `proof_image` (hoặc đã có `IncidentMedia` với `media_type = AFTER_PROOF`).
-        * Xử lý file ảnh minh chứng: Lưu vào `backend/uploads/public/{id}_proof_{filename}`, áp dụng làm mờ nếu phát hiện khuôn mặt/biển số xe (NĐ 13) để người dân kiểm tra an toàn.
+        * Xử lý file ảnh minh chứng: Lưu vào `backend/uploads/public/{id}_proof_{filename}`, áp dụng làm mờ nếu phát hiện khuôn mặt/biển số xe (NĐ 13/2023) để người dân kiểm tra an toàn.
         * Tạo bản ghi `IncidentMedia` với `media_type = "AFTER_PROOF"`.
         * Cập nhật `resolved_at = datetime.now(timezone.utc)`.
-      * Sang `REJECTED`: Yêu cầu bắt buộc phải có `note` giải trình lý do từ chối.
+      * Sang `REJECTED`: Bắt buộc phải có `note` giải trình lý do từ chối.
+      * Sang `CLOSED`: Chỉ đóng từ `RESOLVED` hoặc `CONFIRMED`.
     * Ghi bản ghi vào `IncidentHistory`.
 * **Kiểm chứng:**
-  * `py -m compileall -q backend/app`
+  * `py -m compileall -q backend/app backend/tests`
+  * `py -m pytest backend/tests/test_incident_workflow.py -v`
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 26/26 unit tests passed.
 
 ---
 

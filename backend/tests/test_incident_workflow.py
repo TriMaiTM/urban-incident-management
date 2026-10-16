@@ -8,7 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
+import cv2
 import httpx
+import numpy as np
 import pytest
 from shapely.geometry import Point
 
@@ -23,6 +25,16 @@ from app.models.user import User
 # ============================================================================
 # Helpers & Synthetic Data
 # ============================================================================
+
+def _create_synthetic_image_bytes(width: int = 120, height: int = 120) -> bytes:
+    """Helper creating valid JPEG image bytes in memory."""
+    img = np.full((height, width, 3), 180, dtype=np.uint8)
+    cv2.circle(img, (width // 2, height // 2), 25, (0, 0, 255), -1)
+    cv2.rectangle(img, (10, 10), (40, 40), (0, 255, 0), -1)
+    success, buf = cv2.imencode(".jpg", img)
+    assert success, "Failed to encode synthetic JPEG image"
+    return buf.tobytes()
+
 
 def _make_mock_user(
     id: UUID | None = None,
@@ -594,4 +606,296 @@ async def test_assign_incident_closed_or_rejected_fails(client: httpx.AsyncClien
     response = await client.patch(f"/api/v1/incidents/{incident_rejected.id}/assign", json=payload)
     assert response.status_code == 400
     assert "Không thể phân công sự cố đã kết thúc" in response.json()["detail"]
+
+
+# ============================================================================
+# Test Cases for Step 3: Status Transition, Proof Verification & Rejection
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_status_transition_to_in_progress_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Field technician moves incident from ASSIGNED to IN_PROGRESS."""
+    technician = _make_mock_user(role="TECHNICIAN", email="tech@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="ASSIGNED")
+    mock_session.seed(technician, incident)
+
+    payload_note = "Kỹ thuật viên đã tiếp cận hiện trường và bắt đầu xử lý"
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": payload_note},
+    )
+
+    assert response.status_code == 200, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["status"] == "IN_PROGRESS"
+    assert mock_session.committed is True
+
+    histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
+    status_hist = [h for h in histories if h.to_status == "IN_PROGRESS"]
+    assert len(status_hist) >= 1
+    assert status_hist[-1].from_status == "ASSIGNED"
+    assert status_hist[-1].actor_id == technician.id
+    assert status_hist[-1].note == payload_note
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_in_progress_invalid_source_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Transition to IN_PROGRESS when incident is SUBMITTED (not ASSIGNED/RESOLVED) -> 400 Bad Request."""
+    technician = _make_mock_user(role="TECHNICIAN")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="SUBMITTED")
+    mock_session.seed(technician, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS"},
+    )
+
+    assert response.status_code == 400
+    assert "Chỉ có thể chuyển sang 'IN_PROGRESS'" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_resolved_without_proof_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Transition to RESOLVED without AFTER_PROOF image -> 400 Bad Request."""
+    technician = _make_mock_user(role="TECHNICIAN")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="IN_PROGRESS")
+    mock_session.seed(technician, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "RESOLVED", "note": "Đã xử lý xong"},
+    )
+
+    assert response.status_code == 400
+    assert "Bắt buộc phải tải lên hình ảnh minh chứng sau sửa chữa (AFTER_PROOF)" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_resolved_with_proof_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Transition to RESOLVED with valid proof image -> saves AFTER_PROOF, sets resolved_at, updates status."""
+    technician = _make_mock_user(role="TECHNICIAN")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="IN_PROGRESS")
+    mock_session.seed(technician, incident)
+
+    img_bytes = _create_synthetic_image_bytes()
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "RESOLVED", "note": "Đã vá xong ổ gà và hoàn trả mặt đường"},
+        files={"proof_image": ("repaired_road.jpg", img_bytes, "image/jpeg")},
+    )
+
+    assert response.status_code == 200, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["status"] == "RESOLVED"
+    assert data["resolved_at"] is not None
+    assert mock_session.committed is True
+
+    # Check that AFTER_PROOF media was created and added
+    medias = [o for o in mock_session.added if isinstance(o, IncidentMedia)]
+    proof_medias = [m for m in medias if m.media_type == "AFTER_PROOF"]
+    assert len(proof_medias) >= 1
+    assert "proof_" in proof_medias[-1].file_url
+
+    # Check history
+    histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
+    resolved_hist = [h for h in histories if h.to_status == "RESOLVED"]
+    assert len(resolved_hist) >= 1
+    assert resolved_hist[-1].from_status == "IN_PROGRESS"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_rejected_dispatcher_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Dispatcher rejects invalid incident with explanation note -> status REJECTED, audit logged."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="SUBMITTED")
+    mock_session.seed(dispatcher, incident)
+
+    payload_note = "Hiện trường không có sự cố theo phản ánh sau khi lực lượng kiểm tra."
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "REJECTED", "note": payload_note},
+    )
+
+    assert response.status_code == 200, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["status"] == "REJECTED"
+    assert mock_session.committed is True
+
+    histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
+    reject_hist = [h for h in histories if h.to_status == "REJECTED"]
+    assert len(reject_hist) >= 1
+    assert reject_hist[-1].note == payload_note
+    assert reject_hist[-1].actor_id == dispatcher.id
+    assert reject_hist[-1].from_status == "SUBMITTED"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_rejected_technician_forbidden(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Field technician attempts to reject incident -> 403 Forbidden."""
+    technician = _make_mock_user(role="TECHNICIAN")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="ASSIGNED")
+    mock_session.seed(technician, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "REJECTED", "note": "Kỹ thuật viên muốn từ chối"},
+    )
+
+    assert response.status_code == 403
+    assert "Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN)" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_rejected_without_note_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Rejecting without providing an explanatory note -> 400 Bad Request."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="SUBMITTED")
+    mock_session.seed(dispatcher, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "REJECTED", "note": "   "},
+    )
+
+    assert response.status_code == 400
+    assert "Bắt buộc phải cung cấp lý do giải trình khi từ chối sự cố" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_closed_dispatcher_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Dispatcher successfully closes resolved incident -> status CLOSED."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="RESOLVED")
+    mock_session.seed(dispatcher, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CLOSED", "note": "Đã hoàn tất quy trình nghiệm thu"},
+    )
+
+    assert response.status_code == 200, f"Error: {response.text}"
+    assert response.json()["status"] == "CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_closed_technician_forbidden(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Field technician attempts to close incident -> 403 Forbidden."""
+    technician = _make_mock_user(role="TECHNICIAN")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="RESOLVED")
+    mock_session.seed(technician, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CLOSED"},
+    )
+
+    assert response.status_code == 403
+    assert "Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN)" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_closed_invalid_source_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Closing an incident that is still IN_PROGRESS (not RESOLVED/CONFIRMED) -> 400 Bad Request."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="IN_PROGRESS")
+    mock_session.seed(dispatcher, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CLOSED"},
+    )
+
+    assert response.status_code == 400
+    assert "Chỉ có thể đóng sự cố khi ở trạng thái 'RESOLVED' hoặc 'CONFIRMED'" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_reopen_from_resolved_resets_resolved_at(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Reopening incident from RESOLVED back to IN_PROGRESS resets resolved_at to None."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="RESOLVED")
+    incident.resolved_at = datetime.now(timezone.utc)
+    mock_session.seed(dispatcher, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Yêu cầu xử lý lại do người dân phản ánh chưa đạt"},
+    )
+
+    assert response.status_code == 200, f"Error: {response.text}"
+    data = response.json()
+    assert data["status"] == "IN_PROGRESS"
+    assert data["resolved_at"] is None
+    assert incident.resolved_at is None
+
+
+@pytest.mark.asyncio
+async def test_status_transition_invalid_target_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Target status not in {'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'CLOSED'} -> 422 Unprocessable Entity."""
+    technician = _make_mock_user(role="TECHNICIAN")
+    app.dependency_overrides[get_current_user] = lambda: technician
+
+    incident = _make_mock_incident(status="ASSIGNED")
+    mock_session.seed(technician, incident)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "FLYING_TO_MARS"},
+    )
+
+    assert response.status_code == 422
+    assert "không hợp lệ" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Updating status on already CLOSED or REJECTED incident -> 400 Bad Request."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident_closed = _make_mock_incident(status="CLOSED")
+    mock_session.seed(dispatcher, incident_closed)
+
+    response = await client.patch(
+        f"/api/v1/incidents/{incident_closed.id}/status",
+        data={"to_status": "IN_PROGRESS"},
+    )
+    assert response.status_code == 400
+    assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response.json()["detail"]
+
+    incident_rejected = _make_mock_incident(status="REJECTED")
+    mock_session.seed(incident_rejected)
+
+    response_rej = await client.patch(
+        f"/api/v1/incidents/{incident_rejected.id}/status",
+        data={"to_status": "IN_PROGRESS"},
+    )
+    assert response_rej.status_code == 400
+    assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response_rej.json()["detail"]
+
 
