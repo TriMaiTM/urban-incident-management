@@ -32,17 +32,18 @@ async def test_auth_login_wrong_password(client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_auth_register_and_profile(client: httpx.AsyncClient):
     """Kiểm tra luồng đăng ký tài khoản mới và lấy thông tin cá nhân qua /me"""
-    import random
-    rand_id = random.randint(1000, 9999)
-    test_email = f"user_{rand_id}@test.com"
+    import uuid
+    rand_suffix = uuid.uuid4().hex[:8]
+    test_email = f"user_{rand_suffix}@test.com"
+    rand_phone_digits = f"{int(rand_suffix, 16) % 100000000:08d}"
 
     # 1. Đăng ký
     reg_res = await client.post(
         "/api/v1/auth/register",
         json={
             "email": test_email,
-            "phone": f"090900{rand_id}",
-            "full_name": f"Test User {rand_id}",
+            "phone": f"09{rand_phone_digits}",
+            "full_name": f"Test User {rand_suffix}",
             "password": "Password123@"
         }
     )
@@ -59,7 +60,7 @@ async def test_auth_register_and_profile(client: httpx.AsyncClient):
     assert me_res.status_code == 200
     me_data = me_res.json()
     assert me_data["email"] == test_email
-    assert me_data["full_name"] == f"Test User {rand_id}"
+    assert me_data["full_name"] == f"Test User {rand_suffix}"
 
     # 3. Gọi /me không có token
     unauth_res = await client.get("/api/v1/auth/me")
