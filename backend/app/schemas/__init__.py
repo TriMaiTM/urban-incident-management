@@ -30,6 +30,18 @@ from app.schemas.open311 import (
     Open311CreateRequestResponseItem,
     Open311RequestItemOut,
 )
+from app.schemas.webhook import (
+    FacebookCoordinates,
+    FacebookLocationPayload,
+    FacebookAttachmentPayload,
+    FacebookAttachment,
+    FacebookMessage,
+    FacebookParticipant,
+    FacebookMessagingItem,
+    FacebookEntry,
+    FacebookWebhookPayload,
+    FacebookVerifyQuery,
+)
 
 __all__ = [
     "LocationValidateIn",
@@ -66,5 +78,16 @@ __all__ = [
     "Open311CreateRequestIn",
     "Open311CreateRequestResponseItem",
     "Open311RequestItemOut",
+    "FacebookCoordinates",
+    "FacebookLocationPayload",
+    "FacebookAttachmentPayload",
+    "FacebookAttachment",
+    "FacebookMessage",
+    "FacebookParticipant",
+    "FacebookMessagingItem",
+    "FacebookEntry",
+    "FacebookWebhookPayload",
+    "FacebookVerifyQuery",
 ]
+
 

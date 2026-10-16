@@ -40,7 +40,7 @@ Xây dựng trọn vẹn kênh tiếp nhận phản ánh sự cố đa phương 
 
 ## 2. Thứ tự Các Bước Triển khai (Ordered Steps)
 
-### [ ] Bước 1: Định nghĩa Pydantic Schemas tiếp nhận Webhook Facebook (`schemas/webhook.py`)
+### [x] Bước 1: Định nghĩa Pydantic Schemas tiếp nhận Webhook Facebook (`schemas/webhook.py`)
 * **Mục tiêu:** Xây dựng các model dữ liệu phân tích cú pháp (parsing) payload webhook từ Meta Graph API với strict typing (không `Any`), Pydantic v2.
 * **Hành động:**
   * Tạo `backend/app/schemas/webhook.py`:
