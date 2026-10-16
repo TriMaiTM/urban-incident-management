@@ -94,13 +94,12 @@
   * Export trong `backend/app/schemas/__init__.py`.
 * **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 14/14 unit tests đạt 100%.
 
-### [ ] Bước 4: Xây dựng Endpoints Danh mục (`/categories`, `/departments`)
+### [x] Bước 4: Xây dựng Endpoints Danh mục (`/categories`, `/departments`)
 * **Hành động:**
   * Tạo `backend/app/api/v1/endpoints/categories.py`: `GET /categories`.
   * Tạo `backend/app/api/v1/endpoints/departments.py`: `GET /departments`.
   * Đăng ký vào `backend/app/api/v1/router.py`.
-* **Kiểm chứng:**
-  * Lệnh: `py -m compileall -q backend/app`.
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 6/6 unit tests đạt 100%.
 
 ### [ ] Bước 5: Xây dựng Endpoints Tiếp nhận Sự cố & Lọc Trùng lặp (`/incidents`)
 * **Hành động:**
