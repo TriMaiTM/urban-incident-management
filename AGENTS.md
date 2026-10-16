@@ -54,13 +54,13 @@ Run commands from the respective service folder or repo root:
 - Do not store unblurred faces/license plates in public media (`BEFORE_ANONYMIZED`).
 - Never perform destructive database actions (`DROP DATABASE`, force reset) without approval.
 
-## 6. Subagent Orchestration & Definition of Done
+## 6. Subagent Orchestration & Definition of Done (agy CLI)
 
-No plan step or task is complete until an isolated **Reviewer Subagent** (`invoke_subagent`) independently verifies and returns `STATUS: PASS` on all criteria:
+All complex tasks must be orchestrated through context-isolated subagents defined in `.agents/agents/`:
 
-1. **Architecture & Scope:** Changes strictly match `docs/plans/<feature>.md` and `docs/spec.md` with zero edits to files listed under Non-goals.
-2. **Mechanical Checks Pass:**
-   - Backend: `py -m compileall -q backend/app` and relevant `py -m pytest` pass.
-   - Frontend: `npx tsc --noEmit` and `npm run lint` pass (plus `npm run build` after the final step).
-3. **UI Verification:** If `frontend/src/` changed and the dev server is running, verify via the Browser subagent (`http://localhost:3000`); otherwise explicitly state it was not visually verified.
-4. **State Synced:** Step checkbox is ticked `[x]` in `docs/plans/<feature>.md` and `.env.example` is updated if new env vars were added.
+- **`planner`**: Explore the codebase in strictly Read-Only mode and write the implementation plan to `docs/plans/<feature>.md`.
+- **`builder`**: Execute each atomic step in the plan, write tests (mocking all external APIs), and run mechanical checks.
+- **`reviewer`**: Perform an independent audit in a clean context, verifying `git diff` against `docs/plans/<feature>.md` and `docs/spec.md`.
+- **`investigator`**: Reproduce bugs and trace root causes for `/fix-bug`, and gather real repository evidence for `/report`.
+
+No step may be marked as completed `[x]` or committed until the **`reviewer`** subagent returns `STATUS: PASS`.

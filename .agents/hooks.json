@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "PreToolUse": [
+    {
+      "matcher": "run_command",
+      "command": "py -c \"import os, sys, re; cmd = os.environ.get('AGY_TOOL_ARGS', ''); sys.exit('BLOCKED BY HOOK: Dangerous command detected!' if re.search(r'(drop\\s+database|drop\\s+table|git\\s+push\\s+--force|git\\s+reset\\s+--hard|rm\\s+-rf\\s+/)', cmd, re.I) else 0)\""
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "write_file|edit_file|replace_in_file",
+      "command": "py -m compileall -q backend/app"
+    }
+  ]
+}

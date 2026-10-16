@@ -106,3 +106,25 @@
 
 * **Rủi ro:** Khi dev local chưa cấu hình Google Client ID/Secret thật trên Google Cloud Console, lệnh gọi Google API có thể thất bại.
   * *Biện pháp:* Trong endpoint `/google`, khi `DEBUG = True` và client gửi token dạng `mock_google_token:<email>`, backend cho phép tạo/đăng nhập user dev để không làm gián đoạn quá trình kiểm thử tự động.
+
+---
+
+## 5. Handoff
+
+* **Nhánh làm việc hiện tại:** `main` (đã commit và merge thành công tính năng Auth & RBAC).
+* **Trạng thái công việc:** 
+  - Toàn bộ 6 bước của tính năng `auth-and-rbac` đã hoàn thành và kiểm thử.
+  - Đã lập Đề cương chi tiết đồ án tại [docs/report/de_cuong_chi_tiet.md](file:///d:/HK10/DATN/docs/report/de_cuong_chi_tiet.md).
+  - Đã thực hiện Reviewer Audit độc lập: **`STATUS: PASS`** (Mã nguồn tuân thủ kiến trúc, không có critical blocker).
+* **Kết quả Reviewer Audit gần nhất:**
+  - `STATUS: PASS`.
+  - Khuyến nghị tinh chỉnh nhỏ: Sửa `Union[str, Any]` thành `Union[str, UUID]` trong `security.py:29`, thay `Mapped[Any]` thành `Mapped[object]` trong `zone.py:16` & `incident.py:32` để triệt tiêu `Any`.
+* **Tệp chưa commit (Uncommitted files):**
+  - `AGENTS.md` (cập nhật quy chế phối hợp subagents agy CLI).
+  - Thư mục untracked `.agents/` (định nghĩa 4 subagents: `planner`, `builder`, `reviewer`, `investigator`).
+* **Bước tiếp theo:**
+  - Khởi tạo tính năng tiếp theo: **API Tiếp nhận & Phân loại Sự cố Hiện trường** (`feat/incident-ingestion-api` - Upload đa phương tiện, gán tọa độ PostGIS, lọc trùng lặp bán kính 50m, tích hợp AI DeepSeek Vision và làm mờ ảnh OpenCV).
+* **Lệnh kiểm chứng:**
+  - Cú pháp Python: `py -m compileall -q backend/app`
+  - Khởi động CSDL trước khi test: Bật Docker Desktop Service (`docker compose up -d db`)
+  - Chạy toàn bộ test suite: `py -m pytest`
