@@ -77,15 +77,14 @@
   * Cập nhật `backend/app/main.py` để tách bạch `backend/uploads/public/` và `backend/uploads/private/`.
 * **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 8/8 unit tests đạt 100%.
 
-### [ ] Bước 2: Xây dựng Service Tích hợp DeepSeek Vision API (`deepseek_vision.py`)
+### [x] Bước 2: Xây dựng Service Tích hợp DeepSeek Vision API (`deepseek_vision.py`)
 * **Hành động:**
   * Tạo `backend/app/services/deepseek_vision.py`.
-  * Hàm `classify_incident_image(image_path: Path, description: str, categories: list, departments: list) -> dict`.
-  * Mã hóa ảnh thành Base64 Data URI, gửi request bất đồng bộ tới `https://api.deepseek.com/chat/completions` (hoặc cấu hình trong `Settings`).
+  * Hàm `classify_incident_image(image_path: Path, description: str, categories: list, departments: list) -> DeepSeekVisionResult`.
+  * Mã hóa ảnh thành Base64 Data URI, gửi request bất đồng bộ tới `{settings.DEEPSEEK_BASE_URL}/chat/completions`.
   * Xử lý structured JSON response với các trường: `category_code`, `priority`, `suggested_department_code`, `summary_vi`, `hazard_warning`, `confidence`.
-  * Hỗ trợ mock mode khi `DEBUG=True` hoặc khi gọi từ pytest fixture.
-* **Kiểm chứng:**
-  * Lệnh: `py -m compileall -q backend/app`.
+  * Hỗ trợ heuristic mode khi không có API key / dev và 100% mocked trong test suite.
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 17/17 unit tests đạt 100%.
 
 ### [ ] Bước 3: Định nghĩa Pydantic Schemas (`schemas/incident.py`)
 * **Hành động:**
