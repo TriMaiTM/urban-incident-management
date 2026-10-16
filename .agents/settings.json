@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(*)",
+      "Edit(backend/**)",
+      "Edit(frontend/**)",
+      "Edit(docs/**)",
+      "Edit(.agents/**)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git checkout -b feat/*)",
+      "Bash(git checkout -b fix/*)",
+      "Bash(git checkout feat/*)",
+      "Bash(git checkout fix/*)",
+      "Bash(git switch*)",
+      "Bash(git add*)",
+      "Bash(git commit -m*)",
+      "Bash(py -m compileall*)",
+      "Bash(py -m pytest*)",
+      "Bash(pytest*)",
+      "Bash(npx tsc --noEmit*)",
+      "Bash(npm run lint*)",
+      "Bash(npm run build*)",
+      "Bash(docker compose ps*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(backend/.env)",
+      "Read(frontend/.env*)",
+      "Bash(git push*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(docker compose down -v*)"
+    ]
+  }
+}
