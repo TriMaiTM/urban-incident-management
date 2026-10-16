@@ -40,7 +40,7 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
 
 ## 2. Thứ tự Các Bước Triển khai (Ordered Steps)
 
-### [ ] Bước 1: Định nghĩa Pydantic Schemas cho Điều phối, Trạng thái, Feedback, Map & Analytics
+### [x] Bước 1: Định nghĩa Pydantic Schemas cho Điều phối, Trạng thái, Feedback, Map & Analytics
 * **Mục tiêu:** Bổ sung các schema chuẩn Pydantic v2, strict typing (không dùng `Any`).
 * **Hành động:**
   * Tại `backend/app/schemas/incident.py`:
@@ -56,6 +56,8 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
   * Export trong `backend/app/schemas/__init__.py`.
 * **Kiểm chứng:**
   * `py -m compileall -q backend/app`
+  * `py -m pytest backend/tests/test_schemas_incident.py -v`
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 23/23 unit tests passed.
 
 ---
 
