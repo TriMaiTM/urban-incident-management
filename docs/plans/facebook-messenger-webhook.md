@@ -105,7 +105,7 @@ Xây dựng trọn vẹn kênh tiếp nhận phản ánh sự cố đa phương 
 
 ---
 
-### [ ] Bước 5: Viết Bộ Test Suite Tự động Toàn diện (`backend/tests/test_messenger_webhook.py`) & Reviewer Audit
+### [x] Bước 5: Viết Bộ Test Suite Tự động Toàn diện (`backend/tests/test_messenger_webhook.py`) & Reviewer Audit
 * **Mục tiêu:** Kiểm thử 100% độc lập không gọi Meta Graph API thực tế hay CSDL live.
 * **Hành động:**
   * Tạo `backend/tests/test_messenger_webhook.py`:
