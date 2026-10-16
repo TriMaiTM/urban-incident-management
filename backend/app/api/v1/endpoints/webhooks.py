@@ -29,6 +29,7 @@ from app.schemas.webhook import FacebookWebhookPayload
 from app.services.anonymizer import anonymize_image
 from app.services.messenger import (
     download_image_bytes,
+    extract_coordinates_from_text,
     messenger_session_manager,
     send_facebook_message,
 )
@@ -36,6 +37,37 @@ from app.services.messenger import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
+
+DANANG_OUT_OF_BOUNDS_MESSAGE = (
+    "Hiện tại hệ thống chỉ tiếp nhận sự cố trong Vùng Đô thị Trung tâm Đà Nẵng "
+    "(Hải Châu, Thanh Khê, Sơn Trà, Ngũ Hành Sơn, Cẩm Lệ, Liên Chiểu, Hòa Vang). "
+    "Vị trí bạn chia sẻ nằm ngoài phạm vi hỗ trợ."
+)
+
+LOCATION_GUIDANCE_MESSAGE = (
+    "Chào bạn! Vui lòng gửi 01 bức ảnh hiện trường và chia sẻ vị trí sự cố.\n\n"
+    "💡 Mẹo gửi vị trí tiện lợi:\n"
+    "1. Mở Apple Maps (Bản đồ) hoặc Google Maps -> Chọn vị trí -> Bấm Chia sẻ sang Messenger;\n"
+    "2. Hoặc gõ/dán trực tiếp tọa độ (ví dụ: 16.0611, 108.2208) vào đây."
+)
+
+
+async def _validate_danang_geofence(db: AsyncSession, lat: float, long: float) -> bool:
+    """Kiểm tra xem tọa độ GPS (lat, long) có thuộc ranh giới Đà Nẵng (system_zones) hay không.
+
+    Tuân thủ thứ tự PostGIS SRID 4326: ST_MakePoint(long, lat) - long trước, lat sau (Bài học 7).
+    """
+    point_geom = ST_SetSRID(ST_MakePoint(long, lat), 4326)
+    zone_stmt = (
+        select(SystemZone.id)
+        .where(
+            SystemZone.is_active.is_(True),
+            ST_Contains(SystemZone.boundary, point_geom),
+        )
+        .limit(1)
+    )
+    zone_res = await db.execute(zone_stmt)
+    return zone_res.scalar_one_or_none() is not None
 
 
 @router.get("/facebook", response_class=Response)
@@ -88,51 +120,61 @@ async def handle_facebook_webhook(
 
             session = messenger_session_manager.get_or_create_session(psid)
 
-            # 1. Xử lý tin nhắn văn bản
+            # 1. Xử lý tin nhắn văn bản (quét tọa độ thông minh từ text)
             if item.message.text:
                 session = messenger_session_manager.update_text(psid, item.message.text.strip())
-                if not item.message.attachments:
-                    if not session.is_complete():
+                coords = extract_coordinates_from_text(item.message.text)
+                if coords is not None:
+                    is_in_danang = await _validate_danang_geofence(db, coords[0], coords[1])
+                    if not is_in_danang:
+                        messenger_session_manager.clear_session(psid)
+                        session = None
                         await send_facebook_message(
                             psid,
-                            "Chào bạn! Vui lòng gửi 01 bức ảnh hiện trường và chia sẻ vị trí của bạn để hệ thống tiếp nhận phản ánh sự cố đô thị.",
+                            DANANG_OUT_OF_BOUNDS_MESSAGE,
                         )
+                        continue
 
-            # 2. Xử lý tệp đính kèm (attachments)
-            if item.message.attachments:
-                image_prompt_sent = False
-                for att in item.message.attachments:
-                    if att.type == "image" and att.payload and att.payload.url:
-                        session = messenger_session_manager.update_image(psid, att.payload.url)
-                        if (session.lat is None or session.long is None) and not image_prompt_sent:
-                            image_prompt_sent = True
+                    session = messenger_session_manager.update_location(psid, coords[0], coords[1])
+                    has_image_att = bool(
+                        item.message.attachments
+                        and any(a.type == "image" for a in item.message.attachments)
+                    )
+                    if not session.image_url and not has_image_att:
+                        await send_facebook_message(
+                            psid,
+                            f"Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng (vĩ độ: {coords[0]:.4f}, kinh độ: {coords[1]:.4f}). Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
+                        )
+                else:
+                    if not item.message.attachments and not session.is_complete():
+                        if session.lat is None or session.long is None:
                             await send_facebook_message(
                                 psid,
-                                "Hệ thống đã nhận được hình ảnh hiện trường. Vui lòng chia sẻ vị trí của bạn để hoàn tất phản ánh.",
+                                LOCATION_GUIDANCE_MESSAGE,
                             )
-                    elif att.type == "location" and att.payload and att.payload.coordinates:
+                        else:
+                            await send_facebook_message(
+                                psid,
+                                "Hệ thống đã nhận được vị trí. Vui lòng gửi thêm 01 bức ảnh hiện trường sự cố để hoàn tất phản ánh.",
+                            )
+
+            # 2. Xử lý tệp đính kèm (attachments: ảnh, location native, hoặc link chia sẻ bản đồ)
+            if item.message.attachments and session is not None:
+                image_prompt_sent = False
+                for att in item.message.attachments:
+                    if att.type == "location" and att.payload and att.payload.coordinates:
                         lat = att.payload.coordinates.lat
                         long = att.payload.coordinates.long
 
-                        # Thẩm định hàng rào địa lý PostGIS Đà Nẵng: (long trước, lat sau - Bài học 7)
-                        point_geom = ST_SetSRID(ST_MakePoint(long, lat), 4326)
-                        zone_stmt = (
-                            select(SystemZone.id)
-                            .where(
-                                SystemZone.is_active.is_(True),
-                                ST_Contains(SystemZone.boundary, point_geom),
-                            )
-                            .limit(1)
-                        )
-                        zone_res = await db.execute(zone_stmt)
-                        if zone_res.scalar_one_or_none() is None:
+                        is_in_danang = await _validate_danang_geofence(db, lat, long)
+                        if not is_in_danang:
                             messenger_session_manager.clear_session(psid)
                             session = None
                             await send_facebook_message(
                                 psid,
-                                "Hiện tại hệ thống chỉ tiếp nhận sự cố trong Vùng Đô thị Trung tâm Đà Nẵng (Hải Châu, Thanh Khê, Sơn Trà, Ngũ Hành Sơn, Cẩm Lệ, Liên Chiểu, Hòa Vang). Vị trí bạn chia sẻ nằm ngoài phạm vi hỗ trợ.",
+                                DANANG_OUT_OF_BOUNDS_MESSAGE,
                             )
-                            continue
+                            break
 
                         session = messenger_session_manager.update_location(psid, lat, long)
                         if not session.image_url:
@@ -140,6 +182,37 @@ async def handle_facebook_webhook(
                                 psid,
                                 "Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng. Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
                             )
+                    elif att.type == "image" and att.payload and att.payload.url:
+                        session = messenger_session_manager.update_image(psid, att.payload.url)
+                        if (session.lat is None or session.long is None) and not image_prompt_sent:
+                            image_prompt_sent = True
+                            await send_facebook_message(
+                                psid,
+                                LOCATION_GUIDANCE_MESSAGE,
+                            )
+                    elif att.payload and att.payload.url:
+                        att_coords = extract_coordinates_from_text(att.payload.url)
+                        if att_coords is not None:
+                            is_in_danang = await _validate_danang_geofence(
+                                db, att_coords[0], att_coords[1]
+                            )
+                            if not is_in_danang:
+                                messenger_session_manager.clear_session(psid)
+                                session = None
+                                await send_facebook_message(
+                                    psid,
+                                    DANANG_OUT_OF_BOUNDS_MESSAGE,
+                                )
+                                break
+
+                            session = messenger_session_manager.update_location(
+                                psid, att_coords[0], att_coords[1]
+                            )
+                            if not session.image_url:
+                                await send_facebook_message(
+                                    psid,
+                                    f"Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng (vĩ độ: {att_coords[0]:.4f}, kinh độ: {att_coords[1]:.4f}). Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
+                                )
 
             # 3. Kiểm tra hoàn thành session (đủ ảnh và tọa độ GPS)
             if session and session.is_complete():

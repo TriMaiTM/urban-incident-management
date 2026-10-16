@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+from app.api.v1.endpoints.webhooks import (
+    DANANG_OUT_OF_BOUNDS_MESSAGE,
+    LOCATION_GUIDANCE_MESSAGE,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
@@ -270,7 +274,7 @@ async def test_webhook_post_text_only_sends_guidance(
 
     mock_send.assert_awaited_once_with(
         "psid_user_guidance",
-        "Chào bạn! Vui lòng gửi 01 bức ảnh hiện trường và chia sẻ vị trí của bạn để hệ thống tiếp nhận phản ánh sự cố đô thị.",
+        LOCATION_GUIDANCE_MESSAGE,
     )
     session = messenger_session_manager.get_session("psid_user_guidance")
     assert session is not None
@@ -338,7 +342,7 @@ async def test_webhook_post_image_first_then_location(
     # Verify guidance asking for location
     mock_send.assert_awaited_with(
         "psid_dragon_bridge",
-        "Hệ thống đã nhận được hình ảnh hiện trường. Vui lòng chia sẻ vị trí của bạn để hoàn tất phản ánh.",
+        LOCATION_GUIDANCE_MESSAGE,
     )
     session_step1 = messenger_session_manager.get_session("psid_dragon_bridge")
     assert session_step1 is not None
@@ -633,4 +637,523 @@ def test_webhook_session_expiration_cleanup() -> None:
     assert purged == 1
     assert messenger_session_manager.get_session(psid_expired) is None
     assert messenger_session_manager.get_session(psid_active) is not None
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_text_raw_coordinates_danang(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify flow when citizen types raw coordinates '16.0611, 108.2208', then sends image."""
+    mock_send = AsyncMock(return_value=True)
+    mock_download = AsyncMock(return_value=b"fake-image-bytes-raw-coords")
+    mock_triage = AsyncMock()
+
+    def _mock_anonymize(in_path: Path | str, out_path: Path | str, **kwargs: object) -> dict[str, object]:
+        Path(out_path).write_bytes(b"blurred-image-bytes")
+        return {
+            "faces_detected": 0,
+            "plates_detected": 0,
+            "total_anonymized": 0,
+            "output_path": str(out_path),
+            "is_blurred": False,
+        }
+
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.download_image_bytes", mock_download)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.anonymize_image", _mock_anonymize)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.process_incident_ai_triage", mock_triage)
+
+    # Step 1: Citizen sends raw coordinates
+    payload_coords = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_raw_coords"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_raw_1",
+                            "text": "16.0611, 108.2208",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res1 = await client.post("/api/v1/webhooks/facebook", json=payload_coords)
+    assert res1.status_code == 200
+    mock_send.assert_awaited_with(
+        "psid_raw_coords",
+        "Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng (vĩ độ: 16.0611, kinh độ: 108.2208). Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
+    )
+    session = messenger_session_manager.get_session("psid_raw_coords")
+    assert session is not None
+    assert session.lat == 16.0611
+    assert session.long == 108.2208
+    assert session.image_url is None
+    assert len(mock_db_session.added) == 0
+
+    # Step 2: Citizen sends photo
+    payload_image = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_raw_coords"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_raw_2",
+                            "text": "Sạt lở bờ kè sông Hàn",
+                            "attachments": [
+                                {
+                                    "type": "image",
+                                    "payload": {
+                                        "url": "https://cdn.fbsbx.com/v/landslide.jpg"
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res2 = await client.post("/api/v1/webhooks/facebook", json=payload_image)
+    assert res2.status_code == 200
+    incident = next((o for o in mock_db_session.added if isinstance(o, Incident)), None)
+    assert incident is not None
+    assert incident.channel == "MESSENGER"
+    assert incident.ticket_code.startswith("DN-")
+    assert incident.description == "Sạt lở bờ kè sông Hàn"
+    assert incident.address_text == "Đà Nẵng (GPS: 16.06110, 108.22080)"
+    assert mock_db_session.committed is True
+    assert messenger_session_manager.get_session("psid_raw_coords") is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_text_apple_maps_link(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify flow when citizen pastes Apple Maps link, then sends image."""
+    mock_send = AsyncMock(return_value=True)
+    mock_download = AsyncMock(return_value=b"fake-image-bytes-apple-maps")
+    mock_triage = AsyncMock()
+
+    def _mock_anonymize(in_path: Path | str, out_path: Path | str, **kwargs: object) -> dict[str, object]:
+        Path(out_path).write_bytes(b"blurred-image-bytes")
+        return {
+            "faces_detected": 0,
+            "plates_detected": 0,
+            "total_anonymized": 0,
+            "output_path": str(out_path),
+            "is_blurred": False,
+        }
+
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.download_image_bytes", mock_download)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.anonymize_image", _mock_anonymize)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.process_incident_ai_triage", mock_triage)
+
+    # Step 1: Send Apple Maps link
+    payload_link = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_apple_link"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_apple_1",
+                            "text": "Xem vị trí: https://maps.apple.com/?ll=16.0611,108.2208",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res1 = await client.post("/api/v1/webhooks/facebook", json=payload_link)
+    assert res1.status_code == 200
+    mock_send.assert_awaited_with(
+        "psid_apple_link",
+        "Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng (vĩ độ: 16.0611, kinh độ: 108.2208). Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
+    )
+    session = messenger_session_manager.get_session("psid_apple_link")
+    assert session is not None
+    assert session.lat == 16.0611
+    assert session.long == 108.2208
+
+    # Step 2: Send photo
+    payload_image = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_apple_link"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_apple_2",
+                            "attachments": [
+                                {
+                                    "type": "image",
+                                    "payload": {
+                                        "url": "https://cdn.fbsbx.com/v/apple_img.jpg"
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res2 = await client.post("/api/v1/webhooks/facebook", json=payload_image)
+    assert res2.status_code == 200
+    incident = next((o for o in mock_db_session.added if isinstance(o, Incident)), None)
+    assert incident is not None
+    assert incident.channel == "MESSENGER"
+    assert incident.ticket_code.startswith("DN-")
+    assert mock_db_session.committed is True
+    assert messenger_session_manager.get_session("psid_apple_link") is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_text_google_maps_link(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify flow when citizen pastes Google Maps link, then sends image."""
+    mock_send = AsyncMock(return_value=True)
+    mock_download = AsyncMock(return_value=b"fake-image-bytes-google-maps")
+    mock_triage = AsyncMock()
+
+    def _mock_anonymize(in_path: Path | str, out_path: Path | str, **kwargs: object) -> dict[str, object]:
+        Path(out_path).write_bytes(b"blurred-image-bytes")
+        return {
+            "faces_detected": 0,
+            "plates_detected": 0,
+            "total_anonymized": 0,
+            "output_path": str(out_path),
+            "is_blurred": False,
+        }
+
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.download_image_bytes", mock_download)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.anonymize_image", _mock_anonymize)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.process_incident_ai_triage", mock_triage)
+
+    # Step 1: Send Google Maps link
+    payload_link = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_google_link"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_google_1",
+                            "text": "Link định vị: https://www.google.com/maps?q=16.0611,108.2208",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res1 = await client.post("/api/v1/webhooks/facebook", json=payload_link)
+    assert res1.status_code == 200
+    mock_send.assert_awaited_with(
+        "psid_google_link",
+        "Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng (vĩ độ: 16.0611, kinh độ: 108.2208). Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
+    )
+    session = messenger_session_manager.get_session("psid_google_link")
+    assert session is not None
+    assert session.lat == 16.0611
+    assert session.long == 108.2208
+
+    # Step 2: Send photo
+    payload_image = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_google_link"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_google_2",
+                            "attachments": [
+                                {
+                                    "type": "image",
+                                    "payload": {
+                                        "url": "https://cdn.fbsbx.com/v/google_img.jpg"
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res2 = await client.post("/api/v1/webhooks/facebook", json=payload_image)
+    assert res2.status_code == 200
+    incident = next((o for o in mock_db_session.added if isinstance(o, Incident)), None)
+    assert incident is not None
+    assert incident.channel == "MESSENGER"
+    assert incident.ticket_code.startswith("DN-")
+    assert mock_db_session.committed is True
+    assert messenger_session_manager.get_session("psid_google_link") is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_text_coordinates_out_of_bounds(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify rejection when citizen texts coordinates outside Da Nang (e.g. Hanoi)."""
+    mock_send = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+
+    mock_db_session.zone_id = None
+
+    payload = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_hanoi_text"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_hanoi_1",
+                            "text": "21.0285, 105.8542",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = await client.post("/api/v1/webhooks/facebook", json=payload)
+    assert response.status_code == 200
+    assert response.text == "EVENT_RECEIVED"
+
+    mock_send.assert_awaited_once_with(
+        "psid_hanoi_text",
+        DANANG_OUT_OF_BOUNDS_MESSAGE,
+    )
+    assert messenger_session_manager.get_session("psid_hanoi_text") is None
+    assert len(mock_db_session.added) == 0
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_attachment_url_contains_coordinates(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify citizen sharing map link via attachment payload url (e.g. fallback type)."""
+    mock_send = AsyncMock(return_value=True)
+    mock_download = AsyncMock(return_value=b"fake-image-bytes-attachment-url")
+    mock_triage = AsyncMock()
+
+    def _mock_anonymize(in_path: Path | str, out_path: Path | str, **kwargs: object) -> dict[str, object]:
+        Path(out_path).write_bytes(b"blurred-image-bytes")
+        return {
+            "faces_detected": 0,
+            "plates_detected": 0,
+            "total_anonymized": 0,
+            "output_path": str(out_path),
+            "is_blurred": False,
+        }
+
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.download_image_bytes", mock_download)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.anonymize_image", _mock_anonymize)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.process_incident_ai_triage", mock_triage)
+
+    # Step 1: Attachment with Apple Maps URL
+    payload_att = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_att_url"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_att_1",
+                            "attachments": [
+                                {
+                                    "type": "fallback",
+                                    "payload": {
+                                        "url": "https://maps.apple.com/?ll=16.0611,108.2208",
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res1 = await client.post("/api/v1/webhooks/facebook", json=payload_att)
+    assert res1.status_code == 200
+    mock_send.assert_awaited_with(
+        "psid_att_url",
+        "Hệ thống đã xác nhận vị trí của bạn tại Đà Nẵng (vĩ độ: 16.0611, kinh độ: 108.2208). Vui lòng gửi thêm 01 bức ảnh chụp hiện trường sự cố.",
+    )
+    session = messenger_session_manager.get_session("psid_att_url")
+    assert session is not None
+    assert session.lat == 16.0611
+    assert session.long == 108.2208
+
+    # Step 2: Send photo to complete
+    payload_image = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_att_url"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_att_2",
+                            "attachments": [
+                                {
+                                    "type": "image",
+                                    "payload": {
+                                        "url": "https://cdn.fbsbx.com/v/photo_att.jpg"
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    res2 = await client.post("/api/v1/webhooks/facebook", json=payload_image)
+    assert res2.status_code == 200
+    incident = next((o for o in mock_db_session.added if isinstance(o, Incident)), None)
+    assert incident is not None
+    assert incident.channel == "MESSENGER"
+    assert incident.ticket_code.startswith("DN-")
+    assert mock_db_session.committed is True
+    assert messenger_session_manager.get_session("psid_att_url") is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_text_after_location_missing_image(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify prompt when citizen has sent location, then sends text without image."""
+    mock_send = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+
+    session = messenger_session_manager.get_or_create_session("psid_loc_no_img")
+    session.lat = 16.0611
+    session.long = 108.2208
+
+    payload = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_loc_no_img"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_desc_only",
+                            "text": "Mô tả: nắp cống bị vỡ ở đầu đường",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = await client.post("/api/v1/webhooks/facebook", json=payload)
+    assert response.status_code == 200
+    mock_send.assert_awaited_once_with(
+        "psid_loc_no_img",
+        "Hệ thống đã nhận được vị trí. Vui lòng gửi thêm 01 bức ảnh hiện trường sự cố để hoàn tất phản ánh.",
+    )
+    assert len(mock_db_session.added) == 0
+
+
+@pytest.mark.asyncio
+async def test_webhook_post_attachment_url_out_of_bounds(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify rejection when map link in attachment is outside Da Nang."""
+    mock_send = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.api.v1.endpoints.webhooks.send_facebook_message", mock_send)
+    mock_db_session.zone_id = None
+
+    payload = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "page_id_101",
+                "messaging": [
+                    {
+                        "sender": {"id": "psid_att_oob"},
+                        "recipient": {"id": "page_id_101"},
+                        "message": {
+                            "mid": "mid_att_oob",
+                            "attachments": [
+                                {
+                                    "type": "fallback",
+                                    "payload": {
+                                        "url": "https://maps.apple.com/?ll=21.0285,105.8542",
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = await client.post("/api/v1/webhooks/facebook", json=payload)
+    assert response.status_code == 200
+    mock_send.assert_awaited_once_with(
+        "psid_att_oob",
+        DANANG_OUT_OF_BOUNDS_MESSAGE,
+    )
+    assert messenger_session_manager.get_session("psid_att_oob") is None
 

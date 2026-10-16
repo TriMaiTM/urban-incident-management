@@ -38,13 +38,13 @@
 * Export trong `services/__init__.py`.
 * Bổ sung unit tests trong `test_messenger_service.py`.
 
-### [ ] Bước 2: Tích hợp Quét Tọa độ Thông minh vào Webhook Ingestion (`endpoints/webhooks.py`)
+### [x] Bước 2: Tích hợp Quét Tọa độ Thông minh vào Webhook Ingestion (`endpoints/webhooks.py`)
 * Quét text và attachment URLs qua `extract_coordinates_from_text`.
 * Nếu phát hiện tọa độ: Thẩm định PostGIS `system_zones` Đà Nẵng `ST_MakePoint(long, lat)`.
 * Cập nhật tin nhắn hướng dẫn người dùng khi chưa có vị trí.
 * Tự động hoàn tất sự cố nếu đã có ảnh.
 
-### [ ] Bước 3: Viết Tests Bổ sung & Reviewer Audit
+### [x] Bước 3: Viết Tests Bổ sung & Reviewer Audit
 * Bổ sung integration test cases trong `test_messenger_webhook.py`:
   - Người dùng gửi link Apple Maps kèm ảnh $\rightarrow$ tạo sự cố thành công.
   - Người dùng gửi link Google Maps $\rightarrow$ tạo sự cố thành công.
