@@ -148,7 +148,7 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
 
 ---
 
-### [ ] Bước 6: Viết Bộ Test Suite Tự động Toàn diện (`backend/tests/test_incident_workflow.py`) & Reviewer Audit
+### [x] Bước 6: Viết Bộ Test Suite Tự động Toàn diện (`backend/tests/test_incident_workflow.py`) & Reviewer Audit
 * **Mục tiêu:** Kiểm thử toàn diện 100% các luồng nghiệp vụ trên mà không phụ thuộc hạ tầng live.
 * **Hành động:**
   * Tạo `backend/tests/test_incident_workflow.py` bao phủ:
@@ -165,11 +165,12 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
     11. `test_get_incidents_map_geojson`: Gọi `GET /map` $\rightarrow$ chuẩn RFC 7946 GeoJSON FeatureCollection, tọa độ `[lon, lat]`, cờ `is_overdue`.
     12. `test_get_incidents_analytics_summary`: Gọi `GET /analytics/summary` $\rightarrow$ trả về thống kê `by_status`, `by_priority`, `by_district`, `sla_compliance`.
   * Chạy toàn bộ test suite dự án (`pytest`).
-  * Spawn subagent `reviewer` thẩm định độc lập.
+  * Subagent `reviewer` thẩm định độc lập: `STATUS: PASS`.
 * **Kiểm chứng:**
-  * `py -m compileall -q backend/app`
-  * `py -m pytest backend/tests/test_incident_workflow.py -v`
-  * `py -m pytest` (toàn bộ test suite)
+  * `py -m compileall -q backend/app backend/tests`
+  * `py -m pytest backend/tests/test_incident_workflow.py -v` (36/36 passed)
+  * `py -m pytest` (120/120 tests toàn bộ dự án passed)
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 120/120 tests toàn hệ thống passed 100%.
 
 ---
 

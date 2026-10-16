@@ -1396,7 +1396,3 @@ async def test_route_precedence_map_not_shadowed_by_ticket_code(client: httpx.As
     assert resp_ticket.status_code == 200
     ticket_data = resp_ticket.json()
     assert ticket_data["ticket_code"] == "DN-202610-ABCD"
-
-
-
-
