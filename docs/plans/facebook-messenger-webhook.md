@@ -55,7 +55,7 @@ Xây dựng trọn vẹn kênh tiếp nhận phản ánh sự cố đa phương 
 
 ---
 
-### [ ] Bước 2: Xây dựng Service Quản lý Phiên Tạm & Gửi Tin nhắn Messenger (`services/messenger.py`)
+### [x] Bước 2: Xây dựng Service Quản lý Phiên Tạm & Gửi Tin nhắn Messenger (`services/messenger.py`)
 * **Mục tiêu:** Quản lý phiên tạm 2 bước theo `sender_psid` (ảnh + tọa độ) với TTL 15 phút và wrapper gửi tin nhắn qua Facebook Send API (hỗ trợ mock cách ly 100%).
 * **Hành động:**
   * Tạo `backend/app/services/messenger.py`:
