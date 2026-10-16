@@ -80,7 +80,7 @@ Xây dựng trọn vẹn kênh tiếp nhận phản ánh sự cố đa phương 
 
 ---
 
-### [ ] Bước 4: Xây dựng Endpoint Xử lý Sự kiện Messenger (`POST /api/v1/webhooks/facebook`)
+### [x] Bước 4: Xây dựng Endpoint Xử lý Sự kiện Messenger (`POST /api/v1/webhooks/facebook`)
 * **Mục tiêu:** Tiếp nhận sự kiện tin nhắn từ Facebook Messenger, thẩm định hàng rào địa lý, tải ảnh và ẩn danh OpenCV, tạo `Incident(channel="MESSENGER")`, kích hoạt DeepSeek Vision chạy nền, và phản hồi mã `DN-YYYYMM-XXXX`.
 * **Hành động:**
   * Endpoint `POST /facebook`:
