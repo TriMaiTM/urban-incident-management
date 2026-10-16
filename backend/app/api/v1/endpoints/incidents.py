@@ -30,20 +30,29 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user_optional
+from app.api.deps import get_current_user, get_current_user_optional, require_roles
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.category import Category
 from app.models.department import Department
-from app.models.incident import Incident, IncidentHistory, IncidentMedia
+from app.models.incident import Incident, IncidentFeedback, IncidentHistory, IncidentMedia
 from app.models.user import User
 from app.models.zone import SystemZone
 from app.schemas.incident import (
+    IncidentAnalyticsSummaryOut,
+    IncidentAssignIn,
     IncidentDetailOut,
+    IncidentFeedbackCreateIn,
+    IncidentFeedbackOut,
     IncidentListOut,
+    IncidentMapFeature,
+    IncidentMapFeatureCollectionOut,
+    IncidentMapGeometry,
+    IncidentMapProperties,
     IncidentNearbyItem,
     IncidentNearbyOut,
     IncidentOut,
+    IncidentTriageIn,
     IncidentVoteDuplicateOut,
     _extract_lat_lon,
 )
@@ -436,6 +445,608 @@ async def vote_duplicate(
     )
 
 
+@router.patch(
+    "/{id}/triage",
+    response_model=IncidentDetailOut,
+    summary="Duyệt phân loại sự cố và ấn định hạn xử lý SLA",
+)
+async def triage_incident(
+    id: UUID,
+    payload: IncidentTriageIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
+) -> IncidentDetailOut:
+    """
+    Điều phối viên (IOC Dispatcher) duyệt phân loại sự cố:
+    - Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).
+    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Kiểm tra danh mục (Category) và phòng ban/đơn vị (Department) hợp lệ.
+    - Thẩm định mức độ ưu tiên (LOW, NORMAL, HIGH, EMERGENCY).
+    - Tính hạn SLA: lấy default_sla_hours từ Category (nếu EMERGENCY: giảm 50%, tối thiểu 1 giờ).
+    - Chuyển trạng thái sang TRIAGED và cập nhật category_id, priority, assigned_department_id.
+    - Ghi lịch sử biến động trạng thái vào IncidentHistory.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    if incident.status in {"CLOSED", "REJECTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể điều phối sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+
+    category = await db.get(Category, payload.category_id)
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy danh mục sự cố với ID '{payload.category_id}'.",
+        )
+
+    department = await db.get(Department, payload.assigned_department_id)
+    if not department:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy phòng ban/đơn vị với ID '{payload.assigned_department_id}'.",
+        )
+
+    allowed_priorities = {"LOW", "NORMAL", "HIGH", "EMERGENCY"}
+    if payload.priority not in allowed_priorities:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Mức độ ưu tiên '{payload.priority}' không hợp lệ. Phải thuộc {allowed_priorities}.",
+        )
+
+    sla_hours = category.default_sla_hours or 24
+    if payload.priority == "EMERGENCY":
+        sla_hours = max(1, sla_hours // 2)
+
+    now = datetime.now(timezone.utc)
+    incident.sla_due_at = now + timedelta(hours=sla_hours)
+
+    old_status = incident.status
+    incident.category_id = payload.category_id
+    incident.category = category
+    incident.priority = payload.priority
+    incident.assigned_department_id = payload.assigned_department_id
+    incident.assigned_department = department
+    incident.status = "TRIAGED"
+
+    history_note = (
+        payload.note
+        if payload.note
+        else f"Điều phối viên duyệt phân loại sự cố: Danh mục {category.name}, mức ưu tiên {incident.priority}, giao đơn vị {department.name}"
+    )
+    history = IncidentHistory(
+        incident_id=incident.id,
+        actor_id=current_user.id,
+        from_status=old_status,
+        to_status="TRIAGED",
+        note=history_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(incident)
+    await db.commit()
+
+    reload_stmt = (
+        select(Incident)
+        .where(Incident.id == incident.id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    loaded_res = await db.execute(reload_stmt)
+    loaded_incident = loaded_res.scalar_one_or_none()
+    if not loaded_incident:
+        loaded_incident = incident
+    else:
+        if loaded_incident.category is None:
+            loaded_incident.category = category
+        if loaded_incident.assigned_department is None:
+            loaded_incident.assigned_department = department
+
+    coords = _extract_lat_lon(loaded_incident.location)
+    if coords:
+        setattr(loaded_incident, "latitude", coords[0])
+        setattr(loaded_incident, "longitude", coords[1])
+    elif hasattr(incident, "latitude") and hasattr(incident, "longitude"):
+        setattr(loaded_incident, "latitude", getattr(incident, "latitude"))
+        setattr(loaded_incident, "longitude", getattr(incident, "longitude"))
+
+    if loaded_incident.history is not None and history not in loaded_incident.history:
+        loaded_incident.history.append(history)
+
+    return IncidentDetailOut.model_validate(loaded_incident)
+
+
+@router.patch(
+    "/{id}/assign",
+    response_model=IncidentDetailOut,
+    summary="Phân công đơn vị hoặc cán bộ kỹ thuật xử lý sự cố hiện trường",
+)
+async def assign_incident(
+    id: UUID,
+    payload: IncidentAssignIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
+) -> IncidentDetailOut:
+    """
+    Phân công sự cố cho đơn vị hoặc kỹ thuật viên hiện trường:
+    - Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).
+    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Nếu gán assigned_department_id: kiểm tra Department tồn tại.
+    - Nếu gán assigned_technician_id: kiểm tra User tồn tại và có vai trò TECHNICIAN, DISPATCHER hoặc ADMIN.
+    - Chuyển trạng thái sự cố sang ASSIGNED.
+    - Ghi lịch sử biến động trạng thái vào IncidentHistory.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    if incident.status in {"CLOSED", "REJECTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể phân công sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+
+    if payload.assigned_department_id is None and payload.assigned_technician_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vui lòng cung cấp ít nhất đơn vị xử lý hoặc cán bộ kỹ thuật phụ trách.",
+        )
+
+    assigned_dept: Department | None = None
+    if payload.assigned_department_id is not None:
+        assigned_dept = await db.get(Department, payload.assigned_department_id)
+        if not assigned_dept:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Không tìm thấy phòng ban/đơn vị với ID '{payload.assigned_department_id}'.",
+            )
+        incident.assigned_department_id = payload.assigned_department_id
+        incident.assigned_department = assigned_dept
+
+    assigned_tech: User | None = None
+    if payload.assigned_technician_id is not None:
+        assigned_tech = await db.get(User, payload.assigned_technician_id)
+        if not assigned_tech:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Không tìm thấy cán bộ kỹ thuật với ID '{payload.assigned_technician_id}'.",
+            )
+        allowed_roles = {"TECHNICIAN", "DISPATCHER", "ADMIN"}
+        if assigned_tech.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Người dùng có vai trò '{assigned_tech.role}', không thuộc danh sách vai trò hợp lệ để tiếp nhận xử lý {allowed_roles}.",
+            )
+        incident.assigned_technician_id = payload.assigned_technician_id
+        incident.assigned_technician = assigned_tech
+
+    old_status = incident.status
+    incident.status = "ASSIGNED"
+
+    now = datetime.now(timezone.utc)
+    history_note = payload.note or "Phân công đơn vị/kỹ thuật viên phụ trách xử lý hiện trường"
+    history = IncidentHistory(
+        incident_id=incident.id,
+        actor_id=current_user.id,
+        from_status=old_status,
+        to_status="ASSIGNED",
+        note=history_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(incident)
+    await db.commit()
+
+    reload_stmt = (
+        select(Incident)
+        .where(Incident.id == incident.id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    loaded_res = await db.execute(reload_stmt)
+    loaded_incident = loaded_res.scalar_one_or_none()
+    if not loaded_incident:
+        loaded_incident = incident
+    else:
+        if loaded_incident.category is None and incident.category is not None:
+            loaded_incident.category = incident.category
+        if loaded_incident.assigned_department is None and incident.assigned_department is not None:
+            loaded_incident.assigned_department = incident.assigned_department
+        if loaded_incident.assigned_technician is None and incident.assigned_technician is not None:
+            loaded_incident.assigned_technician = incident.assigned_technician
+
+    coords = _extract_lat_lon(loaded_incident.location)
+    if coords:
+        setattr(loaded_incident, "latitude", coords[0])
+        setattr(loaded_incident, "longitude", coords[1])
+    elif hasattr(incident, "latitude") and hasattr(incident, "longitude"):
+        setattr(loaded_incident, "latitude", getattr(incident, "latitude"))
+        setattr(loaded_incident, "longitude", getattr(incident, "longitude"))
+
+    if loaded_incident.history is not None and history not in loaded_incident.history:
+        loaded_incident.history.append(history)
+
+    return IncidentDetailOut.model_validate(loaded_incident)
+
+
+@router.patch(
+    "/{id}/status",
+    response_model=IncidentDetailOut,
+    summary="Cập nhật tiến độ xử lý và minh chứng hoàn thành sự cố hiện trường",
+)
+async def update_incident_status(
+    id: UUID,
+    to_status: str = Form(..., description="Trạng thái: IN_PROGRESS, RESOLVED, REJECTED, CLOSED"),
+    note: str | None = Form(None, description="Ghi chú cập nhật tiến độ hoặc lý do từ chối"),
+    proof_image: UploadFile | None = File(None, description="Ảnh minh chứng sau khắc phục (bắt buộc khi chuyển sang RESOLVED)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER", "TECHNICIAN"])),
+) -> IncidentDetailOut:
+    """
+    Cập nhật trạng thái sự cố hiện trường theo quy trình (State Machine):
+    - RBAC: Yêu cầu vai trò ADMIN, DISPATCHER hoặc TECHNICIAN.
+    - Validate to_status thuộc {'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'CLOSED'}.
+    - Chặn cập nhật đối với sự cố đã ở trạng thái kết thúc ('CLOSED', 'REJECTED').
+    - Chuyển sang 'IN_PROGRESS': chỉ cho phép khi trạng thái hiện tại là 'ASSIGNED' hoặc 'RESOLVED' (mở lại).
+      Nếu mở lại từ 'RESOLVED', đặt lại resolved_at = None.
+    - Chuyển sang 'RESOLVED': chỉ cho phép khi trạng thái hiện tại là 'IN_PROGRESS', bắt buộc có ảnh
+      minh chứng sau sửa chữa (AFTER_PROOF). Làm mờ khuôn mặt/biển số xe (Nghị định 13) và lưu công khai.
+    - Chuyển sang 'REJECTED': chỉ DISPATCHER hoặc ADMIN có quyền, bắt buộc phải có ghi chú giải trình lý do.
+    - Chuyển sang 'CLOSED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' hoặc 'CONFIRMED'.
+    - Ghi nhận biến động trạng thái vào IncidentHistory.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    allowed_statuses = {"IN_PROGRESS", "RESOLVED", "REJECTED", "CLOSED"}
+    clean_to_status = to_status.strip()
+    if clean_to_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Trạng thái '{to_status}' không hợp lệ. Phải thuộc {allowed_statuses}.",
+        )
+
+    if incident.status in {"CLOSED", "REJECTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể cập nhật trạng thái sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    if clean_to_status == "IN_PROGRESS":
+        if incident.status not in {"ASSIGNED", "RESOLVED"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể chuyển sang 'IN_PROGRESS' khi sự cố đang ở trạng thái 'ASSIGNED' hoặc 'RESOLVED' (khiếu nại mở lại) (trạng thái hiện tại: '{incident.status}').",
+            )
+        if incident.status == "RESOLVED":
+            incident.resolved_at = None
+
+    elif clean_to_status == "RESOLVED":
+        if incident.status != "IN_PROGRESS":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể chuyển sang 'RESOLVED' khi sự cố đang ở trạng thái 'IN_PROGRESS' (trạng thái hiện tại: '{incident.status}').",
+            )
+
+        has_existing_proof = any(
+            getattr(m, "media_type", None) == "AFTER_PROOF" for m in (incident.media or [])
+        )
+        has_new_proof = proof_image is not None and bool(proof_image.filename)
+
+        if not has_existing_proof and not has_new_proof:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bắt buộc phải tải lên hình ảnh minh chứng sau sửa chữa (AFTER_PROOF) để chuyển sang trạng thái RESOLVED.",
+            )
+
+        if has_new_proof:
+            assert proof_image is not None
+            proof_content = await proof_image.read()
+            if not proof_content:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Tệp ảnh minh chứng rỗng. Vui lòng tải lên ảnh chụp hiện trường sau khắc phục.",
+                )
+            max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+            if len(proof_content) > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Dung lượng tệp vượt quá giới hạn cho phép ({settings.MAX_UPLOAD_SIZE_MB}MB).",
+                )
+
+            raw_filename = Path(proof_image.filename or "proof.jpg").name
+            clean_filename = "".join(c for c in raw_filename if c.isalnum() or c in "._-") or "proof.jpg"
+            saved_filename = f"{incident.id.hex}_proof_{clean_filename}"
+
+            private_dir, public_dir = _get_upload_dirs()
+            temp_input_path = private_dir / f"tmp_{saved_filename}"
+            target_proof_path = public_dir / saved_filename
+
+            with open(temp_input_path, "wb") as f:
+                f.write(proof_content)
+
+            try:
+                anonymize_image(temp_input_path, target_proof_path)
+            except Exception as exc:
+                target_proof_path.unlink(missing_ok=True)
+                logger.exception("Anonymization failed for proof image %s: %s", temp_input_path, exc)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Không thể xử lý hình ảnh minh chứng: {exc}",
+                )
+            finally:
+                temp_input_path.unlink(missing_ok=True)
+
+            proof_media = IncidentMedia(
+                incident_id=incident.id,
+                media_type="AFTER_PROOF",
+                file_url=f"/uploads/public/{saved_filename}",
+                created_at=now,
+            )
+            db.add(proof_media)
+            if incident.media is not None:
+                incident.media.append(proof_media)
+
+        incident.resolved_at = now
+
+    elif clean_to_status == "REJECTED":
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền từ chối sự cố.",
+            )
+        if not note or not note.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bắt buộc phải cung cấp lý do giải trình khi từ chối sự cố (note).",
+            )
+
+    elif clean_to_status == "CLOSED":
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền đóng sự cố.",
+            )
+        if incident.status not in {"RESOLVED", "CONFIRMED"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể đóng sự cố khi ở trạng thái 'RESOLVED' hoặc 'CONFIRMED' (trạng thái hiện tại: '{incident.status}').",
+            )
+
+    old_status = incident.status
+    incident.status = clean_to_status
+
+    history_note = note.strip() if note and note.strip() else f"Cập nhật trạng thái sự cố sang {clean_to_status}"
+    history = IncidentHistory(
+        incident_id=incident.id,
+        actor_id=current_user.id,
+        from_status=old_status,
+        to_status=clean_to_status,
+        note=history_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(incident)
+    await db.commit()
+
+    reload_stmt = (
+        select(Incident)
+        .where(Incident.id == incident.id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    loaded_res = await db.execute(reload_stmt)
+    loaded_incident = loaded_res.scalar_one_or_none()
+    if not loaded_incident:
+        loaded_incident = incident
+    else:
+        if loaded_incident.category is None and incident.category is not None:
+            loaded_incident.category = incident.category
+        if loaded_incident.assigned_department is None and incident.assigned_department is not None:
+            loaded_incident.assigned_department = incident.assigned_department
+        if loaded_incident.assigned_technician is None and incident.assigned_technician is not None:
+            loaded_incident.assigned_technician = incident.assigned_technician
+        if loaded_incident.media is None and incident.media is not None:
+            loaded_incident.media = incident.media
+
+    coords = _extract_lat_lon(loaded_incident.location)
+    if coords:
+        setattr(loaded_incident, "latitude", coords[0])
+        setattr(loaded_incident, "longitude", coords[1])
+    elif hasattr(incident, "latitude") and hasattr(incident, "longitude"):
+        setattr(loaded_incident, "latitude", getattr(incident, "latitude"))
+        setattr(loaded_incident, "longitude", getattr(incident, "longitude"))
+
+    if loaded_incident.history is not None and history not in loaded_incident.history:
+        loaded_incident.history.append(history)
+
+    detail_out = IncidentDetailOut.model_validate(loaded_incident)
+    is_privileged = current_user.role in ["ADMIN", "DISPATCHER"]
+    if not is_privileged:
+        if detail_out.citizen_contact:
+            detail_out.citizen_contact = mask_citizen_contact(detail_out.citizen_contact)
+        detail_out.media = [m for m in detail_out.media if m.media_type != "BEFORE_ORIGINAL"]
+
+    return detail_out
+
+
+@router.post(
+    "/{id}/feedback",
+    response_model=IncidentFeedbackOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Đánh giá mức độ hài lòng hoặc khiếu nại mở lại sự cố sau khắc phục",
+)
+async def submit_incident_feedback(
+    id: UUID,
+    payload: IncidentFeedbackCreateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IncidentFeedbackOut:
+    """
+    Công dân đánh giá chất lượng khắc phục sự cố:
+    - Bắt buộc người dùng đã đăng nhập (current_user).
+    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Sự cố bắt buộc đang ở trạng thái RESOLVED. Nếu không: 400 Bad Request.
+    - Kiểm tra sự cố chưa có feedback trước đó (incident.feedback is not None): Nếu có: 400 Bad Request.
+    - Tạo bản ghi IncidentFeedback (rating từ 1 đến 5 sao).
+    - Nếu rating >= 3:
+        - Chuyển status sang CONFIRMED.
+        - Ghi nhận IncidentHistory (note="Công dân hài lòng...").
+    - Nếu rating <= 2:
+        - Chuyển status về IN_PROGRESS.
+        - Đặt lại resolved_at = None (bắt buộc theo domain invariant).
+        - Ghi nhận IncidentHistory (note="Công dân không hài lòng...").
+    - db.commit() và trả về IncidentFeedbackOut.
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.id == id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
+            selectinload(Incident.media),
+            selectinload(Incident.history),
+            selectinload(Incident.feedback),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+        )
+
+    if incident.status != "RESOLVED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chỉ có thể đánh giá đối với sự cố đã được khắc phục (trạng thái RESOLVED).",
+        )
+
+    if incident.feedback is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sự cố này đã được gửi đánh giá phản hồi trước đó.",
+        )
+
+    now = datetime.now(timezone.utc)
+    feedback = IncidentFeedback(
+        id=uuid4(),
+        incident_id=incident.id,
+        citizen_id=current_user.id,
+        rating=payload.rating,
+        comment=payload.comment,
+        created_at=now,
+    )
+    db.add(feedback)
+    incident.feedback = feedback
+
+    if payload.rating >= 3:
+        old_status = incident.status
+        incident.status = "CONFIRMED"
+        history = IncidentHistory(
+            incident_id=incident.id,
+            actor_id=current_user.id,
+            from_status=old_status,
+            to_status="CONFIRMED",
+            note=f"Công dân hài lòng ({payload.rating} sao): {payload.comment or 'Đồng ý nghiệm thu'}",
+            created_at=now,
+        )
+    else:
+        old_status = incident.status
+        incident.status = "IN_PROGRESS"
+        incident.resolved_at = None
+        history = IncidentHistory(
+            incident_id=incident.id,
+            actor_id=current_user.id,
+            from_status=old_status,
+            to_status="IN_PROGRESS",
+            note=f"Công dân không hài lòng ({payload.rating} sao), yêu cầu xử lý lại: {payload.comment or 'Chưa đạt yêu cầu'}",
+            created_at=now,
+        )
+
+    db.add(history)
+    if incident.history is not None and history not in incident.history:
+        incident.history.append(history)
+
+    db.add(incident)
+    await db.commit()
+
+    return IncidentFeedbackOut.model_validate(feedback)
+
+
 @router.get(
     "",
     response_model=IncidentListOut,
@@ -503,6 +1114,194 @@ async def list_incidents(
         items=items,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get(
+    "/map",
+    response_model=IncidentMapFeatureCollectionOut,
+    summary="Bản đồ không gian sự cố đô thị chuẩn GeoJSON (RFC 7946)",
+)
+async def get_incidents_map(
+    district: str | None = Query(None, description="Lọc theo quận/huyện tại Đà Nẵng"),
+    category_code: str | None = Query(None, description="Lọc theo mã danh mục sự cố"),
+    incident_status: str | None = Query(None, alias="status", description="Lọc theo trạng thái cụ thể"),
+    db: AsyncSession = Depends(get_db),
+) -> IncidentMapFeatureCollectionOut:
+    """
+    Truy xuất danh sách sự cố phục vụ hiển thị trên bản đồ số GIS theo định dạng GeoJSON FeatureCollection.
+    Tọa độ hình học tuân thủ RFC 7946: Point [longitude, latitude].
+    Mặc định loại trừ các sự cố đã đóng (CLOSED) hoặc bị từ chối (REJECTED).
+    """
+    stmt = (
+        select(Incident)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.media),
+        )
+    )
+
+    if incident_status:
+        stmt = stmt.where(Incident.status == incident_status)
+    else:
+        stmt = stmt.where(Incident.status.notin_(["CLOSED", "REJECTED"]))
+
+    if district:
+        stmt = stmt.where(func.lower(Incident.district) == district.strip().lower())
+
+    if category_code:
+        stmt = stmt.join(Category, Incident.category_id == Category.id).where(Category.code == category_code)
+
+    stmt = stmt.order_by(Incident.created_at.desc())
+    result = await db.execute(stmt)
+    incidents = result.scalars().all()
+
+    features: list[IncidentMapFeature] = []
+    for inc in incidents:
+        coords = _extract_lat_lon(inc.location)
+        if not coords and getattr(inc, "latitude", None) is not None and getattr(inc, "longitude", None) is not None:
+            coords = (float(inc.latitude), float(inc.longitude))
+        if not coords:
+            continue
+        latitude, longitude = coords
+        geom = IncidentMapGeometry(coordinates=[longitude, latitude])
+        props = IncidentMapProperties.model_validate(inc)
+        features.append(IncidentMapFeature(geometry=geom, properties=props))
+
+    return IncidentMapFeatureCollectionOut(features=features)
+
+
+@router.get(
+    "/analytics/summary",
+    response_model=IncidentAnalyticsSummaryOut,
+    summary="Thống kê tổng quan điều hành IOC và chỉ số KPI/SLA sự cố",
+)
+async def get_incidents_analytics_summary(
+    from_date: datetime | None = Query(None, description="Từ ngày (mặc định không giới hạn)"),
+    to_date: datetime | None = Query(None, description="Đến ngày (mặc định không giới hạn)"),
+    db: AsyncSession = Depends(get_db),
+) -> IncidentAnalyticsSummaryOut:
+    """
+    Tổng hợp dữ liệu điều hành trung tâm chỉ huy IOC:
+    - Tổng số sự cố.
+    - Phân bổ theo 8 trạng thái quy trình xử lý.
+    - Phân bổ theo 4 mức ưu tiên xử lý.
+    - Phân bổ theo quận/huyện tại TP Đà Nẵng.
+    - Tỷ lệ tuân thủ cam kết chất lượng dịch vụ (SLA).
+    """
+    conditions = []
+    if from_date is not None:
+        if from_date.tzinfo is None:
+            from_date = from_date.replace(tzinfo=timezone.utc)
+        conditions.append(Incident.created_at >= from_date)
+    if to_date is not None:
+        if to_date.tzinfo is None:
+            to_date = to_date.replace(tzinfo=timezone.utc)
+        conditions.append(Incident.created_at <= to_date)
+
+    # 1. Total incidents
+    total_stmt = select(func.count(Incident.id))
+    if conditions:
+        total_stmt = total_stmt.where(*conditions)
+    total_res = await db.execute(total_stmt)
+    total_incidents = total_res.scalar() or 0
+
+    # 2. Status distribution (8 states initialized to 0)
+    by_status: dict[str, int] = {
+        "SUBMITTED": 0,
+        "TRIAGED": 0,
+        "ASSIGNED": 0,
+        "IN_PROGRESS": 0,
+        "RESOLVED": 0,
+        "CONFIRMED": 0,
+        "CLOSED": 0,
+        "REJECTED": 0,
+    }
+    status_stmt = select(Incident.status, func.count(Incident.id))
+    if conditions:
+        status_stmt = status_stmt.where(*conditions)
+    status_stmt = status_stmt.group_by(Incident.status)
+    status_res = await db.execute(status_stmt)
+    for st, count in status_res.all():
+        if st is not None:
+            by_status[st] = count
+
+    # 3. Priority distribution (4 priority levels initialized to 0)
+    by_priority: dict[str, int] = {
+        "LOW": 0,
+        "NORMAL": 0,
+        "HIGH": 0,
+        "EMERGENCY": 0,
+    }
+    prio_stmt = select(Incident.priority, func.count(Incident.id))
+    if conditions:
+        prio_stmt = prio_stmt.where(*conditions)
+    prio_stmt = prio_stmt.group_by(Incident.priority)
+    prio_res = await db.execute(prio_stmt)
+    for pr, count in prio_res.all():
+        if pr is not None:
+            by_priority[pr] = count
+
+    # 4. District distribution
+    by_district: dict[str, int] = {}
+    dist_stmt = (
+        select(Incident.district, func.count(Incident.id))
+        .where(Incident.district.isnot(None))
+    )
+    if conditions:
+        dist_stmt = dist_stmt.where(*conditions)
+    dist_stmt = dist_stmt.group_by(Incident.district)
+    dist_res = await db.execute(dist_stmt)
+    for d, count in dist_res.all():
+        if d:
+            by_district[d] = count
+
+    # 5. SLA compliance metrics
+    sla_stmt = (
+        select(Incident.status, Incident.sla_due_at, Incident.resolved_at)
+        .where(Incident.sla_due_at.isnot(None))
+    )
+    if conditions:
+        sla_stmt = sla_stmt.where(*conditions)
+    sla_res = await db.execute(sla_stmt)
+    sla_rows = sla_res.all()
+
+    now = datetime.now(timezone.utc)
+    on_time_count = 0
+    overdue_count = 0
+    for inc_status, sla_due_at, resolved_at in sla_rows:
+        sla_tz = sla_due_at if sla_due_at.tzinfo else sla_due_at.replace(tzinfo=timezone.utc)
+        res_tz = (resolved_at if resolved_at.tzinfo else resolved_at.replace(tzinfo=timezone.utc)) if resolved_at else None
+
+        if inc_status in ("RESOLVED", "CONFIRMED", "CLOSED"):
+            if res_tz is not None:
+                if res_tz <= sla_tz:
+                    on_time_count += 1
+                else:
+                    overdue_count += 1
+            else:
+                if now <= sla_tz:
+                    on_time_count += 1
+                else:
+                    overdue_count += 1
+        elif inc_status not in ("RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"):
+            if now > sla_tz:
+                overdue_count += 1
+
+    total_evaluated = on_time_count + overdue_count
+    compliance_rate = round((on_time_count / total_evaluated) * 100.0, 1) if total_evaluated > 0 else 100.0
+    sla_compliance: dict[str, object] = {
+        "within_sla": on_time_count,
+        "breached_sla": overdue_count,
+        "compliance_rate": compliance_rate,
+    }
+
+    return IncidentAnalyticsSummaryOut(
+        total_incidents=total_incidents,
+        by_status=by_status,
+        by_priority=by_priority,
+        by_district=by_district,
+        sla_compliance=sla_compliance,
     )
 
 

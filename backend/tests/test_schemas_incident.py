@@ -18,6 +18,16 @@ from app.schemas.incident import (
     IncidentNearbyOut,
     IncidentVoteDuplicateOut,
     IncidentListOut,
+    IncidentTriageIn,
+    IncidentAssignIn,
+    IncidentStatusUpdateIn,
+    IncidentFeedbackCreateIn,
+    IncidentFeedbackOut,
+    IncidentMapProperties,
+    IncidentMapGeometry,
+    IncidentMapFeature,
+    IncidentMapFeatureCollectionOut,
+    IncidentAnalyticsSummaryOut,
     _extract_lat_lon,
 )
 
@@ -348,3 +358,253 @@ def test_extract_lat_lon_helper():
         y = 16.07
 
     assert _extract_lat_lon(DummyShapelyPoint()) == (16.07, 108.22)
+
+
+def test_incident_triage_in():
+    cat_id = uuid4()
+    dept_id = uuid4()
+    triage = IncidentTriageIn(
+        category_id=cat_id,
+        priority="HIGH",
+        assigned_department_id=dept_id,
+        note="Phân loại khẩn cấp do mưa bão",
+    )
+    assert triage.category_id == cat_id
+    assert triage.priority == "HIGH"
+    assert triage.assigned_department_id == dept_id
+    assert triage.note == "Phân loại khẩn cấp do mưa bão"
+
+    # Missing required category_id or priority raises ValidationError
+    with pytest.raises(ValidationError):
+        IncidentTriageIn(priority="HIGH", assigned_department_id=dept_id)  # type: ignore
+
+
+def test_incident_assign_in():
+    dept_id = uuid4()
+    tech_id = uuid4()
+
+    # Full assignment
+    assign = IncidentAssignIn(
+        assigned_department_id=dept_id,
+        assigned_technician_id=tech_id,
+        note="Giao kỹ thuật viên xử lý gấp",
+    )
+    assert assign.assigned_department_id == dept_id
+    assert assign.assigned_technician_id == tech_id
+    assert assign.note == "Giao kỹ thuật viên xử lý gấp"
+
+    # Optional defaults
+    empty_assign = IncidentAssignIn()
+    assert empty_assign.assigned_department_id is None
+    assert empty_assign.assigned_technician_id is None
+    assert empty_assign.note is None
+
+
+def test_incident_status_update_in():
+    update = IncidentStatusUpdateIn(
+        status="IN_PROGRESS",
+        note="Kỹ thuật viên đã tiếp cận hiện trường",
+    )
+    assert update.status == "IN_PROGRESS"
+    assert update.note == "Kỹ thuật viên đã tiếp cận hiện trường"
+
+    # Missing status
+    with pytest.raises(ValidationError):
+        IncidentStatusUpdateIn()  # type: ignore
+
+
+def test_incident_feedback_create_in():
+    # Valid feedback
+    fb = IncidentFeedbackCreateIn(rating=5, comment="Xử lý rất nhanh và sạch sẽ")
+    assert fb.rating == 5
+    assert fb.comment == "Xử lý rất nhanh và sạch sẽ"
+
+    # Rating boundary values
+    fb_min = IncidentFeedbackCreateIn(rating=1)
+    assert fb_min.rating == 1
+    assert fb_min.comment is None
+
+    # Invalid rating < 1
+    with pytest.raises(ValidationError):
+        IncidentFeedbackCreateIn(rating=0)
+
+    # Invalid rating > 5
+    with pytest.raises(ValidationError):
+        IncidentFeedbackCreateIn(rating=6)
+
+    # Comment too long (> 1000)
+    with pytest.raises(ValidationError):
+        IncidentFeedbackCreateIn(rating=4, comment="A" * 1001)
+
+
+def test_incident_feedback_out():
+    fb_id = uuid4()
+    inc_id = uuid4()
+    cit_id = uuid4()
+    now = datetime.now(timezone.utc)
+
+    fb_out = IncidentFeedbackOut(
+        id=fb_id,
+        incident_id=inc_id,
+        citizen_id=cit_id,
+        rating=4,
+        comment="Hài lòng với kết quả",
+        created_at=now,
+    )
+    assert fb_out.id == fb_id
+    assert fb_out.rating == 4
+    assert fb_out.comment == "Hài lòng với kết quả"
+
+    # Validation from dict
+    data = {
+        "id": fb_id,
+        "incident_id": inc_id,
+        "citizen_id": cit_id,
+        "rating": 5,
+        "comment": "Rất tốt",
+        "created_at": now,
+    }
+    fb_validated = IncidentFeedbackOut.model_validate(data)
+    assert fb_validated.rating == 5
+
+
+def test_incident_detail_out_with_feedback():
+    inc_id = uuid4()
+    fb_id = uuid4()
+    cit_id = uuid4()
+    now = datetime.now(timezone.utc)
+
+    detail_data = {
+        "id": inc_id,
+        "ticket_code": "DN-202610-0099",
+        "title": "Nắp cống hỏng",
+        "description": "Nắp cống bị bể",
+        "status": "CONFIRMED",
+        "priority": "HIGH",
+        "channel": "WEB",
+        "address_text": "Lê Duẩn, Đà Nẵng",
+        "latitude": 16.072,
+        "longitude": 108.218,
+        "feedback": {
+            "id": fb_id,
+            "incident_id": inc_id,
+            "citizen_id": cit_id,
+            "rating": 5,
+            "comment": "Đã thay nắp mới chắc chắn",
+            "created_at": now,
+        },
+        "created_at": now,
+    }
+    detail = IncidentDetailOut.model_validate(detail_data)
+    assert detail.feedback is not None
+    assert detail.feedback.rating == 5
+    assert detail.feedback.comment == "Đã thay nắp mới chắc chắn"
+
+
+def test_incident_map_geometry_and_feature():
+    # Valid geometry coordinates: [longitude, latitude]
+    geom = IncidentMapGeometry(coordinates=[108.2208, 16.0678])
+    assert geom.type == "Point"
+    assert geom.coordinates == [108.2208, 16.0678]
+
+    # Length != 2 must fail
+    with pytest.raises(ValidationError):
+        IncidentMapGeometry(coordinates=[108.2208])
+
+    with pytest.raises(ValidationError):
+        IncidentMapGeometry(coordinates=[108.2208, 16.0678, 10.0])
+
+    inc_id = uuid4()
+    now = datetime.now(timezone.utc)
+    props = IncidentMapProperties(
+        id=inc_id,
+        ticket_code="DN-202610-0088",
+        title="Ngập úng cục bộ",
+        status="IN_PROGRESS",
+        priority="EMERGENCY",
+        category_code="FLOODING",
+        category_name="Ngập úng đô thị",
+        district="Hải Châu",
+        address_text="Trần Phú, Hải Châu, Đà Nẵng",
+        sla_due_at=now,
+        is_overdue=True,
+        anonymized_image_url="/uploads/public/flood.jpg",
+        created_at=now,
+    )
+    assert props.ticket_code == "DN-202610-0088"
+    assert props.is_overdue is True
+
+    feature = IncidentMapFeature(geometry=geom, properties=props)
+    assert feature.type == "Feature"
+    assert feature.geometry.coordinates == [108.2208, 16.0678]
+    assert feature.properties.title == "Ngập úng cục bộ"
+
+    collection = IncidentMapFeatureCollectionOut(features=[feature])
+    assert collection.type == "FeatureCollection"
+    assert len(collection.features) == 1
+
+
+def test_incident_map_properties_from_orm_object():
+    class DummyCat:
+        code = "ROAD_DAMAGE"
+        name = "Hư hỏng mặt đường"
+
+    class DummyMedia:
+        media_type = "BEFORE_ANONYMIZED"
+        file_url = "/uploads/public/road_anon.jpg"
+
+    class DummyIncident:
+        id = uuid4()
+        ticket_code = "DN-202610-0077"
+        title = "Ổ gà lớn"
+        status = "TRIAGED"
+        priority = "NORMAL"
+        district = "Cẩm Lệ"
+        address_text = "Cách Mạng Tháng Tám, Cẩm Lệ, Đà Nẵng"
+        sla_due_at = datetime(2020, 1, 1, tzinfo=timezone.utc)  # past date
+        created_at = datetime.now(timezone.utc)
+        category = DummyCat()
+        media = [DummyMedia()]
+
+    obj = DummyIncident()
+    props = IncidentMapProperties.model_validate(obj)
+    assert props.ticket_code == "DN-202610-0077"
+    assert props.category_code == "ROAD_DAMAGE"
+    assert props.category_name == "Hư hỏng mặt đường"
+    assert props.anonymized_image_url == "/uploads/public/road_anon.jpg"
+    assert props.is_overdue is True  # Auto-computed overdue because sla_due_at is past and status is TRIAGED
+
+
+def test_incident_analytics_summary_out():
+    summary = IncidentAnalyticsSummaryOut(
+        total_incidents=150,
+        by_status={
+            "SUBMITTED": 20,
+            "TRIAGED": 30,
+            "IN_PROGRESS": 40,
+            "RESOLVED": 50,
+            "CLOSED": 10,
+        },
+        by_priority={
+            "LOW": 20,
+            "NORMAL": 80,
+            "HIGH": 40,
+            "EMERGENCY": 10,
+        },
+        by_district={
+            "Hải Châu": 50,
+            "Thanh Khê": 40,
+            "Sơn Trà": 30,
+            "Ngũ Hành Sơn": 20,
+            "Cẩm Lệ": 10,
+        },
+        sla_compliance={
+            "within_sla": 120,
+            "breached_sla": 30,
+            "compliance_rate": 80.0,
+        },
+    )
+    assert summary.total_incidents == 150
+    assert summary.by_status["IN_PROGRESS"] == 40
+    assert summary.sla_compliance["compliance_rate"] == 80.0
+

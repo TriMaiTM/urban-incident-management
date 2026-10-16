@@ -13,6 +13,16 @@ from app.schemas.incident import (
     IncidentNearbyOut,
     IncidentVoteDuplicateOut,
     IncidentListOut,
+    IncidentTriageIn,
+    IncidentAssignIn,
+    IncidentStatusUpdateIn,
+    IncidentFeedbackCreateIn,
+    IncidentFeedbackOut,
+    IncidentMapProperties,
+    IncidentMapGeometry,
+    IncidentMapFeature,
+    IncidentMapFeatureCollectionOut,
+    IncidentAnalyticsSummaryOut,
 )
 
 __all__ = [
@@ -36,5 +46,15 @@ __all__ = [
     "IncidentNearbyOut",
     "IncidentVoteDuplicateOut",
     "IncidentListOut",
+    "IncidentTriageIn",
+    "IncidentAssignIn",
+    "IncidentStatusUpdateIn",
+    "IncidentFeedbackCreateIn",
+    "IncidentFeedbackOut",
+    "IncidentMapProperties",
+    "IncidentMapGeometry",
+    "IncidentMapFeature",
+    "IncidentMapFeatureCollectionOut",
+    "IncidentAnalyticsSummaryOut",
 ]
 
