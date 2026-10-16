@@ -185,6 +185,9 @@ class IncidentOut(BaseModel):
             if hasattr(data, attr):
                 res[attr] = getattr(data, attr)
 
+        if "duplicate_count" not in res or res["duplicate_count"] is None:
+            res["duplicate_count"] = 0
+
         # Latitude and longitude
         lat = getattr(data, "latitude", None)
         lon = getattr(data, "longitude", None)

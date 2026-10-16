@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 import logging
-import os
 from pathlib import Path
 import secrets
 import string
@@ -276,6 +275,7 @@ async def create_incident(
         address_text=address_text,
         district=district,
         ward=ward,
+        duplicate_count=0,
     )
     db.add(incident)
     await db.flush()

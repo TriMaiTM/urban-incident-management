@@ -113,19 +113,22 @@
   * Gắn router vào `backend/app/api/v1/router.py`.
 * **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`.
 
-### [ ] Bước 6: Viết Bộ Test Suite Tự động & Reviewer Audit
+### [x] Bước 6: Viết Bộ Test Suite Tự động & Reviewer Audit
 * **Hành động:**
   * Tạo `backend/tests/test_incidents.py`:
     * Mock toàn bộ DeepSeek Vision API (không gọi external API thật).
     * Test tiếp nhận sự cố thành công tại Đà Nẵng (Cầu Rồng, Cầu Sông Hàn).
     * Test từ chối sự cố ngoài Đà Nẵng (422 Unprocessable Entity).
     * Test phát hiện sự cố lân cận 50m (`/nearby`) và vote trùng lặp (`/vote-duplicate`).
-    * Test tra cứu chi tiết sự cố theo `ticket_code`.
+    * Test tra cứu chi tiết sự cố theo `ticket_code` (ẩn PII và ảnh gốc cho public, hiển thị cho dispatcher).
+    * Test xử lý lỗi 404, file rỗng 400, file quá lớn 413, dọn dẹp file khi anonymizer lỗi.
+    * Test thực thi tác vụ nền `process_incident_ai_triage` chuyển sang `TRIAGED`.
   * Chạy toàn bộ test suite.
 * **Kiểm chứng:**
   * `py -m compileall -q backend/app`
   * `py -m pytest backend/tests/test_anonymizer.py -v`
   * `py -m pytest backend/tests/test_incidents.py -v`
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 75/75 tests toàn bộ hệ thống passed 100%.
 
 ---
 
