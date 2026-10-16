@@ -10,6 +10,7 @@ from app.services.messenger import (
     MessengerSession,
     MessengerSessionManager,
     download_image_bytes,
+    extract_coordinates_from_text,
     messenger_session_manager,
     send_facebook_message,
 )
@@ -365,3 +366,157 @@ async def test_download_image_bytes_network_exception() -> None:
 
         with pytest.raises(httpx.ConnectTimeout):
             await download_image_bytes("https://cdn.example.com/timeout.jpg")
+
+
+# ---------------------------------------------------------------------------
+# 5. Tests for extract_coordinates_from_text
+# ---------------------------------------------------------------------------
+
+
+def test_extract_coordinates_apple_maps_urls() -> None:
+    """Test extracting coordinates from various Apple Maps URL formats."""
+    # Standard ll parameter
+    url_ll = "https://maps.apple.com/?ll=16.0611,108.2208"
+    assert extract_coordinates_from_text(url_ll) == (16.0611, 108.2208)
+
+    # Search sll parameter with place query
+    url_sll = "https://maps.apple.com/?q=DaNang&sll=16.0611,108.2208"
+    assert extract_coordinates_from_text(url_sll) == (16.0611, 108.2208)
+
+    # Coordinates in q parameter
+    url_q = "https://maps.apple.com/?q=16.0611,108.2208"
+    assert extract_coordinates_from_text(url_q) == (16.0611, 108.2208)
+
+    # URL-encoded (%2C) coordinates
+    url_encoded = "https://maps.apple.com/?ll=16.0611%2C108.2208&q=Marked%20Location"
+    assert extract_coordinates_from_text(url_encoded) == (16.0611, 108.2208)
+
+    # Apple Maps link embedded within user message
+    msg = "Vị trí sự cố: https://maps.apple.com/?ll=16.0611,108.2208 kiểm tra gấp nhé"
+    assert extract_coordinates_from_text(msg) == (16.0611, 108.2208)
+
+
+def test_extract_coordinates_google_maps_urls() -> None:
+    """Test extracting coordinates from Google Maps URLs (query params and path @lat,long)."""
+    # Query parameter q=
+    url_q = "https://www.google.com/maps?q=16.0611,108.2208"
+    assert extract_coordinates_from_text(url_q) == (16.0611, 108.2208)
+
+    # Query parameter daddr= (directions)
+    url_daddr = "https://maps.google.com/?daddr=16.0611,108.2208"
+    assert extract_coordinates_from_text(url_daddr) == (16.0611, 108.2208)
+
+    # Query parameter with loc: prefix
+    url_loc = "https://maps.google.com/?q=loc:16.0611,108.2208"
+    assert extract_coordinates_from_text(url_loc) == (16.0611, 108.2208)
+
+    # Path pattern @lat,long with zoom and data
+    url_path = "https://www.google.com/maps/place/Da+Nang/@16.0611,108.2208,17z/data=!3m1!4b1"
+    assert extract_coordinates_from_text(url_path) == (16.0611, 108.2208)
+
+    # Path pattern @lat,long with trailing zoom
+    url_at = "https://www.google.com/maps/@16.0611,108.2208,15z"
+    assert extract_coordinates_from_text(url_at) == (16.0611, 108.2208)
+
+    # Google Maps URL embedded inside message
+    msg = "Tôi gửi vị trí qua link: https://www.google.com/maps?q=16.0611,108.2208 tại Đà Nẵng"
+    assert extract_coordinates_from_text(msg) == (16.0611, 108.2208)
+
+
+def test_extract_coordinates_raw_decimal_pairs() -> None:
+    """Test extracting raw decimal coordinate pairs with comma, semicolon, space, or brackets."""
+    # Standard comma-separated
+    assert extract_coordinates_from_text("16.0611, 108.2208") == (16.0611, 108.2208)
+    assert extract_coordinates_from_text("16.0611,108.2208") == (16.0611, 108.2208)
+
+    # Space-separated
+    assert extract_coordinates_from_text("16.0611 108.2208") == (16.0611, 108.2208)
+
+    # Semicolon-separated
+    assert extract_coordinates_from_text("16.0611; 108.2208") == (16.0611, 108.2208)
+
+    # Inside parentheses or brackets
+    assert extract_coordinates_from_text("(16.0611, 108.2208)") == (16.0611, 108.2208)
+    assert extract_coordinates_from_text("[16.0611, 108.2208]") == (16.0611, 108.2208)
+
+    # Embedded in sentence
+    msg = "Sự cố nắp cống hỏng ở toạ độ 16.0611, 108.2208 trên đường Bạch Đằng"
+    assert extract_coordinates_from_text(msg) == (16.0611, 108.2208)
+
+
+def test_extract_coordinates_labeled_english_and_vietnamese() -> None:
+    """Test extracting labeled coordinates with English and Vietnamese prefixes."""
+    # English lat/lon with colons
+    assert extract_coordinates_from_text("lat: 16.0611, lon: 108.2208") == (16.0611, 108.2208)
+
+    # English lat/long with equal signs
+    assert extract_coordinates_from_text("lat=16.0611 long=108.2208") == (16.0611, 108.2208)
+
+    # English latitude/longitude full words
+    assert extract_coordinates_from_text("latitude: 16.0611, longitude: 108.2208") == (16.0611, 108.2208)
+
+    # English lat/lng abbreviation
+    assert extract_coordinates_from_text("lat: 16.0611, lng: 108.2208") == (16.0611, 108.2208)
+
+    # Vietnamese accented prefixes
+    assert extract_coordinates_from_text("vĩ độ: 16.0611, kinh độ: 108.2208") == (16.0611, 108.2208)
+
+    # Vietnamese unaccented prefixes
+    assert extract_coordinates_from_text("vi do: 16.0611, kinh do: 108.2208") == (16.0611, 108.2208)
+
+    # Vietnamese with equal signs
+    assert extract_coordinates_from_text("vĩ độ = 16.0611, kinh độ = 108.2208") == (16.0611, 108.2208)
+
+    # Embedded in conversational Vietnamese sentence
+    msg = "Cây ngã đổ, vĩ độ: 16.0611, kinh độ: 108.2208 nhờ kiểm tra giùm"
+    assert extract_coordinates_from_text(msg) == (16.0611, 108.2208)
+
+
+def test_extract_coordinates_auto_swap_vietnam_geobounds() -> None:
+    """Test auto-swapping (long, lat) to (lat, long) when user inputs longitude first."""
+    # Raw coordinates with long first
+    assert extract_coordinates_from_text("108.2208, 16.0611") == (16.0611, 108.2208)
+    assert extract_coordinates_from_text("108.2208 16.0611") == (16.0611, 108.2208)
+    assert extract_coordinates_from_text("108.2208; 16.0611") == (16.0611, 108.2208)
+
+    # Labeled coordinates with longitude first
+    assert extract_coordinates_from_text("kinh độ: 108.2208, vĩ độ: 16.0611") == (16.0611, 108.2208)
+    assert extract_coordinates_from_text("lon: 108.2208, lat: 16.0611") == (16.0611, 108.2208)
+    assert extract_coordinates_from_text("long=108.2208 lat=16.0611") == (16.0611, 108.2208)
+
+    # Mistakenly swapped labels (lat marked with 108, lon marked with 16)
+    assert extract_coordinates_from_text("lat: 108.2208, lon: 16.0611") == (16.0611, 108.2208)
+
+
+def test_extract_coordinates_global_wgs84() -> None:
+    """Test coordinates outside Vietnam bounds remain unchanged if valid global WGS84."""
+    # Paris coordinates
+    assert extract_coordinates_from_text("48.8566, 2.3522") == (48.8566, 2.3522)
+
+    # Sydney coordinates (negative latitude)
+    assert extract_coordinates_from_text("lat: -33.8688, lon: 151.2093") == (-33.8688, 151.2093)
+
+
+def test_extract_coordinates_invalid_or_missing_returns_none() -> None:
+    """Test non-coordinate text, empty strings, and out-of-range coordinates return None."""
+    # Empty and whitespace
+    assert extract_coordinates_from_text("") is None
+    assert extract_coordinates_from_text("   ") is None
+
+    # Text without coordinates
+    assert extract_coordinates_from_text("Xin chào bot phản ánh") is None
+    assert extract_coordinates_from_text("Tôi muốn báo cáo sự cố đường hỏng") is None
+
+    # Out of range coordinates (>90 lat or >180 long)
+    assert extract_coordinates_from_text("100.0, 200.0") is None
+    assert extract_coordinates_from_text("16.0611, 200.0") is None
+    assert extract_coordinates_from_text("lat: 95.0, lon: 108.2208") is None
+
+    # Non-coordinate numbers like phone numbers, years, dates
+    assert extract_coordinates_from_text("Số điện thoại của tôi là 0905123456") is None
+    assert extract_coordinates_from_text("Sự cố xảy ra ngày 2026-10-16 lúc 15:30") is None
+
+    # Normal URLs without coordinate params
+    assert extract_coordinates_from_text("https://google.com") is None
+    assert extract_coordinates_from_text("https://maps.apple.com/?q=DaNang") is None
+

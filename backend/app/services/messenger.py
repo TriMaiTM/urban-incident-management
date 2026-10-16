@@ -3,6 +3,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
+import math
+import re
+import urllib.parse
 import httpx
 
 from app.core.config import settings
@@ -168,3 +171,114 @@ async def download_image_bytes(
     if not response.content:
         raise ValueError(f"Downloaded image content from {image_url} is empty.")
     return response.content
+
+
+def _normalize_and_validate_coordinates(a: float, b: float) -> tuple[float, float] | None:
+    """Validate coordinate numbers and normalize to (lat, long) order.
+
+    Rules:
+    - If a in [8.0, 24.0] and b in [102.0, 112.0]: lat = a, long = b (Vietnam geobounds).
+    - If b in [8.0, 24.0] and a in [102.0, 112.0]: lat = b, long = a (automatically swapped).
+    - If outside Vietnam but valid global WGS84 (-90 <= a <= 90 and -180 <= b <= 180):
+      lat = a, long = b.
+    - Otherwise returns None.
+    """
+    if not (math.isfinite(a) and math.isfinite(b)):
+        return None
+
+    # Vietnam Geobounds check (lat ~8.0-24.0, long ~102.0-112.0)
+    if 8.0 <= a <= 24.0 and 102.0 <= b <= 112.0:
+        return (a, b)
+    if 8.0 <= b <= 24.0 and 102.0 <= a <= 112.0:
+        return (b, a)
+
+    # Global WGS84 bounds check
+    if -90.0 <= a <= 90.0 and -180.0 <= b <= 180.0:
+        return (a, b)
+
+    return None
+
+
+def extract_coordinates_from_text(text: str) -> tuple[float, float] | None:
+    """Extract and validate GPS coordinates (lat, long) from free-form text, Apple Maps, or Google Maps URLs.
+
+    Supports:
+    - Apple Maps URLs (query parameters ll=, sll=, q=)
+    - Google Maps URLs (query parameters q=, ll=, daddr=, etc., and path pattern @lat,long)
+    - Labeled coordinates in English (lat/lon) and Vietnamese (vĩ độ/kinh độ)
+    - Raw decimal number pairs separated by comma, semicolon, or whitespace
+
+    Automatically swaps (long, lat) to (lat, long) if coordinates fall within Vietnam geobounds.
+    Returns (lat, long) tuple of floats, or None if no valid coordinates are found.
+    """
+    if not text or not str(text).strip():
+        return None
+
+    unquoted = urllib.parse.unquote(text)
+
+    # Pattern 1: Apple Maps URL (maps.apple.com with query params ll=, sll=, q=)
+    if "maps.apple.com" in unquoted:
+        for param in ("ll", "sll", "q"):
+            match = re.search(
+                rf"[?&]{param}=(-?\d+(?:\.\d+)?)[,;+ ]+(-?\d+(?:\.\d+)?)",
+                unquoted,
+            )
+            if match:
+                coords = _normalize_and_validate_coordinates(
+                    float(match.group(1)), float(match.group(2))
+                )
+                if coords is not None:
+                    return coords
+
+    # Pattern 2: Google Maps URL (query params q=, ll=, daddr=, etc., or @lat,long path)
+    if any(domain in unquoted for domain in ("google.com/maps", "maps.google.com", "goo.gl")):
+        for param in ("q", "ll", "daddr", "query", "destination", "saddr"):
+            match = re.search(
+                rf"[?&]{param}=(?:loc:)?(-?\d+(?:\.\d+)?)[,;+ ]+(-?\d+(?:\.\d+)?)",
+                unquoted,
+            )
+            if match:
+                coords = _normalize_and_validate_coordinates(
+                    float(match.group(1)), float(match.group(2))
+                )
+                if coords is not None:
+                    return coords
+
+    # Standalone @lat,long (e.g., copied directly from a Google Maps URL)
+    standalone_at = re.search(r"@(-?\d+(?:\.\d+)?)[,;+ ]+(-?\d+(?:\.\d+)?)", unquoted)
+    if standalone_at:
+        coords = _normalize_and_validate_coordinates(
+            float(standalone_at.group(1)), float(standalone_at.group(2))
+        )
+        if coords is not None:
+            return coords
+
+    # Pattern 3: Labeled coordinates (English & Vietnamese prefixes)
+    lat_match = re.search(
+        r"(?i)\b(?:vĩ\s*độ|vi\s*do|vi\s*độ|vĩ\s*do|lat(?:itude)?)\s*[:=]?\s*(?:là|is)?\s*(-?\d+(?:\.\d+)?)",
+        unquoted,
+    )
+    long_match = re.search(
+        r"(?i)\b(?:kinh\s*độ|kinh\s*do|long(?:itude)?|lon|lng)\s*[:=]?\s*(?:là|is)?\s*(-?\d+(?:\.\d+)?)",
+        unquoted,
+    )
+    if lat_match and long_match:
+        coords = _normalize_and_validate_coordinates(
+            float(lat_match.group(1)), float(long_match.group(1))
+        )
+        if coords is not None:
+            return coords
+
+    # Pattern 4: Raw decimal coordinate pairs (e.g., "16.0611, 108.2208" or "16.0611; 108.2208")
+    raw_matches = re.finditer(
+        r"(?<![\w.-])(-?\d+\.\d+)\s*[,; \t/|]+\s*(-?\d+\.\d+)(?![\w.-])",
+        unquoted,
+    )
+    for rm in raw_matches:
+        coords = _normalize_and_validate_coordinates(
+            float(rm.group(1)), float(rm.group(2))
+        )
+        if coords is not None:
+            return coords
+
+    return None

@@ -8,6 +8,7 @@ from app.services.messenger import (
     MessengerSession,
     MessengerSessionManager,
     download_image_bytes,
+    extract_coordinates_from_text,
     messenger_session_manager,
     send_facebook_message,
 )
@@ -23,5 +24,6 @@ __all__ = [
     "messenger_session_manager",
     "send_facebook_message",
     "download_image_bytes",
+    "extract_coordinates_from_text",
 ]
 
