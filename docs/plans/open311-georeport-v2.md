@@ -120,7 +120,7 @@ Tích hợp lớp tương thích chuẩn mở quốc tế **Open311 GeoReport v2
 
 ---
 
-### [ ] Bước 5: Viết Bộ Test Suite Tự động Toàn diện (`backend/tests/test_open311.py`) & Reviewer Audit
+### [x] Bước 5: Viết Bộ Test Suite Tự động Toàn diện (`backend/tests/test_open311.py`) & Reviewer Audit
 * **Mục tiêu:** Kiểm thử độc lập 100% (mocking) và thẩm định nghiêm ngặt qua Reviewer subagent.
 * **Hành động:**
   * Tạo `backend/tests/test_open311.py` kiểm thử các kịch bản:
