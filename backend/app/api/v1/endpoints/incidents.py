@@ -39,11 +39,16 @@ from app.models.incident import Incident, IncidentFeedback, IncidentHistory, Inc
 from app.models.user import User
 from app.models.zone import SystemZone
 from app.schemas.incident import (
+    IncidentAnalyticsSummaryOut,
     IncidentAssignIn,
     IncidentDetailOut,
     IncidentFeedbackCreateIn,
     IncidentFeedbackOut,
     IncidentListOut,
+    IncidentMapFeature,
+    IncidentMapFeatureCollectionOut,
+    IncidentMapGeometry,
+    IncidentMapProperties,
     IncidentNearbyItem,
     IncidentNearbyOut,
     IncidentOut,
@@ -1109,6 +1114,194 @@ async def list_incidents(
         items=items,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get(
+    "/map",
+    response_model=IncidentMapFeatureCollectionOut,
+    summary="Bản đồ không gian sự cố đô thị chuẩn GeoJSON (RFC 7946)",
+)
+async def get_incidents_map(
+    district: str | None = Query(None, description="Lọc theo quận/huyện tại Đà Nẵng"),
+    category_code: str | None = Query(None, description="Lọc theo mã danh mục sự cố"),
+    incident_status: str | None = Query(None, alias="status", description="Lọc theo trạng thái cụ thể"),
+    db: AsyncSession = Depends(get_db),
+) -> IncidentMapFeatureCollectionOut:
+    """
+    Truy xuất danh sách sự cố phục vụ hiển thị trên bản đồ số GIS theo định dạng GeoJSON FeatureCollection.
+    Tọa độ hình học tuân thủ RFC 7946: Point [longitude, latitude].
+    Mặc định loại trừ các sự cố đã đóng (CLOSED) hoặc bị từ chối (REJECTED).
+    """
+    stmt = (
+        select(Incident)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.media),
+        )
+    )
+
+    if incident_status:
+        stmt = stmt.where(Incident.status == incident_status)
+    else:
+        stmt = stmt.where(Incident.status.notin_(["CLOSED", "REJECTED"]))
+
+    if district:
+        stmt = stmt.where(func.lower(Incident.district) == district.strip().lower())
+
+    if category_code:
+        stmt = stmt.join(Category, Incident.category_id == Category.id).where(Category.code == category_code)
+
+    stmt = stmt.order_by(Incident.created_at.desc())
+    result = await db.execute(stmt)
+    incidents = result.scalars().all()
+
+    features: list[IncidentMapFeature] = []
+    for inc in incidents:
+        coords = _extract_lat_lon(inc.location)
+        if not coords and getattr(inc, "latitude", None) is not None and getattr(inc, "longitude", None) is not None:
+            coords = (float(inc.latitude), float(inc.longitude))
+        if not coords:
+            continue
+        latitude, longitude = coords
+        geom = IncidentMapGeometry(coordinates=[longitude, latitude])
+        props = IncidentMapProperties.model_validate(inc)
+        features.append(IncidentMapFeature(geometry=geom, properties=props))
+
+    return IncidentMapFeatureCollectionOut(features=features)
+
+
+@router.get(
+    "/analytics/summary",
+    response_model=IncidentAnalyticsSummaryOut,
+    summary="Thống kê tổng quan điều hành IOC và chỉ số KPI/SLA sự cố",
+)
+async def get_incidents_analytics_summary(
+    from_date: datetime | None = Query(None, description="Từ ngày (mặc định không giới hạn)"),
+    to_date: datetime | None = Query(None, description="Đến ngày (mặc định không giới hạn)"),
+    db: AsyncSession = Depends(get_db),
+) -> IncidentAnalyticsSummaryOut:
+    """
+    Tổng hợp dữ liệu điều hành trung tâm chỉ huy IOC:
+    - Tổng số sự cố.
+    - Phân bổ theo 8 trạng thái quy trình xử lý.
+    - Phân bổ theo 4 mức ưu tiên xử lý.
+    - Phân bổ theo quận/huyện tại TP Đà Nẵng.
+    - Tỷ lệ tuân thủ cam kết chất lượng dịch vụ (SLA).
+    """
+    conditions = []
+    if from_date is not None:
+        if from_date.tzinfo is None:
+            from_date = from_date.replace(tzinfo=timezone.utc)
+        conditions.append(Incident.created_at >= from_date)
+    if to_date is not None:
+        if to_date.tzinfo is None:
+            to_date = to_date.replace(tzinfo=timezone.utc)
+        conditions.append(Incident.created_at <= to_date)
+
+    # 1. Total incidents
+    total_stmt = select(func.count(Incident.id))
+    if conditions:
+        total_stmt = total_stmt.where(*conditions)
+    total_res = await db.execute(total_stmt)
+    total_incidents = total_res.scalar() or 0
+
+    # 2. Status distribution (8 states initialized to 0)
+    by_status: dict[str, int] = {
+        "SUBMITTED": 0,
+        "TRIAGED": 0,
+        "ASSIGNED": 0,
+        "IN_PROGRESS": 0,
+        "RESOLVED": 0,
+        "CONFIRMED": 0,
+        "CLOSED": 0,
+        "REJECTED": 0,
+    }
+    status_stmt = select(Incident.status, func.count(Incident.id))
+    if conditions:
+        status_stmt = status_stmt.where(*conditions)
+    status_stmt = status_stmt.group_by(Incident.status)
+    status_res = await db.execute(status_stmt)
+    for st, count in status_res.all():
+        if st is not None:
+            by_status[st] = count
+
+    # 3. Priority distribution (4 priority levels initialized to 0)
+    by_priority: dict[str, int] = {
+        "LOW": 0,
+        "NORMAL": 0,
+        "HIGH": 0,
+        "EMERGENCY": 0,
+    }
+    prio_stmt = select(Incident.priority, func.count(Incident.id))
+    if conditions:
+        prio_stmt = prio_stmt.where(*conditions)
+    prio_stmt = prio_stmt.group_by(Incident.priority)
+    prio_res = await db.execute(prio_stmt)
+    for pr, count in prio_res.all():
+        if pr is not None:
+            by_priority[pr] = count
+
+    # 4. District distribution
+    by_district: dict[str, int] = {}
+    dist_stmt = (
+        select(Incident.district, func.count(Incident.id))
+        .where(Incident.district.isnot(None))
+    )
+    if conditions:
+        dist_stmt = dist_stmt.where(*conditions)
+    dist_stmt = dist_stmt.group_by(Incident.district)
+    dist_res = await db.execute(dist_stmt)
+    for d, count in dist_res.all():
+        if d:
+            by_district[d] = count
+
+    # 5. SLA compliance metrics
+    sla_stmt = (
+        select(Incident.status, Incident.sla_due_at, Incident.resolved_at)
+        .where(Incident.sla_due_at.isnot(None))
+    )
+    if conditions:
+        sla_stmt = sla_stmt.where(*conditions)
+    sla_res = await db.execute(sla_stmt)
+    sla_rows = sla_res.all()
+
+    now = datetime.now(timezone.utc)
+    on_time_count = 0
+    overdue_count = 0
+    for inc_status, sla_due_at, resolved_at in sla_rows:
+        sla_tz = sla_due_at if sla_due_at.tzinfo else sla_due_at.replace(tzinfo=timezone.utc)
+        res_tz = (resolved_at if resolved_at.tzinfo else resolved_at.replace(tzinfo=timezone.utc)) if resolved_at else None
+
+        if inc_status in ("RESOLVED", "CONFIRMED", "CLOSED"):
+            if res_tz is not None:
+                if res_tz <= sla_tz:
+                    on_time_count += 1
+                else:
+                    overdue_count += 1
+            else:
+                if now <= sla_tz:
+                    on_time_count += 1
+                else:
+                    overdue_count += 1
+        elif inc_status not in ("RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"):
+            if now > sla_tz:
+                overdue_count += 1
+
+    total_evaluated = on_time_count + overdue_count
+    compliance_rate = round((on_time_count / total_evaluated) * 100.0, 1) if total_evaluated > 0 else 100.0
+    sla_compliance: dict[str, object] = {
+        "within_sla": on_time_count,
+        "breached_sla": overdue_count,
+        "compliance_rate": compliance_rate,
+    }
+
+    return IncidentAnalyticsSummaryOut(
+        total_incidents=total_incidents,
+        by_status=by_status,
+        by_priority=by_priority,
+        by_district=by_district,
+        sla_compliance=sla_compliance,
     )
 
 

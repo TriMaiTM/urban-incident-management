@@ -3,7 +3,7 @@
 100% independent mock tests: no live Docker database or external API dependencies.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -143,7 +143,7 @@ def _make_mock_incident(
 # ============================================================================
 
 class MockResult:
-    """Mock query result supporting scalar_one_or_none, all, etc."""
+    """Mock query result supporting scalar_one_or_none, scalar, all, etc."""
 
     def __init__(self, data=None):
         self._data = data
@@ -164,6 +164,13 @@ class MockResult:
             raise ValueError("No rows found")
         return self._data
 
+    def scalar(self):
+        if self._data is None:
+            return None
+        if isinstance(self._data, list):
+            return self._data[0] if self._data else None
+        return self._data
+
     def scalars(self):
         return self
 
@@ -182,6 +189,7 @@ class MockWorkflowSession:
         self.entities: dict[tuple[type, UUID], object] = {}
         self.added = []
         self.committed = False
+        self.execute_queue: list[MockResult] = []
 
     def seed(self, *entities):
         for entity in entities:
@@ -213,11 +221,117 @@ class MockWorkflowSession:
         return self.entities.get((entity_cls, ident))
 
     async def execute(self, stmt, *args, **kwargs):
+        if self.execute_queue:
+            return self.execute_queue.pop(0)
+
+        col_names = []
+        if hasattr(stmt, "selected_columns"):
+            col_names = [getattr(c, "name", "") for c in stmt.selected_columns]
+
         stmt_str = str(stmt).lower()
         if "from incidents" in stmt_str:
-            for (cls, _), obj in self.entities.items():
-                if cls is Incident:
-                    return MockResult(obj)
+            params = {}
+            try:
+                params = stmt.compile().params
+            except Exception:
+                pass
+
+            incidents = [obj for (cls, _), obj in self.entities.items() if cls is Incident]
+
+            # 1. Aggregation queries by selected_columns
+            if col_names == ["count"]:
+                return MockResult(len(incidents))
+
+            if col_names == ["status", "count"]:
+                counts: dict[str, int] = {}
+                for inc in incidents:
+                    counts[inc.status] = counts.get(inc.status, 0) + 1
+                return MockResult(list(counts.items()))
+
+            if col_names == ["priority", "count"]:
+                p_counts: dict[str, int] = {}
+                for inc in incidents:
+                    p_counts[inc.priority] = p_counts.get(inc.priority, 0) + 1
+                return MockResult(list(p_counts.items()))
+
+            if col_names == ["district", "count"]:
+                d_counts: dict[str, int] = {}
+                for inc in incidents:
+                    if getattr(inc, "district", None):
+                        d_counts[inc.district] = d_counts.get(inc.district, 0) + 1
+                return MockResult(list(d_counts.items()))
+
+            if col_names == ["status", "sla_due_at", "resolved_at"]:
+                rows = [
+                    (inc.status, getattr(inc, "sla_due_at", None), getattr(inc, "resolved_at", None))
+                    for inc in incidents
+                    if getattr(inc, "sla_due_at", None) is not None
+                ]
+                return MockResult(rows)
+
+            # 2. Single incident by ticket_code
+            if "incidents.ticket_code =" in stmt_str:
+                target_code = None
+                for k, v in params.items():
+                    if "ticket_code" in k:
+                        target_code = str(v).strip()
+                        break
+                for inc in incidents:
+                    if target_code is not None and getattr(inc, "ticket_code", None) == target_code:
+                        return MockResult(inc)
+                return MockResult(None)
+
+            # 3. Single incident by id
+            if "incidents.id =" in stmt_str:
+                target_id = None
+                for k, v in params.items():
+                    if "id" in k:
+                        target_id = str(v)
+                        break
+                for inc in incidents:
+                    if target_id is not None and str(getattr(inc, "id", "")) == target_id:
+                        return MockResult(inc)
+                if len(incidents) == 1:
+                    return MockResult(incidents[0])
+                return MockResult(None)
+
+            # 4. Multi-incident queries (e.g. GET /map or list_incidents)
+            filtered = list(incidents)
+            if "not in" in stmt_str or "notin" in stmt_str:
+                filtered = [i for i in filtered if getattr(i, "status", None) not in ("CLOSED", "REJECTED")]
+
+            status_param = None
+            for k, v in params.items():
+                if "status" in k:
+                    status_param = v
+                    break
+            if status_param and "incidents.status =" in stmt_str:
+                filtered = [i for i in filtered if getattr(i, "status", None) == status_param]
+
+            dist_param = None
+            for k, v in params.items():
+                if "district" in k or "lower" in k:
+                    dist_param = v
+                    break
+            if dist_param and "lower(incidents.district)" in stmt_str:
+                filtered = [
+                    i for i in filtered
+                    if getattr(i, "district", "") and getattr(i, "district", "").strip().lower() == str(dist_param).strip().lower()
+                ]
+
+            cat_param = None
+            for k, v in params.items():
+                if "code" in k:
+                    cat_param = v
+                    break
+            if cat_param and "categories.code =" in stmt_str:
+                filtered = [
+                    i for i in filtered
+                    if getattr(i, "category", None) and getattr(i.category, "code", None) == cat_param
+                ]
+
+            return MockResult(filtered)
+
         return MockResult(None)
 
 
@@ -1047,6 +1161,242 @@ async def test_citizen_feedback_incident_not_found_fails(client: httpx.AsyncClie
 
     assert response.status_code == 404
     assert "Không tìm thấy sự cố" in response.json()["detail"]
+
+
+# ============================================================================
+# Test Cases for Step 5: GeoJSON Map & Analytics Summary
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_get_incidents_map_geojson_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Calling GET /api/v1/incidents/map returns valid RFC 7946 GeoJSON FeatureCollection."""
+    cat = Category(
+        id=uuid4(),
+        code="ROAD_DAMAGE",
+        name="Hư hỏng mặt đường",
+        default_sla_hours=24,
+    )
+    mock_session.seed(cat)
+
+    # Incident 1: Active SUBMITTED
+    inc1 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-MAP1",
+        title="Ổ gà đường Trần Phú",
+        status="SUBMITTED",
+        priority="NORMAL",
+        latitude=16.0678,
+        longitude=108.2208,
+        district="Hải Châu",
+        category=cat,
+    )
+
+    # Incident 2: Active IN_PROGRESS with anonymized media
+    inc2 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-MAP2",
+        title="Ngập nước đường Nguyễn Văn Linh",
+        status="IN_PROGRESS",
+        priority="HIGH",
+        latitude=16.0610,
+        longitude=108.2150,
+        district="Thanh Khê",
+        category=cat,
+    )
+
+    # Incident 3: CLOSED incident -> should be excluded by default
+    inc3 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-MAP3",
+        title="Cây ngã đã dọn dẹp",
+        status="CLOSED",
+        priority="NORMAL",
+        latitude=16.0700,
+        longitude=108.2250,
+        district="Hải Châu",
+        category=cat,
+    )
+
+    mock_session.seed(inc1, inc2, inc3)
+
+    response = await client.get("/api/v1/incidents/map")
+    assert response.status_code == 200, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["type"] == "FeatureCollection"
+    assert "features" in data
+    features = data["features"]
+    assert len(features) == 2  # inc3 (CLOSED) excluded
+
+    # Validate GeoJSON structure of first feature
+    f1 = next(f for f in features if f["properties"]["ticket_code"] == "DN-202610-MAP1")
+    assert f1["type"] == "Feature"
+    assert f1["geometry"]["type"] == "Point"
+    # RFC 7946: [longitude, latitude]
+    assert f1["geometry"]["coordinates"] == [108.2208, 16.0678]
+    assert f1["properties"]["status"] == "SUBMITTED"
+    assert f1["properties"]["priority"] == "NORMAL"
+    assert f1["properties"]["category_code"] == "ROAD_DAMAGE"
+    assert f1["properties"]["category_name"] == "Hư hỏng mặt đường"
+    assert f1["properties"]["district"] == "Hải Châu"
+    assert f1["properties"]["is_overdue"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_incidents_map_filter_by_district_and_category(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Calling GET /api/v1/incidents/map with district, category_code, and status filters."""
+    cat_road = Category(id=uuid4(), code="ROAD_DAMAGE", name="Hư hỏng mặt đường", default_sla_hours=24)
+    cat_waste = Category(id=uuid4(), code="WASTE", name="Rác thải", default_sla_hours=12)
+    mock_session.seed(cat_road, cat_waste)
+
+    inc1 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-FILT1",
+        status="IN_PROGRESS",
+        district="Thanh Khê",
+        category=cat_road,
+    )
+    inc2 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-FILT2",
+        status="SUBMITTED",
+        district="Hải Châu",
+        category=cat_waste,
+    )
+    mock_session.seed(inc1, inc2)
+
+    # Filter by district and category_code
+    response = await client.get("/api/v1/incidents/map", params={"district": "Thanh Khê", "category_code": "ROAD_DAMAGE"})
+    assert response.status_code == 200
+    features = response.json()["features"]
+    assert len(features) == 1
+    assert features[0]["properties"]["ticket_code"] == "DN-202610-FILT1"
+
+    # Filter with status=CLOSED allows retrieving closed incident explicitly
+    inc_closed = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-FILT3",
+        status="CLOSED",
+        district="Thanh Khê",
+        category=cat_road,
+    )
+    mock_session.seed(inc_closed)
+
+    response_closed = await client.get("/api/v1/incidents/map", params={"status": "CLOSED"})
+    assert response_closed.status_code == 200
+    features_closed = response_closed.json()["features"]
+    assert len(features_closed) == 1
+    assert features_closed[0]["properties"]["ticket_code"] == "DN-202610-FILT3"
+
+
+@pytest.mark.asyncio
+async def test_get_incidents_analytics_summary_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Calling GET /api/v1/incidents/analytics/summary returns status, priority, district, and SLA metrics."""
+    now = datetime.now(timezone.utc)
+    # Incident 1: Resolved on time
+    inc1 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-SLA1",
+        status="RESOLVED",
+        priority="HIGH",
+        district="Hải Châu",
+    )
+    inc1.sla_due_at = now + timedelta(hours=5)
+    inc1.resolved_at = now + timedelta(hours=2)
+
+    # Incident 2: In progress but overdue
+    inc2 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-SLA2",
+        status="IN_PROGRESS",
+        priority="NORMAL",
+        district="Thanh Khê",
+    )
+    inc2.sla_due_at = now - timedelta(hours=2)  # overdue
+    inc2.resolved_at = None
+
+    # Incident 3: Submitted, normal
+    inc3 = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202610-SLA3",
+        status="SUBMITTED",
+        priority="LOW",
+        district="Hải Châu",
+    )
+    inc3.sla_due_at = None
+    inc3.resolved_at = None
+
+    mock_session.seed(inc1, inc2, inc3)
+
+    response = await client.get("/api/v1/incidents/analytics/summary")
+    assert response.status_code == 200, f"Error: {response.text}"
+    data = response.json()
+
+    assert data["total_incidents"] == 3
+    # Check all 8 statuses present
+    assert data["by_status"]["SUBMITTED"] == 1
+    assert data["by_status"]["IN_PROGRESS"] == 1
+    assert data["by_status"]["RESOLVED"] == 1
+    assert data["by_status"]["CLOSED"] == 0
+    assert data["by_status"]["REJECTED"] == 0
+
+    # Check 4 priorities present
+    assert data["by_priority"]["LOW"] == 1
+    assert data["by_priority"]["NORMAL"] == 1
+    assert data["by_priority"]["HIGH"] == 1
+    assert data["by_priority"]["EMERGENCY"] == 0
+
+    # Check district
+    assert data["by_district"]["Hải Châu"] == 2
+    assert data["by_district"]["Thanh Khê"] == 1
+
+    # Check SLA compliance: 1 within_sla (inc1), 1 breached_sla (inc2) -> 50.0%
+    sla = data["sla_compliance"]
+    assert sla["within_sla"] == 1
+    assert sla["breached_sla"] == 1
+    assert sla["compliance_rate"] == 50.0
+
+    # Check with date filter params
+    response_dates = await client.get(
+        "/api/v1/incidents/analytics/summary",
+        params={
+            "from_date": (now - timedelta(days=1)).isoformat(),
+            "to_date": (now + timedelta(days=1)).isoformat(),
+        },
+    )
+    assert response_dates.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_route_precedence_map_not_shadowed_by_ticket_code(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Ensure GET /map and GET /analytics/summary are NOT shadowed by dynamic GET /{ticket_code} route."""
+    incident = _make_mock_incident(
+        ticket_code="DN-202610-ABCD",
+        status="SUBMITTED",
+    )
+    mock_session.seed(incident)
+
+    # 1. /map must match FeatureCollection route, NOT /{ticket_code}
+    resp_map = await client.get("/api/v1/incidents/map")
+    assert resp_map.status_code == 200
+    map_data = resp_map.json()
+    assert map_data.get("type") == "FeatureCollection"
+    assert "ticket_code" not in map_data
+
+    # 2. /analytics/summary must match analytics route, NOT /{ticket_code}
+    resp_analytics = await client.get("/api/v1/incidents/analytics/summary")
+    assert resp_analytics.status_code == 200
+    analytics_data = resp_analytics.json()
+    assert "total_incidents" in analytics_data
+    assert "by_status" in analytics_data
+    assert "ticket_code" not in analytics_data
+
+    # 3. Dynamic ticket_code route still functions correctly
+    resp_ticket = await client.get("/api/v1/incidents/DN-202610-ABCD")
+    assert resp_ticket.status_code == 200
+    ticket_data = resp_ticket.json()
+    assert ticket_data["ticket_code"] == "DN-202610-ABCD"
+
 
 
 

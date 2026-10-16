@@ -125,7 +125,7 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
 
 ---
 
-### [ ] Bước 5: Xây dựng Endpoints Bản đồ GeoJSON (`GET /map`) & Thống kê Điều hành (`GET /analytics/summary`)
+### [x] Bước 5: Xây dựng Endpoints Bản đồ GeoJSON (`GET /map`) & Thống kê Điều hành (`GET /analytics/summary`)
 * **Mục tiêu:** Cung cấp API hiển thị không gian và thống kê KPI cho màn hình điều hành IOC / Bản đồ sự cố.
 * **Hành động:**
   * **Lưu ý đặc biệt:** Đặt các routes này **TRƯỚC** route `GET /{ticket_code}` để tránh xung đột path routing.
@@ -133,16 +133,18 @@ Hoàn thiện toàn bộ quy trình nghiệp vụ khép kín của sự cố h�
     * Query params lọc tùy chọn: `district`, `category_code`, `status`.
     * Lấy danh sách sự cố có trạng thái đang mở (`NOT IN ('CLOSED', 'REJECTED')`).
     * Trích xuất `coordinates: [lon, lat]` từ PostGIS location.
-    * Tính toán `is_overdue`: `sla_due_at is not None and now > sla_due_at and status not in ('RESOLVED', 'CONFIRMED', 'CLOSED')`.
+    * Tính toán `is_overdue`: `sla_due_at is not None and now > sla_due_at and status not in ('RESOLVED', 'CONFIRMED', 'CLOSED', 'REJECTED')`.
     * Trả về GeoJSON `FeatureCollection`.
   * `GET /api/v1/incidents/analytics/summary`:
     * Truy vấn tổng hợp từ CSDL:
-      * Đếm theo từng `status`.
-      * Đếm theo từng `priority`.
+      * Đếm theo từng `status` (đủ 8 trạng thái).
+      * Đếm theo từng `priority` (đủ 4 mức).
       * Đếm theo từng `district`.
       * Tỷ lệ tuân thủ SLA: số sự cố hoàn thành đúng hạn vs trễ hạn, phần trăm hoàn thành đúng hạn.
 * **Kiểm chứng:**
-  * `py -m compileall -q backend/app`
+  * `py -m compileall -q backend/app backend/tests`
+  * `py -m pytest backend/tests/test_incident_workflow.py -v`
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 36/36 unit tests passed.
 
 ---
 
