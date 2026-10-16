@@ -1,13 +1,16 @@
 """Unit and integration tests for Open311 GeoReport v2 endpoints."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 import httpx
 import pytest
+from shapely.geometry import Point
 
 from app.core.database import get_db
 from app.main import app
 from app.models.category import Category
+from app.models.department import Department
 from app.models.incident import Incident, IncidentHistory, IncidentMedia
 
 
@@ -19,10 +22,12 @@ class MockOpen311Session:
         categories: list[Category] | None = None,
         category: Category | None = None,
         zone_id: str | None = "DANANG_CORE",
+        incident: Incident | None = None,
     ) -> None:
         self.categories = categories or []
         self.category = category
         self.zone_id = zone_id
+        self.incident = incident
         self.added: list[object] = []
         self.committed = False
         self.execute = AsyncMock(side_effect=self._execute)
@@ -60,9 +65,15 @@ class MockOpen311Session:
             res.scalar_one_or_none.return_value = None
             return res
 
+        # Incident query by ticket_code (GET /requests/{service_request_id}.json)
+        if "incidents" in stmt_str and "ticket_code" in stmt_str:
+            res.scalar_one_or_none.return_value = self.incident
+            return res
+
         res.scalar_one_or_none.return_value = None
         res.scalars.return_value.all.return_value = []
         return res
+
 
 
 def _create_mock_session(items: list[Category]) -> MockOpen311Session:
@@ -350,3 +361,274 @@ async def test_open311_create_request_with_media_url():
     finally:
         app.dependency_overrides.pop(get_db, None)
 
+
+@pytest.mark.asyncio
+async def test_open311_get_request_by_id_open():
+    """Verify GET /open311/v2/requests/{id}.json returns open status for IN_PROGRESS incident."""
+    cat = Category(
+        id=uuid4(),
+        code="FALLEN_TREE",
+        name="Cây xanh gãy đổ",
+        default_sla_hours=4,
+    )
+    dept = Department(
+        id=uuid4(),
+        code="DEPT_CTP",
+        name="Công ty Công viên Cây xanh Đà Nẵng",
+        level="UTILITY_COMPANY",
+    )
+    ticket_code = "DN-202610-OPEN1"
+    now = datetime(2026, 10, 16, 8, 30, 0, tzinfo=timezone.utc)
+    sla_time = datetime(2026, 10, 16, 12, 30, 0, tzinfo=timezone.utc)
+
+    incident = Incident(
+        id=uuid4(),
+        ticket_code=ticket_code,
+        title="Phản ánh Open311: Cây xanh gãy đổ",
+        description="Cây ngã đổ chắn ngang ngã tư Nguyễn Văn Linh - Hoàng Diệu",
+        category_id=cat.id,
+        priority="HIGH",
+        status="IN_PROGRESS",
+        channel="WEB",
+        address_text="Ngã tư Nguyễn Văn Linh - Hoàng Diệu, Hải Châu, Đà Nẵng",
+        location=Point(108.2185, 16.0601),
+        duplicate_count=0,
+        sla_due_at=sla_time,
+        created_at=now,
+        updated_at=now,
+    )
+    incident.category = cat
+    incident.assigned_department = dept
+    incident.media = [
+        IncidentMedia(
+            id=uuid4(),
+            incident_id=incident.id,
+            media_type="BEFORE_ANONYMIZED",
+            file_url="https://danang.gov.vn/media/tree_anon.jpg",
+            created_at=now,
+        )
+    ]
+
+    mock_session = MockOpen311Session(incident=incident)
+
+    async def _override_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.get(f"/open311/v2/requests/{ticket_code}.json")
+            assert res.status_code == 200
+            assert res.headers["content-type"].startswith("application/json")
+
+            data = res.json()
+            assert isinstance(data, list)
+            assert len(data) == 1
+
+            item = data[0]
+            assert item["service_request_id"] == ticket_code
+            assert item["status"] == "open"
+            assert item["status_notes"] == "Đang xử lý (IN_PROGRESS)"
+            assert item["service_name"] == "Cây xanh gãy đổ"
+            assert item["service_code"] == "FALLEN_TREE"
+            assert item["description"] == incident.description
+            assert item["agency_responsible"] == "Công ty Công viên Cây xanh Đà Nẵng"
+            assert item["lat"] == pytest.approx(16.0601, abs=1e-4)
+            assert item["long"] == pytest.approx(108.2185, abs=1e-4)
+            assert item["media_url"] == "https://danang.gov.vn/media/tree_anon.jpg"
+            assert item["address"] == "Ngã tư Nguyễn Văn Linh - Hoàng Diệu, Hải Châu, Đà Nẵng"
+            assert item["expected_datetime"] is not None
+            assert item["requested_datetime"] is not None
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_open311_get_request_by_id_closed():
+    """Verify GET /open311/v2/requests/{id}.json returns closed status for RESOLVED incident and prioritizes AFTER_PROOF."""
+    cat = Category(
+        id=uuid4(),
+        code="ROAD_DAMAGE",
+        name="Hư hỏng mặt đường",
+        default_sla_hours=48,
+    )
+    dept = Department(
+        id=uuid4(),
+        code="DEPT_GTVT",
+        name="Sở Giao thông Vận tải Đà Nẵng",
+        level="CITY_DEPT",
+    )
+    ticket_code = "DN-202610-CLOS1"
+    now = datetime(2026, 10, 15, 9, 0, 0, tzinfo=timezone.utc)
+
+    incident = Incident(
+        id=uuid4(),
+        ticket_code=ticket_code,
+        title="Phản ánh Open311: Hư hỏng mặt đường",
+        description="Ổ gà sâu trước số nhà 100 Lê Duẩn",
+        category_id=cat.id,
+        priority="NORMAL",
+        status="RESOLVED",
+        channel="WEB",
+        address_text="100 Lê Duẩn, Hải Châu, Đà Nẵng",
+        location=Point(108.2150, 16.0720),
+        duplicate_count=0,
+        sla_due_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    incident.category = cat
+    incident.assigned_department = dept
+    # Có cả ảnh BEFORE_ANONYMIZED và AFTER_PROOF -> ưu tiên AFTER_PROOF
+    incident.media = [
+        IncidentMedia(
+            id=uuid4(),
+            incident_id=incident.id,
+            media_type="BEFORE_ANONYMIZED",
+            file_url="https://danang.gov.vn/media/pothole_anon.jpg",
+            created_at=now,
+        ),
+        IncidentMedia(
+            id=uuid4(),
+            incident_id=incident.id,
+            media_type="AFTER_PROOF",
+            file_url="https://danang.gov.vn/media/pothole_fixed_proof.jpg",
+            created_at=now,
+        ),
+    ]
+
+    mock_session = MockOpen311Session(incident=incident)
+
+    async def _override_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.get(f"/open311/v2/requests/{ticket_code}.json")
+            assert res.status_code == 200
+
+            data = res.json()
+            assert len(data) == 1
+            item = data[0]
+            assert item["service_request_id"] == ticket_code
+            assert item["status"] == "closed"
+            assert item["status_notes"] == "Đã khắc phục (RESOLVED)"
+            assert item["agency_responsible"] == "Sở Giao thông Vận tải Đà Nẵng"
+            assert item["media_url"] == "https://danang.gov.vn/media/pothole_fixed_proof.jpg"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_open311_get_request_by_id_not_found():
+    """Verify GET /open311/v2/requests/{id}.json returns 404 for non-existent ticket."""
+    mock_session = MockOpen311Session(incident=None)
+
+    async def _override_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.get("/open311/v2/requests/DN-999999-NOTFOUND.json")
+            assert res.status_code == 404
+            data = res.json()
+            assert "DN-999999-NOTFOUND" in data["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_open311_privacy_media_url_no_raw_original():
+    """Verify GET /open311/v2/requests/{id}.json hides BEFORE_ORIGINAL to protect citizen privacy."""
+    ticket_code = "DN-202610-PRIV01"
+    now = datetime(2026, 10, 16, 10, 0, 0, tzinfo=timezone.utc)
+
+    incident = Incident(
+        id=uuid4(),
+        ticket_code=ticket_code,
+        title="Phản ánh có chứa ảnh gốc",
+        description="Sự cố chứa ảnh gốc có khuôn mặt công dân",
+        priority="NORMAL",
+        status="SUBMITTED",
+        channel="WEB",
+        address_text="Bạch Đằng, Đà Nẵng",
+        location=Point(108.2200, 16.0600),
+        created_at=now,
+    )
+    # Chỉ có ảnh gốc BEFORE_ORIGINAL, chưa có ảnh làm mờ
+    incident.media = [
+        IncidentMedia(
+            id=uuid4(),
+            incident_id=incident.id,
+            media_type="BEFORE_ORIGINAL",
+            file_url="https://danang.gov.vn/private/raw_sensitive_faces.jpg",
+            created_at=now,
+        )
+    ]
+
+    mock_session = MockOpen311Session(incident=incident)
+
+    async def _override_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.get(f"/open311/v2/requests/{ticket_code}.json")
+            assert res.status_code == 200
+
+            data = res.json()
+            assert len(data) == 1
+            item = data[0]
+            # media_url phải là None, tuyệt đối không được để lộ URL ảnh gốc
+            assert item["media_url"] is None
+            assert "raw_sensitive_faces.jpg" not in res.text
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closed_status", ["CONFIRMED", "CLOSED", "REJECTED"])
+async def test_open311_get_request_by_id_other_closed_statuses(closed_status: str):
+    """Verify GET /open311/v2/requests/{id}.json marks all terminal statuses as closed."""
+    ticket_code = f"DN-202610-{closed_status[:4]}"
+    now = datetime(2026, 10, 16, 10, 0, 0, tzinfo=timezone.utc)
+
+    incident = Incident(
+        id=uuid4(),
+        ticket_code=ticket_code,
+        title=f"Sự cố {closed_status}",
+        description="Kiểm tra trạng thái đóng",
+        priority="NORMAL",
+        status=closed_status,
+        channel="WEB",
+        address_text="Đà Nẵng",
+        location=Point(108.2200, 16.0600),
+        created_at=now,
+    )
+    mock_session = MockOpen311Session(incident=incident)
+
+    async def _override_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.get(f"/open311/v2/requests/{ticket_code}.json")
+            assert res.status_code == 200
+            data = res.json()
+            assert data[0]["status"] == "closed"
+    finally:
+        app.dependency_overrides.pop(get_db, None)

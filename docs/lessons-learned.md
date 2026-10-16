@@ -112,3 +112,8 @@
 - **Quy tắc ngăn chặn:**
   - Sử dụng không gian ký tự Base36 (`string.ascii_uppercase + string.digits` $\approx 1.68$ triệu mã/tháng) và áp dụng vòng lặp kiểm tra tồn tại `select(Incident.id).where(Incident.ticket_code == code).limit(1)` tối đa 5 lần trước khi gán.
 
+### 🔴 Lỗi 14: Thứ tự ưu tiên trích xuất Media đa hình cho Open311 & Cổng dữ liệu mở
+- **Triệu chứng:** Khi một sự cố có nhiều bản ghi `IncidentMedia` (gồm ảnh gốc `BEFORE_ORIGINAL`, ảnh ẩn danh `BEFORE_ANONYMIZED`, và ảnh nghiệm thu `AFTER_PROOF`), nếu trích xuất tùy tiện (như lấy phần tử đầu `media[0]`), cổng thông tin công cộng có thể trả về đường dẫn ảnh gốc chứa khuôn mặt/biển số chưa làm mờ, vi phạm Nghị định 13/2023/NĐ-CP.
+- **Quy tắc ngăn chặn:**
+  - Thứ tự ưu tiên trích xuất bắt buộc theo trình tự: `AFTER_PROOF` > `BEFORE_ANONYMIZED` > `None`.
+  - Tuyệt đối lọc bỏ và không fallback về `BEFORE_ORIGINAL` dù danh sách không có ảnh nào khác.

@@ -100,7 +100,7 @@ Tích hợp lớp tương thích chuẩn mở quốc tế **Open311 GeoReport v2
 
 ---
 
-### [ ] Bước 4: Xây dựng Endpoint Tra cứu Trạng thái Chuẩn Open311 (`GET /open311/v2/requests/{service_request_id}.json`)
+### [x] Bước 4: Xây dựng Endpoint Tra cứu Trạng thái Chuẩn Open311 (`GET /open311/v2/requests/{service_request_id}.json`)
 * **Mục tiêu:** Tra cứu tiến độ sự cố theo mã phiếu và chuẩn hóa trạng thái open/closed theo đặc tả Open311.
 * **Hành động:**
   * Thêm `GET /requests/{service_request_id}.json` vào `backend/app/api/open311.py`:

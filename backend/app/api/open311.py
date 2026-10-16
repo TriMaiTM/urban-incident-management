@@ -13,18 +13,32 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from geoalchemy2.functions import ST_Contains, ST_MakePoint, ST_SetSRID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.category import Category
 from app.models.incident import Incident, IncidentHistory, IncidentMedia
 from app.models.zone import SystemZone
+from app.schemas.incident import _extract_lat_lon
 from app.schemas.open311 import (
     Open311CreateRequestIn,
     Open311CreateRequestResponseItem,
+    Open311RequestItemOut,
     Open311ServiceOut,
 )
 
 router = APIRouter(tags=["Open311 GeoReport v2"])
+
+OPEN311_STATUS_NOTES: dict[str, str] = {
+    "SUBMITTED": "Tiếp nhận mới (SUBMITTED)",
+    "TRIAGED": "Đã phân loại (TRIAGED)",
+    "ASSIGNED": "Đã giao việc (ASSIGNED)",
+    "IN_PROGRESS": "Đang xử lý (IN_PROGRESS)",
+    "RESOLVED": "Đã khắc phục (RESOLVED)",
+    "CONFIRMED": "Đã xác nhận hoàn thành (CONFIRMED)",
+    "CLOSED": "Đã đóng (CLOSED)",
+    "REJECTED": "Từ chối tiếp nhận (REJECTED)",
+}
 
 
 @router.get(
@@ -180,3 +194,113 @@ async def create_request(
             account_id=None,
         )
     ]
+
+
+@router.get(
+    "/requests/{service_request_id}.json",
+    response_model=list[Open311RequestItemOut],
+    summary="Tra cứu chi tiết yêu cầu dịch vụ theo chuẩn Open311 GeoReport v2",
+)
+async def get_request_by_id(
+    service_request_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[Open311RequestItemOut]:
+    """
+    Tra cứu tiến độ và chi tiết sự cố theo chuẩn Open311 GeoReport v2:
+    - Tìm kiếm bản ghi Incident theo ticket_code == service_request_id.
+    - Nạp quan hệ liên quan bằng selectinload (category, assigned_department, media).
+    - Chuẩn hóa trạng thái open / closed theo quy chuẩn Open311.
+    - Trích xuất tọa độ lat, long (WGS84) từ PostGIS location.
+    - Trích xuất media_url: Ưu tiên AFTER_PROOF, sau đó đến BEFORE_ANONYMIZED.
+      Tuyệt đối lọc bỏ và không hiển thị ảnh gốc BEFORE_ORIGINAL (bảo vệ quyền riêng tư theo Nghị định 13).
+    """
+    stmt = (
+        select(Incident)
+        .where(Incident.ticket_code == service_request_id)
+        .options(
+            selectinload(Incident.category),
+            selectinload(Incident.assigned_department),
+            selectinload(Incident.media),
+        )
+    )
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy yêu cầu dịch vụ với mã '{service_request_id}'.",
+        )
+
+    # Chuẩn hóa trạng thái theo Open311: "closed" nếu đã xử lý/đóng/từ chối, ngược lại là "open"
+    closed_statuses = {"RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"}
+    open311_status = "closed" if incident.status in closed_statuses else "open"
+    status_notes = OPEN311_STATUS_NOTES.get(
+        incident.status,
+        f"Trạng thái: {incident.status}",
+    )
+
+    # Trích xuất tọa độ (lat, long)
+    lat: float = 0.0
+    long: float = 0.0
+    coords = _extract_lat_lon(incident.location) if incident.location is not None else None
+    if coords:
+        lat, long = coords
+    elif (
+        hasattr(incident, "latitude")
+        and incident.latitude is not None
+        and hasattr(incident, "longitude")
+        and incident.longitude is not None
+    ):
+        lat, long = float(incident.latitude), float(incident.longitude)
+
+    # Trích xuất media_url an toàn: Ưu tiên AFTER_PROOF, sau đó BEFORE_ANONYMIZED.
+    # Tuyệt đối không bao giờ lấy BEFORE_ORIGINAL (Nghị định 13 & Lesson Learned Lỗi 3).
+    media_url: str | None = None
+    if incident.media:
+        after_proof = next(
+            (
+                getattr(m, "file_url", None)
+                for m in incident.media
+                if getattr(m, "media_type", None) == "AFTER_PROOF"
+            ),
+            None,
+        )
+        if after_proof:
+            media_url = after_proof
+        else:
+            before_anon = next(
+                (
+                    getattr(m, "file_url", None)
+                    for m in incident.media
+                    if getattr(m, "media_type", None) == "BEFORE_ANONYMIZED"
+                ),
+                None,
+            )
+            if before_anon:
+                media_url = before_anon
+
+    item = Open311RequestItemOut(
+        service_request_id=incident.ticket_code,
+        status=open311_status,
+        status_notes=status_notes,
+        service_name=incident.category.name if incident.category else "Sự cố đô thị",
+        service_code=incident.category.code if incident.category else "OTHER",
+        description=incident.description,
+        agency_responsible=(
+            incident.assigned_department.name if incident.assigned_department else None
+        ),
+        service_notice=None,
+        requested_datetime=incident.created_at,
+        updated_datetime=incident.updated_at,
+        expected_datetime=incident.sla_due_at,
+        address=incident.address_text or "Đà Nẵng",
+        address_id=None,
+        zipcode=None,
+        lat=lat,
+        long=long,
+        media_url=media_url,
+    )
+
+    return [item]
+
