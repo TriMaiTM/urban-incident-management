@@ -101,17 +101,17 @@
   * Đăng ký vào `backend/app/api/v1/router.py`.
 * **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`, 6/6 unit tests đạt 100%.
 
-### [ ] Bước 5: Xây dựng Endpoints Tiếp nhận Sự cố & Lọc Trùng lặp (`/incidents`)
+### [x] Bước 5: Xây dựng Endpoints Tiếp nhận Sự cố & Lọc Trùng lặp (`/incidents`)
 * **Hành động:**
+  * Thêm `get_current_user_optional` vào `backend/app/api/deps.py`.
   * Tạo `backend/app/api/v1/endpoints/incidents.py`:
-    * `POST /`: Tiếp nhận upload ảnh, kiểm tra hàng rào địa lý `ST_Contains(boundary, ST_SetSRID(ST_MakePoint(lon, lat), 4326))` trên `system_zones` (`is_active = True`), từ chối `422` nếu ngoài vùng; lưu ảnh gốc vào `uploads/private/`, chạy làm mờ lưu vào `uploads/public/`; sinh `ticket_code` (`DN-YYYYMM-XXXX`); lưu bản ghi `incidents`, `incident_media` (`BEFORE_ORIGINAL`, `BEFORE_ANONYMIZED`), `incident_history`; đưa tác vụ phân loại DeepSeek Vision vào `BackgroundTasks`.
-    * `GET /nearby`: Quét sự cố trong bán kính bằng `ST_DWithin(location, ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography, 50)`.
+    * `POST /`: Tiếp nhận upload ảnh, kiểm tra dung lượng `MAX_UPLOAD_SIZE_MB`, thẩm định hàng rào địa lý `ST_Contains(boundary, ST_SetSRID(ST_MakePoint(lon, lat), 4326))` trên `system_zones` (`is_active = True`), từ chối `422` nếu ngoài vùng; lưu ảnh gốc vào `uploads/private/`, chạy làm mờ lưu vào `uploads/public/`; sinh `ticket_code` (`DN-YYYYMM-XXXX`); lưu bản ghi `incidents`, `incident_media` (`BEFORE_ORIGINAL`, `BEFORE_ANONYMIZED`), `incident_history`; đưa tác vụ phân loại DeepSeek Vision vào `BackgroundTasks`.
+    * `GET /nearby`: Quét sự cố trong bán kính `ST_DWithin` trên `Geography`, hỗ trợ tham số `limit`, bảo vệ không để lộ ảnh gốc.
     * `POST /{id}/vote-duplicate`: Tăng `duplicate_count += 1`.
-    * `GET /{ticket_code}`: Tra cứu chi tiết sự cố theo mã công khai.
-    * `GET /`: Danh sách sự cố hỗ trợ phân trang và lọc theo trạng thái, quận/huyện.
+    * `GET /{ticket_code}`: Tra cứu chi tiết sự cố theo mã công khai, che giấu số điện thoại và ảnh gốc `BEFORE_ORIGINAL` cho người dùng không đặc quyền.
+    * `GET /`: Danh sách sự cố hỗ trợ phân trang và lọc theo trạng thái, quận/huyện, `category_code` và `category_id`.
   * Gắn router vào `backend/app/api/v1/router.py`.
-* **Kiểm chứng:**
-  * Lệnh: `py -m compileall -q backend/app`.
+* **Kết quả:** Đã hoàn thành, Reviewer audit: `STATUS: PASS`.
 
 ### [ ] Bước 6: Viết Bộ Test Suite Tự động & Reviewer Audit
 * **Hành động:**

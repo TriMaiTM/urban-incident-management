@@ -40,6 +40,7 @@ app.add_middleware(
 # Mount public uploads static directory (private directory is protected from direct public access)
 os.makedirs(UPLOAD_PUBLIC_DIR, exist_ok=True)
 os.makedirs(UPLOAD_PRIVATE_DIR, exist_ok=True)
+app.mount("/uploads/public", StaticFiles(directory=UPLOAD_PUBLIC_DIR), name="uploads_public")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_PUBLIC_DIR), name="uploads")
 
 
