@@ -54,7 +54,7 @@ Tích hợp lớp tương thích chuẩn mở quốc tế **Open311 GeoReport v2
 
 ---
 
-### [ ] Bước 2: Xây dựng Endpoint Danh mục Dịch vụ Công (`GET /open311/v2/services.json`)
+### [x] Bước 2: Xây dựng Endpoint Danh mục Dịch vụ Công (`GET /open311/v2/services.json`)
 * **Mục tiêu:** Cung cấp danh sách các loại sự cố/dịch vụ công tiếp nhận theo chuẩn Open311.
 * **Hành động:**
   * Tạo router `backend/app/api/open311.py` với `router = APIRouter(tags=["Open311 GeoReport v2"])`.

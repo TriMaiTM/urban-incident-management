@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.open311 import router as open311_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 
@@ -56,3 +57,7 @@ async def health_check():
 
 # Include API v1 routes
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Include Open311 GeoReport v2 routes
+app.include_router(open311_router, prefix="/open311/v2")
+
