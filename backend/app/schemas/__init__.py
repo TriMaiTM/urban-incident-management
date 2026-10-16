@@ -24,6 +24,12 @@ from app.schemas.incident import (
     IncidentMapFeatureCollectionOut,
     IncidentAnalyticsSummaryOut,
 )
+from app.schemas.open311 import (
+    Open311ServiceOut,
+    Open311CreateRequestIn,
+    Open311CreateRequestResponseItem,
+    Open311RequestItemOut,
+)
 
 __all__ = [
     "LocationValidateIn",
@@ -56,5 +62,9 @@ __all__ = [
     "IncidentMapFeature",
     "IncidentMapFeatureCollectionOut",
     "IncidentAnalyticsSummaryOut",
+    "Open311ServiceOut",
+    "Open311CreateRequestIn",
+    "Open311CreateRequestResponseItem",
+    "Open311RequestItemOut",
 ]
 

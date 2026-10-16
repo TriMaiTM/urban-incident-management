@@ -40,7 +40,7 @@ Tích hợp lớp tương thích chuẩn mở quốc tế **Open311 GeoReport v2
 
 ## 2. Thứ tự Các Bước Triển khai (Ordered Steps)
 
-### [ ] Bước 1: Định nghĩa Pydantic Schemas chuẩn Open311 GeoReport v2 (`schemas/open311.py`)
+### [x] Bước 1: Định nghĩa Pydantic Schemas chuẩn Open311 GeoReport v2 (`schemas/open311.py`)
 * **Mục tiêu:** Xây dựng các model dữ liệu đầu vào và đầu ra tuân thủ chuẩn Open311 GeoReport v2 và Pydantic v2.
 * **Hành động:**
   * Tạo `backend/app/schemas/open311.py`:
