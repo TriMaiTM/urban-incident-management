@@ -68,7 +68,7 @@ Tích hợp lớp tương thích chuẩn mở quốc tế **Open311 GeoReport v2
 
 ---
 
-### [ ] Bước 3: Xây dựng Endpoint Tiếp nhận Phản ánh Chuẩn Open311 (`POST /open311/v2/requests.json`)
+### [x] Bước 3: Xây dựng Endpoint Tiếp nhận Phản ánh Chuẩn Open311 (`POST /open311/v2/requests.json`)
 * **Mục tiêu:** Tiếp nhận tạo mới phản ánh sự cố theo chuẩn Open311 GeoReport v2 kèm hàng rào địa lý PostGIS Đà Nẵng.
 * **Hành động:**
   * Thêm `POST /requests.json` vào `backend/app/api/open311.py`:

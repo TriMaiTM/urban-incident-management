@@ -106,3 +106,9 @@
 - **Triệu chứng:** Cho phép gọi `PATCH /{id}/triage` hoặc `PATCH /{id}/assign` trên sự cố đã kết thúc (`CLOSED` hoặc `REJECTED`), làm sai lệch máy trạng thái (state machine) và sinh lịch sử sai.
 - **Quy tắc ngăn chặn:**
   - Bắt buộc kiểm tra `if incident.status in {"CLOSED", "REJECTED"}: raise HTTPException(400, "Không thể điều phối/phân công sự cố đã kết thúc.")`.
+
+### 🔴 Lỗi 13: Thiếu vòng lặp kiểm tra trùng lặp (Collision Guard) khi sinh mã phiếu `DN-YYYYMM-XXXX`
+- **Triệu chứng:** Khi tiếp nhận phản ánh từ các cổng mở (như Open311 hoặc Webhook), việc sinh mã phiếu chỉ dùng 4 ký tự hexa mà không kiểm tra trùng lặp có thể gây lỗi `IntegrityError` (500 Internal Server Error) tại tầng CSDL do vi phạm ràng buộc `unique=True` trên `Incident.ticket_code`.
+- **Quy tắc ngăn chặn:**
+  - Sử dụng không gian ký tự Base36 (`string.ascii_uppercase + string.digits` $\approx 1.68$ triệu mã/tháng) và áp dụng vòng lặp kiểm tra tồn tại `select(Incident.id).where(Incident.ticket_code == code).limit(1)` tối đa 5 lần trước khi gán.
+
