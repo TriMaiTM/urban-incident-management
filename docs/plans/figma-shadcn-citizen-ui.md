@@ -49,7 +49,7 @@
   - `npx tsc --noEmit`
   - `npm run lint`
 
-### Bước 2: Tái thiết kế Form Báo cáo theo Chuẩn Figma `@shadcn/ui` (`report-form.tsx`)
+### [x] Bước 2: Tái thiết kế Form Báo cáo theo Chuẩn Figma `@shadcn/ui` (`report-form.tsx`)
 - **Mục tiêu:** Xóa bỏ hoàn toàn các hộp xám con lồng ghép; áp dụng thiết kế Card nguyên khối, labels tự nhiên, inputs/badges chuẩn Figma.
 - **Thực hiện:**
   - Định dạng lại Form bên trong một `Card` chuẩn shadcn:
