@@ -50,7 +50,7 @@
   - Tinh gọn `report-form.tsx`: Bỏ khung Card thừa bên ngoài để nhúng mượt vào Sidebar, khoảng cách `space-y-3`, `Input` `h-9 text-xs`, `Label` `text-xs text-slate-700`.
 - **Kiểm tra cơ học:** `npx tsc --noEmit` & `npm run lint`.
 
-### Bước 3: Tái cấu trúc AppShell Header 4 Phân hệ & Sidebar Liền mạch (`page.tsx`)
+### [x] Bước 3: Tái cấu trúc AppShell Header 4 Phân hệ & Sidebar Liền mạch (`page.tsx`)
 - **Mục tiêu:** Header chuẩn nghiệp vụ GovTech Đà Nẵng, Sidebar chạm sát viền với Tabs `shadcn/ui`.
 - **Thực hiện:**
   - Header `h-14 border-b border-slate-200 bg-white px-4 flex items-center justify-between`:
@@ -62,6 +62,6 @@
     - Phần thân cuộn `overflow-y-auto flex-1`.
 - **Kiểm tra cơ học:** `npx tsc --noEmit`, `npm run lint`, `npm run build`.
 
-### Bước 4: Kiểm định Độc lập & Nghiệm thu Toàn diện (Reviewer Subagent)
+### [x] Bước 4: Kiểm định Độc lập & Nghiệm thu Toàn diện (Reviewer Subagent)
 - **Mục tiêu:** Xác nhận toàn bộ 4 lỗi UI/UX và bản đồ đã được khắc phục triệt để.
 - **Kiểm tra:** Subagent `reviewer` audit mã nguồn và kiểm tra cơ học (`STATUS: PASS`).
