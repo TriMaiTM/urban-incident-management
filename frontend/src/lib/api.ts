@@ -13,6 +13,7 @@ import type {
   LocationValidateOut,
   SystemZoneOut,
 } from "@/types/zone";
+import danangCoreBoundary from "@/data/danang_core_boundary.json";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ||
@@ -54,45 +55,22 @@ async function handleResponseError(response: Response): Promise<never> {
 }
 
 /**
- * Tọa độ ranh giới vùng đô thị lõi Đà Nẵng trích xuất từ danang_core_boundary.geojson.
+ * Tọa độ ranh giới vùng đô thị lõi Đà Nẵng trích xuất từ dữ liệu hành chính chuẩn 2025.
  * Thứ tự WGS84 chuẩn GeoJSON: [longitude, latitude].
  */
-export const DANANG_CORE_POLYGON_COORDINATES: [number, number][][][] = [
-  [
-    [
-      [108.080, 16.220],
-      [108.130, 16.210],
-      [108.170, 16.160],
-      [108.230, 16.140],
-      [108.290, 16.120],
-      [108.320, 16.100],
-      [108.310, 16.050],
-      [108.270, 16.010],
-      [108.280, 15.930],
-      [108.230, 15.910],
-      [108.180, 15.920],
-      [108.120, 15.900],
-      [108.020, 15.910],
-      [107.940, 15.950],
-      [107.910, 16.010],
-      [107.930, 16.080],
-      [107.970, 16.150],
-      [108.020, 16.200],
-      [108.080, 16.220],
-    ],
-  ],
-];
+export const DANANG_CORE_POLYGON_COORDINATES: [number, number][][][] =
+  danangCoreBoundary.features[0].geometry.coordinates as [number, number][][][];
 
 export const FALLBACK_DANANG_ZONES: SystemZoneOut[] = [
   {
     id: "DANANG_CORE",
     name: "Vùng Đô thị Trung tâm Đà Nẵng",
     is_active: true,
-    bounding_box: [107.90, 15.90, 108.35, 16.25],
+    bounding_box: [107.8167, 15.9180, 108.3384, 16.2155],
     description:
       "Khu vực đô thị lõi gồm 6 quận: Hải Châu, Thanh Khê, Sơn Trà, Ngũ Hành Sơn, Cẩm Lệ, Liên Chiểu và huyện Hòa Vang",
     geojson_geometry: {
-      type: "MultiPolygon",
+      type: danangCoreBoundary.features[0].geometry.type,
       coordinates: DANANG_CORE_POLYGON_COORDINATES,
     },
   },
@@ -160,9 +138,9 @@ export const FALLBACK_CATEGORIES: CategoryOut[] = [
  * bằng thuật toán Ray-casting (Point-in-Polygon).
  */
 export function isInsideDanangCore(latitude: number, longitude: number): boolean {
-  const [minLon, minLat, maxLon, maxLat] = [107.90, 15.90, 108.35, 16.25];
+  const [minLon, minLat, maxLon, maxLat] = [107.8167, 15.9180, 108.3384, 16.2155];
 
-  // 1. Kiểm tra nhanh Bounding Box [107.90, 15.90, 108.35, 16.25]
+  // 1. Kiểm tra nhanh Bounding Box [107.8167, 15.9180, 108.3384, 16.2155]
   if (
     longitude < minLon ||
     longitude > maxLon ||
