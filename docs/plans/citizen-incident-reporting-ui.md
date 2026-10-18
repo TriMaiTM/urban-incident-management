@@ -76,7 +76,8 @@
   - `npm run lint` (Exit code 0)
   - `npm run build` (Exit code 0)
 
-### Bước 3: Xây dựng Component Form Báo cáo Hiện trường & Khử trùng lặp (`report-form.tsx`)
+### [x] Bước 3: Xây dựng Component Form Báo cáo Hiện trường & Khử trùng lặp (`report-form.tsx`)
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Tạo form báo cáo hiện trường tương tác cao, kết nối trực tiếp với bản đồ và backend API.
 - **Thực hiện:**
   - Tạo `frontend/src/components/citizen/report-form.tsx`:
@@ -89,8 +90,9 @@
     - Khu vực kéo thả / chọn ảnh hiện trường kèm ghi chú: "Hệ thống tự động nhận diện và làm mờ khuôn mặt, biển số xe theo Nghị định 13/2023/NĐ-CP".
     - Xử lý submit form (`multipart/form-data`) gọi `createIncident`.
 - **Lệnh kiểm tra cơ học:**
-  - `npx tsc --noEmit`
-  - `npm run lint`
+  - `npx tsc --noEmit` (Exit code 0)
+  - `npm run lint` (Exit code 0)
+  - `npm run build` (Exit code 0)
 
 ### Bước 4: Tích hợp Layout Split-Screen Full-Viewport vào `page.tsx`
 - **Mục tiêu:** Xóa bỏ trang showcase cũ, tích hợp `MapView` và `ReportForm` vào layout Split-Screen hoàn chỉnh.
