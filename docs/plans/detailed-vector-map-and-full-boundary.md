@@ -66,9 +66,9 @@
 - Subagent `reviewer` `db5debf6-5149-45af-a8a7-48f5e9c3be92` thẩm định độc lập toàn bộ `git diff`.
 - Kết quả: **`STATUS: PASS`** (Không có blocker, không vi phạm TypeScript hay non-goals).
 
-### Bước 4: Nghiệm thu, Gộp vào `main` & Push lên GitHub
-- Chạy toàn bộ test suite (`npm run build` và `pytest`).
-- Commit các thay đổi với Conventional Commits.
+### Bước 4: Nghiệm thu, Gộp vào `main` & Push lên GitHub - [x] ĐÃ HOÀN THÀNH
+- Chạy toàn bộ test suite (`npm run build`: Compiled successfully; `pytest`: 201/201 passed).
+- Commit các thay đổi với Conventional Commits trên nhánh `feat/detailed-vector-map-and-full-boundary`.
 - Gộp vào nhánh `main` và thực hiện `git push origin main`.
 
 ---
