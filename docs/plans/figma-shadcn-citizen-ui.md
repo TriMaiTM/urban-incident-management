@@ -64,7 +64,7 @@
   - `npx tsc --noEmit`
   - `npm run lint`
 
-### Bước 3: Đồng bộ Giao diện Trang Chính & Bản đồ (`page.tsx`)
+### [x] Bước 3: Đồng bộ Giao diện Trang Chính & Bản đồ (`page.tsx`)
 - **Mục tiêu:** Hoàn thiện bố cục trang chính hài hòa, chuyên nghiệp, hiển thị mượt mà cả khi Online lẫn Offline.
 - **Thực hiện:**
   - Header `h-14 border-b border-border bg-background/95 backdrop-blur-sm px-6 flex items-center justify-between`:
@@ -78,11 +78,11 @@
   - `npm run lint`
   - `npm run build`
 
-### Bước 4: Kiểm định Độc lập & Nghiệm thu (Reviewer Subagent)
+### [x] Bước 4: Kiểm định Độc lập & Nghiệm thu (Reviewer Subagent)
 - **Mục tiêu:** Đảm bảo không còn lỗi console nào khi mở `http://localhost:3000`, UI đạt chuẩn Figma.
 - **Kiểm tra:**
   - Chạy `npx tsc --noEmit`, `npm run lint`, `npm run build`.
-  - Điều phối subagent `reviewer` audit toàn bộ mã nguồn.
+  - Điều phối subagent `reviewer` audit toàn bộ mã nguồn (`STATUS: PASS`).
 
 ---
 

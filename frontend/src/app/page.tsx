@@ -71,7 +71,7 @@ export default function CitizenPage() {
           setActiveZones(zones);
         }
       } catch (error) {
-        console.error("Không thể tải danh sách phân vùng hoạt động:", error);
+        console.warn("Không thể tải danh sách phân vùng hoạt động:", error);
       }
     }
 
@@ -106,17 +106,17 @@ export default function CitizenPage() {
           setZoneName(validateRes.value.zone_name);
           setZoneMessage(validateRes.value.message);
         } else {
-          console.error("Lỗi khi kiểm tra phân vùng địa lý:", validateRes.reason);
+          console.warn("Lỗi khi kiểm tra phân vùng địa lý:", validateRes.reason);
         }
 
         if (nearbyRes.status === "fulfilled") {
           setNearbyIncidents(nearbyRes.value.items ?? []);
         } else {
-          console.error("Lỗi khi quét sự cố lân cận:", nearbyRes.reason);
+          console.warn("Lỗi khi quét sự cố lân cận:", nearbyRes.reason);
           setNearbyIncidents([]);
         }
       } catch (error) {
-        console.error("Lỗi đồng bộ dữ liệu vị trí:", error);
+        console.warn("Lỗi đồng bộ dữ liệu vị trí:", error);
       }
     }
 
@@ -157,25 +157,25 @@ export default function CitizenPage() {
         );
         setNearbyIncidents(nearbyRes.items ?? []);
       } catch (error) {
-        console.error("Lỗi cập nhật sự cố sau khi xác nhận trùng lặp:", error);
+        console.warn("Lỗi cập nhật sự cố sau khi xác nhận trùng lặp:", error);
       }
     }
   };
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* Top Header: Chuẩn GovTech Đà Nẵng, h-14, viền crisp border-slate-200 */}
-      <header className="h-14 border-b border-slate-200 bg-white/95 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-sm">
+      {/* Top Header: Chuẩn GovTech Đà Nẵng, h-14, viền crisp border-border */}
+      <header className="h-14 border-b border-border bg-background/95 backdrop-blur-sm px-4 sm:px-6 flex items-center justify-between shrink-0 z-20">
         {/* Bên trái: Logo/Icon & Tên hệ thống */}
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#1051A6] text-white shadow-sm shrink-0">
-            <Building2 className="h-5 w-5" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#1051A6] text-white shadow-xs shrink-0">
+            <Building2 className="h-4 w-4" />
           </div>
           <div className="flex flex-col">
-            <h1 className="text-xs sm:text-sm font-bold tracking-tight text-slate-900 leading-tight">
+            <h1 className="text-sm font-semibold tracking-tight text-foreground leading-tight">
               HỆ THỐNG TIẾP NHẬN & ĐIỀU PHỐI SỰ CỐ ĐÔ THỊ
             </h1>
-            <p className="text-[10px] sm:text-xs font-medium text-slate-500 uppercase tracking-wider">
+            <p className="text-[10px] sm:text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
               TP ĐÀ NẴNG - KHU VỰC ĐÔ THỊ LÕI
             </p>
           </div>
@@ -184,16 +184,16 @@ export default function CitizenPage() {
         {/* Ở giữa / Bên phải: Mobile Switcher, GovTech Badge, Hotline 1022 */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Mobile Tab Toggle (md:hidden) */}
-          <div className="flex items-center gap-1 md:hidden bg-slate-100 p-1 rounded-md border border-slate-200">
+          <div className="flex items-center gap-1 md:hidden bg-muted p-1 rounded-md border border-border">
             <Button
               type="button"
               size="sm"
               variant="ghost"
               className={cn(
-                "h-7 px-2.5 text-xs font-medium rounded-md transition-all",
+                "rounded-md h-7 px-2.5 text-xs font-medium transition-all",
                 mobileTab === "map"
                   ? "bg-[#1051A6] text-white hover:bg-[#1051A6] hover:text-white"
-                  : "text-slate-600 hover:text-slate-900"
+                  : "text-muted-foreground hover:text-foreground"
               )}
               onClick={() => setMobileTab("map")}
             >
@@ -205,10 +205,10 @@ export default function CitizenPage() {
               size="sm"
               variant="ghost"
               className={cn(
-                "h-7 px-2.5 text-xs font-medium rounded-md transition-all",
+                "rounded-md h-7 px-2.5 text-xs font-medium transition-all",
                 mobileTab === "form"
                   ? "bg-[#1051A6] text-white hover:bg-[#1051A6] hover:text-white"
-                  : "text-slate-600 hover:text-slate-900"
+                  : "text-muted-foreground hover:text-foreground"
               )}
               onClick={() => setMobileTab("form")}
             >
@@ -220,7 +220,7 @@ export default function CitizenPage() {
           {/* Đà Nẵng GovTech Badge */}
           <Badge
             variant="outline"
-            className="hidden lg:inline-flex items-center gap-1.5 border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 rounded-md"
+            className="hidden lg:inline-flex items-center gap-1.5 border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium text-foreground rounded-full"
           >
             <ShieldCheck className="h-3.5 w-3.5 text-[#1051A6]" />
             Đà Nẵng GovTech | Thử nghiệm Đợt 1
@@ -229,7 +229,7 @@ export default function CitizenPage() {
           {/* Hotline phản ánh 1022 */}
           <a
             href="tel:1022"
-            className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/80 bg-rose-50/80 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100/80 transition-colors"
             title="Đường dây nóng phản ánh sự cố TP Đà Nẵng"
           >
             <Phone className="h-3.5 w-3.5 text-rose-600" />
@@ -244,7 +244,7 @@ export default function CitizenPage() {
         {/* Panel bên trái: Form báo cáo hiện trường, cuộn độc lập */}
         <aside
           className={cn(
-            "w-full md:w-[480px] lg:w-[540px] shrink-0 border-r border-slate-200 bg-slate-50/50 overflow-y-auto p-4",
+            "w-full md:w-[460px] lg:w-[490px] shrink-0 border-r border-border bg-muted/10 overflow-y-auto p-4 md:p-5",
             mobileTab === "form" ? "block" : "hidden md:block"
           )}
         >
@@ -265,7 +265,7 @@ export default function CitizenPage() {
         {/* Panel bên phải: Bản đồ GIS MapLibre GL full viewport */}
         <main
           className={cn(
-            "flex-1 h-full relative",
+            "flex-1 h-full relative bg-slate-100",
             mobileTab === "map" ? "block" : "hidden md:block"
           )}
         >
@@ -280,7 +280,7 @@ export default function CitizenPage() {
         </main>
       </div>
 
-      {/* Dialog Thành công sau khi tiếp nhận phản ánh */}
+      {/* Modal Tiếp nhận Thành công (Chuẩn Figma Dialog) */}
       <Dialog
         open={createdIncident !== null}
         onOpenChange={(open) => {
@@ -289,15 +289,15 @@ export default function CitizenPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md border-slate-200">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md border-border bg-card shadow-lg rounded-lg">
+          <DialogHeader className="items-center text-center">
             <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-              <CheckCircle2 className="h-7 w-7" />
+              <CheckCircle2 className="h-10 w-10 text-emerald-600" />
             </div>
-            <DialogTitle className="text-center text-lg font-bold text-slate-900">
+            <DialogTitle className="text-base font-semibold text-center">
               Tiếp nhận phản ánh sự cố thành công!
             </DialogTitle>
-            <DialogDescription className="text-center text-xs text-slate-500">
+            <DialogDescription className="text-center text-xs text-muted-foreground">
               Hệ thống Điều phối Đô thị Đà Nẵng đã ghi nhận thông tin và đang chuyển dữ liệu
               đến bộ phận chức năng xử lý.
             </DialogDescription>
@@ -306,36 +306,36 @@ export default function CitizenPage() {
           {createdIncident && (
             <div className="space-y-4 py-2">
               {/* Khối hiển thị mã tra cứu to rõ */}
-              <div className="rounded-md border border-slate-200 bg-slate-100 p-3 text-center">
-                <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-500">
+              <div className="text-center space-y-1">
+                <span className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                   Mã tra cứu phiếu sự cố
                 </span>
-                <span className="block text-2xl font-mono font-bold tabular-nums text-[#1051A6] select-all mt-0.5">
+                <div className="text-2xl font-mono tabular-nums font-bold text-[#1051A6] bg-muted/50 border border-border p-3 rounded-lg text-center tracking-wider select-all">
                   {createdIncident.ticket_code}
-                </span>
+                </div>
               </div>
 
               {/* Thông tin vắn tắt sự cố */}
-              <div className="rounded-md border border-slate-200 bg-white p-3 space-y-2 text-xs">
+              <div className="rounded-lg border border-border bg-card p-3 space-y-2 text-xs">
                 <div className="flex justify-between items-start gap-2">
-                  <span className="text-slate-500 shrink-0">Tiêu đề:</span>
-                  <span className="font-medium text-slate-900 text-right line-clamp-2">
+                  <span className="text-muted-foreground shrink-0">Tiêu đề:</span>
+                  <span className="font-medium text-foreground text-right line-clamp-2">
                     {createdIncident.title}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-500">Trạng thái:</span>
+                  <span className="text-muted-foreground">Trạng thái:</span>
                   <Badge
                     variant="outline"
-                    className="border-blue-200 bg-blue-50 text-blue-700 font-mono text-[11px]"
+                    className="border-blue-200/80 bg-blue-50/80 text-blue-700 font-mono text-[11px] rounded-full px-2 py-0.5"
                   >
                     Ghi nhận mới
                   </Badge>
                 </div>
                 {createdIncident.sla_due_at && (
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Thời hạn cam kết (SLA):</span>
-                    <span className="font-mono tabular-nums text-slate-700 font-medium">
+                    <span className="text-muted-foreground">Thời hạn cam kết (SLA):</span>
+                    <span className="font-mono tabular-nums text-foreground font-medium">
                       {new Date(createdIncident.sla_due_at).toLocaleString("vi-VN", {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -346,8 +346,8 @@ export default function CitizenPage() {
                     </span>
                   </div>
                 )}
-                {createdIncident.duplicate_count > 0 && (
-                  <div className="flex justify-between items-center text-amber-700 bg-amber-50 px-2 py-1 rounded">
+                {createdIncident.duplicate_count > 1 && (
+                  <div className="flex justify-between items-center text-amber-700 bg-amber-50 px-2 py-1 rounded-md">
                     <span>Đã ghi nhận trùng:</span>
                     <span className="font-bold tabular-nums">
                       {createdIncident.duplicate_count} lượt
@@ -356,36 +356,36 @@ export default function CitizenPage() {
                 )}
               </div>
 
-              <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+              <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
                 Vui lòng lưu lại mã tra cứu để theo dõi tiến độ giải quyết trực tiếp trên Cổng
                 Thông tin hoặc gọi tổng đài <span className="font-mono font-semibold">1022</span>.
               </p>
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
               variant="outline"
               onClick={handleCopyTicketCode}
-              className="w-full sm:w-auto border-slate-300 text-slate-700"
+              className="h-9 rounded-md gap-1.5 text-xs font-medium w-full sm:w-auto"
             >
               {copied ? (
                 <>
-                  <Check className="h-4 w-4 mr-1 text-emerald-600" />
+                  <Check className="h-4 w-4 text-emerald-600" />
                   Đã sao chép
                 </>
               ) : (
                 <>
-                  <Copy className="h-4 w-4 mr-1" />
-                  Sao chép mã phiếu
+                  <Copy className="h-4 w-4" />
+                  Sao chép mã tra cứu
                 </>
               )}
             </Button>
             <Button
               type="button"
               onClick={() => setCreatedIncident(null)}
-              className="w-full sm:w-auto bg-[#1051A6] text-white hover:bg-[#0d4185]"
+              className="h-9 bg-[#1051A6] hover:bg-[#0d4287] text-white rounded-md text-xs font-medium w-full sm:w-auto"
             >
               Đóng / Gửi phản ánh mới
             </Button>
