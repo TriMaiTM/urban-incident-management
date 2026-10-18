@@ -30,35 +30,56 @@ const DANANG_MAX_BOUNDS: [[number, number], [number, number]] = [
   [108.50, 16.35],
 ];
 
-// Style raster Carto Voyager Retina sắc nét, hiển thị rõ ràng đường phố tiếng Việt, sông Hàn và các cây cầu tại Đà Nẵng
-// Nguồn basemaps.cartocdn.com hoạt động 100% ổn định tại Việt Nam (không bị chặn DNS như tile.openstreetmap.org) và không cần API key
-const CARTO_VOYAGER_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    "carto-voyager": {
-      type: "raster",
-      tiles: [
-        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-        "https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-      ],
-      tileSize: 256,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>',
-      maxzoom: 19,
+// Cấu hình Carto API Key và Style Type từ biến môi trường (khử hoàn toàn watermark CARTO)
+const CARTO_API_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY?.trim() || "";
+const MAP_STYLE_TYPE = process.env.NEXT_PUBLIC_MAP_STYLE_TYPE?.trim() || "raster";
+
+/**
+ * Sinh StyleSpecification cho Carto Voyager raster tiles @2x Retina sắc nét.
+ * Tự động gắn query param ?key= khi có API key để loại bỏ watermark.
+ */
+function createCartoVoyagerRasterStyle(apiKey?: string): maplibregl.StyleSpecification {
+  const queryParam = apiKey ? `?key=${encodeURIComponent(apiKey)}` : "";
+  return {
+    version: 8,
+    sources: {
+      "carto-voyager": {
+        type: "raster",
+        tiles: [
+          `https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${queryParam}`,
+          `https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${queryParam}`,
+          `https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${queryParam}`,
+          `https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${queryParam}`,
+        ],
+        tileSize: 256,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>',
+        maxzoom: 19,
+      },
     },
-  },
-  layers: [
-    {
-      id: "carto-voyager-layer",
-      type: "raster",
-      source: "carto-voyager",
-      minzoom: 0,
-      maxzoom: 19,
-    },
-  ],
-};
+    layers: [
+      {
+        id: "carto-voyager-layer",
+        type: "raster",
+        source: "carto-voyager",
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    ],
+  };
+}
+
+/**
+ * Xác định style khởi tạo cho MapLibre:
+ * - Nếu MAP_STYLE_TYPE === "vector" và có CARTO_API_KEY: sử dụng vector style URL
+ * - Mặc định: sử dụng Carto Voyager raster tiles @2x Retina kèm API key để khử sạch watermark
+ */
+function getInitialMapStyle(): string | maplibregl.StyleSpecification {
+  if (MAP_STYLE_TYPE === "vector" && CARTO_API_KEY) {
+    return `https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json?key=${encodeURIComponent(CARTO_API_KEY)}`;
+  }
+  return createCartoVoyagerRasterStyle(CARTO_API_KEY);
+}
 
 const SOURCE_ZONES = "danang-active-zones";
 const LAYER_ZONES_FILL = "danang-active-zones-fill";
@@ -205,7 +226,7 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: CARTO_VOYAGER_STYLE,
+      style: getInitialMapStyle(),
       center: initialCenter,
       zoom: 12.5,
       maxBounds: DANANG_MAX_BOUNDS,
