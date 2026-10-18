@@ -52,23 +52,19 @@
   - `npx tsc --noEmit` (Passed)
   - Thẩm định độc lập qua Reviewer subagent `a66b0f67-6df3-4c6f-8d3c-01637a50954a`: STATUS: PASS.
 
-### Bước 2: Nâng cấp Bản đồ Vector Chi tiết & Lớp Khối nhà 3D (`map-view.tsx`)
-- Cấu hình `NEXT_PUBLIC_MAP_STYLE_TYPE=vector` trong `frontend/.env.local`.
+### Bước 2: Nâng cấp Bản đồ Vector Chi tiết & Lớp Khối nhà 3D (`map-view.tsx`) - [x] ĐÃ HOÀN THÀNH
+- Cấu hình `NEXT_PUBLIC_MAP_STYLE_TYPE=vector` trong `frontend/.env.local` và tài liệu hóa trong `frontend/.env.example`.
 - Trong `frontend/src/components/map/map-view.tsx`:
   - Khởi tạo MapLibre với Carto Voyager Vector Style (`https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json?key=${CARTO_API_KEY}`).
-  - Trong sự kiện `map.on("load")`, khi đang ở chế độ vector:
-    - Thêm layer `3d-buildings` (`type: "fill-extrusion"`, `source: "carto"`, `source-layer: "building"`, `minzoom: 15`) giúp các khối nhà tự động dựng hình 3D khi người dùng zoom gần vào khu phố.
-    - Bổ sung nút điều khiển nhỏ góc trên phải: Chuyển đổi nhanh giữa chế độ nhìn "3D Nghiêng" (pitch 55°) và "2D Phẳng" (pitch 0°).
+  - Thêm layer `carto-3d-buildings` (`fill-extrusion`) tự động dựng khối nhà 3D tinh tế từ zoom 14 trở lên.
+  - Bổ sung nút chuyển đổi góc nhìn 3D Nghiêng (pitch 55°) và 2D Phẳng (pitch 0°), đồng bộ với sự kiện `map.on("pitch")`.
 - Kiểm tra cơ học:
-  - `npx tsc --noEmit` trong `frontend/`
-  - `npm run lint` trong `frontend/`
+  - `npx tsc --noEmit` trong `frontend/` (Passed 0 errors)
+  - `npm run lint` trong `frontend/` (Passed 0 errors)
 
-### Bước 3: Thẩm định Độc lập qua Reviewer Subagent
-- Khởi tạo subagent `reviewer` thẩm định toàn bộ `git diff`:
-  - Kiểm tra tính hợp lệ của GeoJSON 8.007 điểm (WGS84 `[lon, lat]`).
-  - Kiểm tra layer 3d-buildings và vector style trong MapLibre.
-  - Đảm bảo tuân thủ Strict TypeScript, không có `any`.
-- Đạt `STATUS: PASS` trước khi bước sang hoàn tất.
+### Bước 3: Thẩm định Độc lập qua Reviewer Subagent - [x] ĐÃ HOÀN THÀNH (Reviewer: STATUS: PASS)
+- Subagent `reviewer` `db5debf6-5149-45af-a8a7-48f5e9c3be92` thẩm định độc lập toàn bộ `git diff`.
+- Kết quả: **`STATUS: PASS`** (Không có blocker, không vi phạm TypeScript hay non-goals).
 
 ### Bước 4: Nghiệm thu, Gộp vào `main` & Push lên GitHub
 - Chạy toàn bộ test suite (`npm run build` và `pytest`).

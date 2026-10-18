@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeolocatePositionEvent, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { Box } from "lucide-react";
 import type { IncidentNearbyItem } from "@/types/incident";
 import type { SystemZoneOut } from "@/types/zone";
 import { FALLBACK_DANANG_ZONES } from "@/lib/api";
@@ -88,6 +89,8 @@ const LAYER_ZONES_LINE = "danang-active-zones-line";
 const SOURCE_RADIUS = "selected-radius-50m";
 const LAYER_RADIUS_FILL = "selected-radius-50m-fill";
 const LAYER_RADIUS_LINE = "selected-radius-50m-line";
+
+const LAYER_3D_BUILDINGS = "carto-3d-buildings";
 
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = {
   type: "FeatureCollection",
@@ -197,6 +200,7 @@ export function MapView({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [is3DMode, setIs3DMode] = useState(false);
 
   // Lưu trữ các marker và cờ trạng thái thông qua ref để tránh re-render không cần thiết
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -271,6 +275,11 @@ export function MapView({
       });
     });
 
+    // Lắng nghe thay đổi góc nghiêng (pitch) để đồng bộ trạng thái nút toggle 3D
+    map.on("pitch", () => {
+      setIs3DMode(map.getPitch() > 20);
+    });
+
     // Khi bản đồ tải xong style
     map.on("load", () => {
       // 1.1 Khởi tạo GeoJSON Source & Layers cho Active Zones (mặc định FALLBACK_DANANG_ZONES nếu rỗng)
@@ -340,6 +349,66 @@ export function MapView({
             "line-dasharray": [2, 2],
           },
         });
+      }
+
+      // 1.3 Khởi tạo Layer Khối nhà 3D (3D Buildings) từ Vector Source 'carto'
+      if (map.getSource("carto") && !map.getLayer(LAYER_3D_BUILDINGS)) {
+        const layers = map.getStyle().layers;
+        let beforeId: string | undefined;
+        if (layers) {
+          for (const layer of layers) {
+            if (
+              layer.type === "symbol" &&
+              (layer.layout as Record<string, unknown>)?.[ "text-field"]
+            ) {
+              beforeId = layer.id;
+              break;
+            }
+          }
+        }
+
+        map.addLayer(
+          {
+            id: LAYER_3D_BUILDINGS,
+            source: "carto",
+            "source-layer": "building",
+            type: "fill-extrusion",
+            minzoom: 14,
+            paint: {
+              "fill-extrusion-color": [
+                "interpolate",
+                ["linear"],
+                ["coalesce", ["get", "render_height"], ["get", "height"], 0],
+                0,
+                "#e2e8f0",
+                20,
+                "#cbd5e1",
+                60,
+                "#94a3b8",
+              ],
+              "fill-extrusion-height": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                14,
+                0,
+                15,
+                ["coalesce", ["get", "render_height"], ["get", "height"], 6],
+              ],
+              "fill-extrusion-base": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                14,
+                0,
+                15,
+                ["coalesce", ["get", "render_min_height"], ["get", "min_height"], 0],
+              ],
+              "fill-extrusion-opacity": 0.85,
+            },
+          },
+          beforeId
+        );
       }
 
       setMapLoaded(true);
@@ -559,6 +628,27 @@ export function MapView({
     }
   }, [nearbyIncidents, mapLoaded]);
 
+  // Chuyển đổi giữa góc nghiêng 3D (pitch 55°) và nhìn thẳng 2D (pitch 0°)
+  const handleToggle3D = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const nextMode = !is3DMode;
+    setIs3DMode(nextMode);
+    if (nextMode) {
+      map.easeTo({
+        pitch: 55,
+        bearing: -15,
+        duration: 800,
+      });
+    } else {
+      map.easeTo({
+        pitch: 0,
+        bearing: 0,
+        duration: 800,
+      });
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -567,6 +657,31 @@ export function MapView({
       )}
     >
       <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
+
+      {/* Nút chuyển đổi góc nhìn 3D Khối nhà / 2D Phẳng */}
+      <div className="absolute top-2.5 right-[48px] z-10">
+        <button
+          type="button"
+          onClick={handleToggle3D}
+          title={
+            is3DMode
+              ? "Chuyển sang góc nhìn 2D phẳng"
+              : "Chuyển sang góc nhìn 3D khối nhà"
+          }
+          className={cn(
+            "h-[29px] px-2.5 flex items-center gap-1.5 text-xs font-medium rounded-md border shadow-xs transition-colors backdrop-blur-sm select-none cursor-pointer",
+            is3DMode
+              ? "bg-[#1051A6] text-white border-[#1051A6] hover:bg-[#0d4287]"
+              : "bg-white/95 text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+          )}
+        >
+          <Box className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">
+            {is3DMode ? "3D Nghiêng" : "2D Phẳng"}
+          </span>
+          <span className="sm:hidden">{is3DMode ? "3D" : "2D"}</span>
+        </button>
+      </div>
 
       {/* Cảnh báo nằm ngoài hàng rào địa lý Đà Nẵng (Chuẩn GovTech / Rule 6) */}
       {selectedCoords && isInsideZone === false && (
