@@ -65,7 +65,8 @@
   - `npx tsc --noEmit` (Exit code 0)
   - `npm run lint` (Exit code 0)
 
-### Bước 2: Thiết lập Theme CSS Variables & Typography tại `globals.css`
+### [x] Bước 2: Thiết lập Theme CSS Variables & Typography tại `globals.css`
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Cập nhật `frontend/src/app/globals.css` với bảng mã màu GovTech Đà Nẵng và tương thích Tailwind CSS v4.
 - **Thực hiện:**
   - Định nghĩa biến CSS `:root` và `.dark`:
