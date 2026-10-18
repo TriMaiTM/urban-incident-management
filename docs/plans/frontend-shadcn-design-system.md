@@ -82,7 +82,8 @@
   - `npx tsc --noEmit`
   - `npm run build`
 
-### Bước 3: Cài đặt Bộ Primitives `@shadcn/ui` Chính Chủ
+### [x] Bước 3: Cài đặt Bộ Primitives `@shadcn/ui` Chính Chủ
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Cài đặt 15 UI primitives thiết yếu bằng CLI `shadcn` vào `frontend/src/components/ui/`.
 - **Thực hiện:**
   - Cài đặt các primitives:
@@ -90,10 +91,11 @@
     - Nhập liệu: `input`, `textarea`, `select`
     - Tương tác / Phản hồi: `dialog`, `tabs`, `table`, `alert`, `sonner` (Toast), `dropdown-menu`
     - Hiển thị / Trạng thái: `skeleton`, `avatar`
-  - Tinh chỉnh style các component đảm bảo tuân thủ Rule 5: bo góc `rounded-md`, border crisp `border-slate-200`, không shadow màu.
+  - Tinh chỉnh style các component đảm bảo tuân thủ Rule 5: bo góc `rounded-md` / `rounded-lg`, border crisp `border-slate-200`, không shadow màu, không gradient.
 - **Lệnh kiểm tra cơ học:**
-  - `npx tsc --noEmit`
-  - `npm run lint`
+  - `npx tsc --noEmit` (Exit code 0)
+  - `npm run lint` (Exit code 0)
+  - `npm run build` (Exit code 0)
 
 ### Bước 4: Xây dựng Trang Trưng bày & Kiểm định Thành phần (Component Showcase)
 - **Mục tiêu:** Tạo trang kiểm định trực quan tại `frontend/src/app/page.tsx` minh họa các thành phần giao diện thực tế của Hệ thống Quản lý Sự cố Đô thị Đà Nẵng.
