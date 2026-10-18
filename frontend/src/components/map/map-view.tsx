@@ -6,7 +6,13 @@ import type { GeolocatePositionEvent, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { IncidentNearbyItem } from "@/types/incident";
 import type { SystemZoneOut } from "@/types/zone";
+import { FALLBACK_DANANG_ZONES } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+// Cấu hình worker tĩnh MapLibre phục vụ trực tiếp từ frontend/public/
+if (typeof window !== "undefined") {
+  maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
+}
 
 export interface MapViewProps {
   selectedCoords: { latitude: number; longitude: number } | null;
@@ -23,7 +29,33 @@ const DANANG_MAX_BOUNDS: [[number, number], [number, number]] = [
   [107.80, 15.80],
   [108.50, 16.35],
 ];
-const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+
+// Style raster OpenStreetMap chi tiết tên đường tiếng Việt tại Đà Nẵng
+const OSM_STREET_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    "osm-tiles": {
+      type: "raster",
+      tiles: [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      attribution: "&copy; OpenStreetMap Contributors",
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    {
+      id: "osm-tiles-layer",
+      type: "raster",
+      source: "osm-tiles",
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
 
 const SOURCE_ZONES = "danang-active-zones";
 const LAYER_ZONES_FILL = "danang-active-zones-fill";
@@ -89,17 +121,16 @@ function createCircleGeoJSON(
 
 /**
  * Chuyển đổi danh sách SystemZoneOut sang GeoJSON FeatureCollection cho bản đồ.
+ * Mặc định sử dụng FALLBACK_DANANG_ZONES nếu activeZones chưa có hoặc rỗng.
  */
 function createZonesGeoJSON(
   zones?: SystemZoneOut[]
 ): GeoJSON.FeatureCollection<GeoJSON.Geometry> {
-  if (!zones || zones.length === 0) {
-    return EMPTY_FEATURE_COLLECTION;
-  }
+  const targetZones = zones && zones.length > 0 ? zones : FALLBACK_DANANG_ZONES;
 
   const features: GeoJSON.Feature<GeoJSON.Geometry>[] = [];
 
-  for (const zone of zones) {
+  for (const zone of targetZones) {
     if (zone.geojson_geometry) {
       features.push({
         type: "Feature",
@@ -171,7 +202,7 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: MAP_STYLE_URL,
+      style: OSM_STREET_STYLE,
       center: initialCenter,
       zoom: 12.5,
       maxBounds: DANANG_MAX_BOUNDS,
@@ -179,6 +210,11 @@ export function MapView({
     });
 
     mapRef.current = map;
+
+    // Bắt lỗi runtime của Map an toàn để không kích hoạt Next.js dev overlay
+    map.on("error", (e) => {
+      console.warn("MapLibre runtime notice:", e.error?.message || e);
+    });
 
     // Controls: NavigationControl & GeolocateControl
     map.addControl(
@@ -213,7 +249,7 @@ export function MapView({
 
     // Khi bản đồ tải xong style
     map.on("load", () => {
-      // 1.1 Khởi tạo GeoJSON Source & Layers cho Active Zones
+      // 1.1 Khởi tạo GeoJSON Source & Layers cho Active Zones (mặc định FALLBACK_DANANG_ZONES nếu rỗng)
       if (!map.getSource(SOURCE_ZONES)) {
         map.addSource(SOURCE_ZONES, {
           type: "geojson",
@@ -226,7 +262,7 @@ export function MapView({
           source: SOURCE_ZONES,
           paint: {
             "fill-color": "#1051A6",
-            "fill-opacity": 0.05,
+            "fill-opacity": 0.08,
           },
         });
 
@@ -236,8 +272,8 @@ export function MapView({
           source: SOURCE_ZONES,
           paint: {
             "line-color": "#1051A6",
-            "line-opacity": 0.5,
             "line-width": 2,
+            "line-opacity": 0.8,
           },
         });
       }
