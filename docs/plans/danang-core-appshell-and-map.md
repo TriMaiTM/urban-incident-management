@@ -40,7 +40,7 @@
     - Cấu hình lớp đa giác `DANANG_CORE`: `fill-color: "#1051A6"`, `fill-opacity: 0.08`, `line-color: "#1051A6"`, `line-width: 2`.
 - **Kiểm tra cơ học:** `npx tsc --noEmit` & `npm run lint`.
 
-### Bước 2: Xây dựng Component Feed Sự cố Khu vực (`incident-feed.tsx`) & Tinh gọn Form (`report-form.tsx`)
+### [x] Bước 2: Xây dựng Component Feed Sự cố Khu vực (`incident-feed.tsx`) & Tinh gọn Form (`report-form.tsx`)
 - **Mục tiêu:** Xây dựng danh sách sự cố có bộ lọc phục vụ Tab 1 và tối ưu form gọn gàng `space-y-3` cho Tab 2.
 - **Thực hiện:**
   - Tạo `frontend/src/components/citizen/incident-feed.tsx`:
