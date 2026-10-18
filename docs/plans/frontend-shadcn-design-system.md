@@ -97,20 +97,22 @@
   - `npm run lint` (Exit code 0)
   - `npm run build` (Exit code 0)
 
-### Bước 4: Xây dựng Trang Trưng bày & Kiểm định Thành phần (Component Showcase)
+### [x] Bước 4: Xây dựng Trang Trưng bày & Kiểm định Thành phần (Component Showcase)
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Tạo trang kiểm định trực quan tại `frontend/src/app/page.tsx` minh họa các thành phần giao diện thực tế của Hệ thống Quản lý Sự cố Đô thị Đà Nẵng.
 - **Nội dung hiển thị:**
-  - Header hành chính IOC Đà Nẵng: Logo, Tên hệ thống "Nền tảng Tiếp nhận & Điều phối Sự cố Đô thị Lõi Đà Nẵng", Badge "Thử nghiệm Đợt 1".
-  - Bảng mẫu Incident Status Badges (SUBMITTED, ASSIGNED, IN_PROGRESS, RESOLVED, EMERGENCY) kèm `font-mono tabular-nums`.
+  - Header hành chính IOC Đà Nẵng: Logo/Icon Building2, Tên hệ thống "Nền tảng Tiếp nhận & Điều phối Sự cố Đô thị Lõi Đà Nẵng", Badge "Đà Nẵng GovTech | Thử nghiệm Đợt 1".
+  - Bảng mẫu Incident Status Badges (SUBMITTED, TRIAGED, ASSIGNED, IN_PROGRESS, RESOLVED, CONFIRMED, CLOSED, REJECTED, EMERGENCY) kèm `font-mono tabular-nums`.
   - Thẻ tóm tắt sự cố mẫu (Incident Card): Mã phiếu `DN-202610-A1B2`, danh mục "Cây xanh ngã đổ", địa chỉ "Số 123 đường Bạch Đằng, Hải Châu", SLA timer đếm ngược, badge trạng thái.
   - Form phản ánh mẫu: Input địa chỉ, Textarea mô tả, Button "Gửi phản ánh" (Primary Blue `#1051A6`), Nút "Hủy".
   - Dialog xác nhận & Toast thông báo (Sonner).
 - **Lệnh kiểm tra cơ học:**
-  - `npx tsc --noEmit`
-  - `npm run lint`
-  - `npm run build`
+  - `npx tsc --noEmit` (Exit code 0)
+  - `npm run lint` (Exit code 0)
+  - `npm run build` (Exit code 0)
 
-### Bước 5: Audit Độc lập qua Reviewer Subagent & Bàn giao
+### [x] Bước 5: Audit Độc lập qua Reviewer Subagent & Nghiệm thu
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Spawn subagent `reviewer` để audit toàn bộ diff so với `AGENTS.md` và `.agents/rules/frontend-nextjs-maplibre.md`.
 - **Tiêu chí đánh giá:**
   - Strict TypeScript (0 lỗi `any`, 0 type warnings).
