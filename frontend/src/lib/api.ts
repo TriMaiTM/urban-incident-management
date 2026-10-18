@@ -234,3 +234,14 @@ export async function voteDuplicate(
     message: raw.message,
   };
 }
+
+export const api = {
+  getActiveZones,
+  validateLocation,
+  getNearbyIncidents,
+  getCategories,
+  createIncident,
+  voteDuplicate,
+};
+
+export default api;

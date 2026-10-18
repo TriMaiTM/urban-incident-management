@@ -1,55 +1,21 @@
 "use client";
 
-import * as React from "react";
-import { useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useState } from "react";
 import {
   Building2,
-  ShieldCheck,
-  Clock,
-  MapPin,
-  AlertTriangle,
-  Send,
-  RotateCcw,
-  CheckCircle2,
-  FileText,
-  Sparkles,
-  Layers,
-  ArrowUpRight,
-  Info,
   Check,
-  Activity,
-  Navigation,
+  CheckCircle2,
+  Copy,
+  FileText,
+  MapPin,
+  Phone,
+  ShieldCheck,
 } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table";
+import { MapView } from "@/components/map/map-view";
+import { ReportForm } from "@/components/citizen/report-form";
+import { api } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -58,807 +24,370 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { IncidentCreateResponse, IncidentNearbyItem } from "@/types/incident";
+import type { SystemZoneOut } from "@/types/zone";
+import { cn } from "@/lib/utils";
 
-interface StatusBadgeSpec {
-  code: string;
-  name: string;
-  description: string;
-  badgeClass: string;
-}
+// Tọa độ mặc định: Cầu Rồng, trung tâm TP. Đà Nẵng
+const DEFAULT_COORDS = { latitude: 16.0611, longitude: 108.2208 };
 
-const INCIDENT_STATUSES: StatusBadgeSpec[] = [
-  {
-    code: "SUBMITTED",
-    name: "Ghi nhận mới",
-    description: "Tiếp nhận qua cổng người dân, chờ phân tích AI",
-    badgeClass: "badge-status-submitted",
-  },
-  {
-    code: "TRIAGED",
-    name: "Đã phân loại AI",
-    description: "DeepSeek trích xuất thực thể, danh mục & độ tin cậy",
-    badgeClass: "badge-status-triaged",
-  },
-  {
-    code: "ASSIGNED",
-    name: "Đã giao đơn vị",
-    description: "Điều phối viên phân bổ đến cơ quan quận/huyện",
-    badgeClass: "badge-status-assigned",
-  },
-  {
-    code: "IN_PROGRESS",
-    name: "Đang khắc phục",
-    description: "Đội phản ứng nhanh tiếp cận và xử lý tại hiện trường",
-    badgeClass: "badge-status-in-progress",
-  },
-  {
-    code: "RESOLVED",
-    name: "Đã hoàn tất",
-    description: "Kỹ thuật viên khắc phục xong kèm ảnh đối chứng",
-    badgeClass: "badge-status-resolved",
-  },
-  {
-    code: "CONFIRMED",
-    name: "Đã nghiệm thu",
-    description: "Người dân hoặc thanh tra đô thị xác nhận hiện trường",
-    badgeClass: "badge-status-confirmed",
-  },
-  {
-    code: "CLOSED",
-    name: "Đóng phiếu",
-    description: "Hồ sơ sự cố lưu trữ vào kho cơ sở dữ liệu GIS",
-    badgeClass: "badge-status-closed",
-  },
-  {
-    code: "REJECTED",
-    name: "Từ chối / Hủy",
-    description: "Phản ánh trùng lặp, spam hoặc nằm ngoài ranh giới",
-    badgeClass: "badge-status-rejected",
-  },
-  {
-    code: "EMERGENCY",
-    name: "Sự cố khẩn cấp",
-    description: "Nguy cơ an toàn tính mạng, áp dụng quy trình SLA đặc biệt",
-    badgeClass: "badge-status-emergency",
-  },
-];
+export default function CitizenPage() {
+  // Mobile navigation tab: "form" hoặc "map"
+  const [mobileTab, setMobileTab] = useState<"form" | "map">("form");
 
-interface DispatcherIncident {
-  id: string;
-  category: string;
-  address: string;
-  status: string;
-  statusClass: string;
-  slaRemaining: string;
-  slaClass: string;
-}
+  // State điều phối tọa độ được chọn
+  const [selectedCoords, setSelectedCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(DEFAULT_COORDS);
 
-const SAMPLE_INCIDENTS: DispatcherIncident[] = [
-  {
-    id: "DN-202610-A1B2",
-    category: "Cây xanh ngã đổ",
-    address: "Cầu Rồng, P. Hải Châu 1, Q. Hải Châu",
-    status: "IN_PROGRESS",
-    statusClass: "badge-status-in-progress",
-    slaRemaining: "03:45:12",
-    slaClass: "text-amber-600 font-semibold",
-  },
-  {
-    id: "DN-202610-C3D4",
-    category: "Thoát nước & Ngập úng",
-    address: "45 Nguyễn Văn Linh, P. Bình Hiên, Q. Hải Châu",
-    status: "EMERGENCY",
-    statusClass: "badge-status-emergency",
-    slaRemaining: "00:28:10",
-    slaClass: "text-rose-600 font-semibold",
-  },
-  {
-    id: "DN-202610-E5F6",
-    category: "Giao thông & Hạ tầng",
-    address: "Ngã tư Điện Biên Phủ - Hà Huy Tập, Q. Thanh Khê",
-    status: "TRIAGED",
-    statusClass: "badge-status-triaged",
-    slaRemaining: "07:15:00",
-    slaClass: "text-blue-700",
-  },
-  {
-    id: "DN-202610-G7H8",
-    category: "Chiếu sáng đô thị",
-    address: "Tuyến ven sông Như Nguyệt, P. Thuận Phước, Q. Hải Châu",
-    status: "RESOLVED",
-    statusClass: "badge-status-resolved",
-    slaRemaining: "Hoàn tất đúng hạn",
-    slaClass: "text-emerald-700",
-  },
-  {
-    id: "DN-202610-M9K0",
-    category: "Rác thải môi trường",
-    address: "Khu vực Chợ Hàn, Trần Phú, P. Hải Châu 1",
-    status: "SUBMITTED",
-    statusClass: "badge-status-submitted",
-    slaRemaining: "11:59:45",
-    slaClass: "text-slate-600",
-  },
-];
+  // State lưu danh sách phân vùng đô thị đang kích hoạt
+  const [activeZones, setActiveZones] = useState<SystemZoneOut[]>([]);
 
-export default function ShowcasePage() {
-  const [category, setCategory] = useState<string>("trees");
-  const [address, setAddress] = useState<string>(
-    "Số 123 đường Bạch Đằng, P. Hải Châu 1, Q. Hải Châu"
-  );
-  const [coordinates, setCoordinates] = useState<string>(
-    "16.0611, 108.2208"
-  );
-  const [description, setDescription] = useState<string>(
-    "Cây xà cừ cổ thụ gãy nhánh lớn chắn ngang một làn đường xe cơ giới, nguy cơ mất an toàn giao thông giờ cao điểm."
-  );
-  const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
-  const [selectedIncidentForDetail, setSelectedIncidentForDetail] =
-    useState<DispatcherIncident | null>(null);
+  // State kiểm tra phạm vi hàng rào địa lý
+  const [isInsideZone, setIsInsideZone] = useState<boolean>(true);
+  const [zoneName, setZoneName] = useState<string | null>(null);
+  const [zoneMessage, setZoneMessage] = useState<string | null>(null);
 
-  const getCategoryLabel = (catVal: string): string => {
-    switch (catVal) {
-      case "traffic":
-        return "Giao thông & Hạ tầng đường bộ";
-      case "trees":
-        return "Cây xanh đô thị & Ngã đổ";
-      case "drainage":
-        return "Thoát nước & Ngập úng đô thị";
-      case "lighting":
-        return "Chiếu sáng công cộng & Cột điện";
-      case "waste":
-        return "Rác thải & Vệ sinh môi trường";
-      default:
-        return "Sự cố đô thị chung";
+  // State danh sách sự cố lân cận trong bán kính 50m
+  const [nearbyIncidents, setNearbyIncidents] = useState<IncidentNearbyItem[]>([]);
+
+  // State điều khiển Modal thành công sau khi gửi phiếu phản ánh
+  const [createdIncident, setCreatedIncident] = useState<IncidentCreateResponse | null>(null);
+
+  // State sao chép mã phiếu thành công
+  const [copied, setCopied] = useState<boolean>(false);
+
+  // 1. Nạp danh sách các phân vùng đô thị kích hoạt (Active Zones) 1 lần khi khởi tạo
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function fetchZones() {
+      try {
+        const zones = await api.getActiveZones();
+        if (!isCancelled) {
+          setActiveZones(zones);
+        }
+      } catch (error) {
+        console.error("Không thể tải danh sách phân vùng hoạt động:", error);
+      }
     }
-  };
 
-  const handleOpenSubmitDialog = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!address.trim() || !description.trim()) {
-      toast.error("Vui lòng điền đầy đủ địa chỉ hiện trường và mô tả sự cố.");
+    void fetchZones();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  // 2. Tự động kiểm tra Geofence và quét sự cố lân cận 50m khi selectedCoords thay đổi
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!selectedCoords) {
       return;
     }
-    setIsDialogOpen(true);
+
+    const { latitude, longitude } = selectedCoords;
+
+    async function syncLocationData() {
+      try {
+        const [validateRes, nearbyRes] = await Promise.allSettled([
+          api.validateLocation(latitude, longitude),
+          api.getNearbyIncidents(latitude, longitude, 50),
+        ]);
+
+        if (isCancelled) return;
+
+        if (validateRes.status === "fulfilled") {
+          setIsInsideZone(validateRes.value.is_inside);
+          setZoneName(validateRes.value.zone_name);
+          setZoneMessage(validateRes.value.message);
+        } else {
+          console.error("Lỗi khi kiểm tra phân vùng địa lý:", validateRes.reason);
+        }
+
+        if (nearbyRes.status === "fulfilled") {
+          setNearbyIncidents(nearbyRes.value.items ?? []);
+        } else {
+          console.error("Lỗi khi quét sự cố lân cận:", nearbyRes.reason);
+          setNearbyIncidents([]);
+        }
+      } catch (error) {
+        console.error("Lỗi đồng bộ dữ liệu vị trí:", error);
+      }
+    }
+
+    void syncLocationData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedCoords]);
+
+  // Cập nhật tọa độ từ bản đồ hoặc nút GPS
+  const handleSelectCoords = (coords: { latitude: number; longitude: number }) => {
+    setSelectedCoords(coords);
   };
 
-  const handleConfirmSubmission = () => {
-    setIsDialogOpen(false);
-    toast.success("Tiếp nhận phản ánh sự cố thành công!", {
-      description:
-        "Mã phiếu DN-202610-A1B2 đã được chuyển đến Trung tâm IOC Đà Nẵng để phân phối xử lý.",
-    });
+  // Xử lý sao chép mã phiếu vào clipboard
+  const handleCopyTicketCode = async () => {
+    if (!createdIncident?.ticket_code) return;
+    try {
+      await navigator.clipboard.writeText(createdIncident.ticket_code);
+      setCopied(true);
+      toast.success("Đã sao chép mã tra cứu vào bộ nhớ tạm");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Không thể sao chép mã phiếu. Vui lòng ghi lại mã bằng tay.");
+    }
   };
 
-  const handleResetForm = () => {
-    setCategory("trees");
-    setAddress("Số 123 đường Bạch Đằng, P. Hải Châu 1, Q. Hải Châu");
-    setCoordinates("16.0611, 108.2208");
-    setDescription(
-      "Cây xà cừ cổ thụ gãy nhánh lớn chắn ngang một làn đường xe cơ giới, nguy cơ mất an toàn giao thông giờ cao điểm."
-    );
-    toast.info("Đã khôi phục dữ liệu mẫu của biểu mẫu tiếp nhận.");
+  // Cập nhật lại danh sách sự cố lân cận khi người dùng bình chọn trùng lặp thành công
+  const handleVoteDuplicateSuccess = async (ticketCode: string, newCount: number) => {
+    toast.info(`Đã xác nhận trùng cho phiếu ${ticketCode} (${newCount} lượt).`);
+    if (selectedCoords) {
+      try {
+        const nearbyRes = await api.getNearbyIncidents(
+          selectedCoords.latitude,
+          selectedCoords.longitude,
+          50
+        );
+        setNearbyIncidents(nearbyRes.items ?? []);
+      } catch (error) {
+        console.error("Lỗi cập nhật sự cố sau khi xác nhận trùng lặp:", error);
+      }
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 text-slate-900 dark:bg-background dark:text-foreground">
-      {/* Header hành chính */}
-      <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-slate-200 bg-white px-4 md:px-8 dark:border-slate-800 dark:bg-card">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+      {/* Top Header: Chuẩn GovTech Đà Nẵng, h-14, viền crisp border-slate-200 */}
+      <header className="h-14 border-b border-slate-200 bg-white/95 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-sm">
+        {/* Bên trái: Logo/Icon & Tên hệ thống */}
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-md bg-[#1051A6] text-white shadow-xs">
-            <Building2 className="size-5" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#1051A6] text-white shadow-sm shrink-0">
+            <Building2 className="h-5 w-5" />
           </div>
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight text-slate-900 md:text-base dark:text-slate-100">
-              Nền tảng Tiếp nhận &amp; Điều phối Sự cố Đô thị Lõi Đà Nẵng
+          <div className="flex flex-col">
+            <h1 className="text-xs sm:text-sm font-bold tracking-tight text-slate-900 leading-tight">
+              HỆ THỐNG TIẾP NHẬN & ĐIỀU PHỐI SỰ CỐ ĐÔ THỊ
             </h1>
-            <p className="hidden text-xs text-slate-500 sm:block dark:text-slate-400">
-              Trung tâm Giám sát Điều hành Đô thị Thông minh (IOC) TP Đà Nẵng
+            <p className="text-[10px] sm:text-xs font-medium text-slate-500 uppercase tracking-wider">
+              TP ĐÀ NẴNG - KHU VỰC ĐÔ THỊ LÕI
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Ở giữa / Bên phải: Mobile Switcher, GovTech Badge, Hotline 1022 */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Mobile Tab Toggle (md:hidden) */}
+          <div className="flex items-center gap-1 md:hidden bg-slate-100 p-1 rounded-md border border-slate-200">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn(
+                "h-7 px-2.5 text-xs font-medium rounded-md transition-all",
+                mobileTab === "map"
+                  ? "bg-[#1051A6] text-white hover:bg-[#1051A6] hover:text-white"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+              onClick={() => setMobileTab("map")}
+            >
+              <MapPin className="h-3.5 w-3.5 mr-1" />
+              Bản đồ
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn(
+                "h-7 px-2.5 text-xs font-medium rounded-md transition-all",
+                mobileTab === "form"
+                  ? "bg-[#1051A6] text-white hover:bg-[#1051A6] hover:text-white"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+              onClick={() => setMobileTab("form")}
+            >
+              <FileText className="h-3.5 w-3.5 mr-1" />
+              Báo cáo
+            </Button>
+          </div>
+
+          {/* Đà Nẵng GovTech Badge */}
           <Badge
             variant="outline"
-            className="rounded-md border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
+            className="hidden lg:inline-flex items-center gap-1.5 border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 rounded-md"
           >
-            <ShieldCheck className="mr-1 size-3.5 text-[#1051A6]" />
+            <ShieldCheck className="h-3.5 w-3.5 text-[#1051A6]" />
             Đà Nẵng GovTech | Thử nghiệm Đợt 1
           </Badge>
+
+          {/* Hotline phản ánh 1022 */}
+          <a
+            href="tel:1022"
+            className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+            title="Đường dây nóng phản ánh sự cố TP Đà Nẵng"
+          >
+            <Phone className="h-3.5 w-3.5 text-rose-600" />
+            <span className="hidden sm:inline">Hotline phản ánh:</span>
+            <span className="font-mono tabular-nums font-bold">1022</span>
+          </a>
         </div>
       </header>
 
-      {/* Main Content Showcase */}
-      <main className="mx-auto max-w-7xl space-y-8 p-4 md:p-8">
-        {/* Banner thông tin kỹ thuật kiểm định */}
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-card">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-[#1051A6] dark:bg-blue-950 dark:text-blue-400">
-                <Info className="size-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Môi trường Kiểm định Hệ thống Thành phần (Design System Showcase)
-                </h2>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Tuân thủ Bộ quy tắc Giao diện Hành chính GovTech Đà Nẵng,
-                  Tailwind CSS v4 inline variables và primitives chính chủ Radix
-                  UI / shadcn.
-                </p>
-              </div>
-            </div>
+      {/* Body Split-Screen: Panel trái (ReportForm) & Panel phải (MapView) */}
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Panel bên trái: Form báo cáo hiện trường, cuộn độc lập */}
+        <aside
+          className={cn(
+            "w-full md:w-[480px] lg:w-[540px] shrink-0 border-r border-slate-200 bg-slate-50/50 overflow-y-auto p-4",
+            mobileTab === "form" ? "block" : "hidden md:block"
+          )}
+        >
+          <ReportForm
+            selectedCoords={selectedCoords}
+            onSelectCoords={handleSelectCoords}
+            nearbyIncidents={nearbyIncidents}
+            isInsideZone={isInsideZone}
+            zoneName={zoneName}
+            zoneMessage={zoneMessage}
+            onIncidentCreated={(incident) => {
+              setCreatedIncident(incident);
+            }}
+            onVoteDuplicateSuccess={handleVoteDuplicateSuccess}
+          />
+        </aside>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-md border-slate-200 text-xs text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                onClick={() =>
-                  toast.success("Thông báo kiểm định thành công!", {
-                    description:
-                      "Hệ thống phân giải Sonner Toast đã hoạt động bình thường trên layout.",
-                  })
-                }
-              >
-                <Check className="size-3.5" />
-                Toast Test
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-md border-slate-200 text-xs text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                onClick={() =>
-                  toast.warning(
-                    "Cảnh báo SLA: Phiếu DN-202610-C3D4 còn dưới 30 phút!"
-                  )
-                }
-              >
-                <Clock className="size-3.5 text-amber-600" />
-                Cảnh báo SLA
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-md border-slate-200 text-xs text-rose-700 hover:bg-rose-50 dark:border-slate-700 dark:text-rose-400 dark:hover:bg-rose-950"
-                onClick={() =>
-                  toast.error(
-                    "Lỗi Geofence 422: Tọa độ ngoài ranh giới hành chính Đà Nẵng"
-                  )
-                }
-              >
-                <AlertTriangle className="size-3.5" />
-                Lỗi Geofence
-              </Button>
-            </div>
-          </div>
-        </div>
+        {/* Panel bên phải: Bản đồ GIS MapLibre GL full viewport */}
+        <main
+          className={cn(
+            "flex-1 h-full relative",
+            mobileTab === "map" ? "block" : "hidden md:block"
+          )}
+        >
+          <MapView
+            selectedCoords={selectedCoords}
+            onSelectCoords={handleSelectCoords}
+            nearbyIncidents={nearbyIncidents}
+            activeZones={activeZones}
+            isInsideZone={isInsideZone}
+            className="w-full h-full"
+          />
+        </main>
+      </div>
 
-        {/* Khối 1: Bảng mã trạng thái sự cố chuẩn */}
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Activity className="size-4 text-[#1051A6]" />
-            <h2 className="text-sm font-semibold tracking-tight text-slate-900 uppercase dark:text-slate-100">
-              Khối 1: Bảng Mã Trạng thái Sự cố Chuẩn (Incident Status Badges)
-            </h2>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-card">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
-              {INCIDENT_STATUSES.map((status) => (
-                <div
-                  key={status.code}
-                  className="flex items-start justify-between rounded-md border border-slate-100 p-3 hover:bg-slate-50 dark:border-slate-800/80 dark:hover:bg-slate-800/40"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={`rounded-md font-mono text-xs font-medium tracking-wide ${status.badgeClass}`}
-                      >
-                        {status.code}
-                      </Badge>
-                      <span className="text-xs font-medium text-slate-900 dark:text-slate-200">
-                        {status.name}
-                      </span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-                      {status.description}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Grid 2 cột: Khối 2 (Card Preview) & Khối 3 (Form Tiếp nhận) */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-          {/* Khối 2: Thẻ sự cố mẫu */}
-          <section className="space-y-3 lg:col-span-5">
-            <div className="flex items-center gap-2">
-              <FileText className="size-4 text-[#1051A6]" />
-              <h2 className="text-sm font-semibold tracking-tight text-slate-900 uppercase dark:text-slate-100">
-                Khối 2: Thẻ Sự cố Mẫu (Incident Card Preview)
-              </h2>
-            </div>
-
-            <Card className="rounded-lg border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-card">
-              <CardHeader className="border-b border-slate-100 pb-4 dark:border-slate-800">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-semibold tracking-wider text-slate-500 tabular-nums dark:text-slate-400">
-                    MÃ PHIẾU: DN-202610-A1B2
-                  </span>
-                  <Badge
-                    variant="outline"
-                    className="badge-status-in-progress rounded-md text-xs font-medium"
-                  >
-                    IN_PROGRESS
-                  </Badge>
-                </div>
-                <CardTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Cây xà cừ ngã đổ chắn ngang lòng đường
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500 dark:text-slate-400">
-                  Thuộc địa bàn phân cấp: Quận Hải Châu, TP Đà Nẵng
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent className="space-y-4 pt-4 text-xs">
-                {/* Thông tin thực địa */}
-                <div className="space-y-2">
-                  <div className="flex items-start gap-2 text-slate-700 dark:text-slate-300">
-                    <MapPin className="mt-0.5 size-4 shrink-0 text-slate-400" />
-                    <span>
-                      Cầu Rồng, P. Hải Châu 1, Q. Hải Châu, TP Đà Nẵng
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                    <Navigation className="size-4 shrink-0 text-slate-400" />
-                    <span>Tọa độ WGS84:</span>
-                    <span className="font-mono font-medium text-slate-900 tabular-nums dark:text-slate-100">
-                      16.0611°N, 108.2208°E
-                    </span>
-                  </div>
-                </div>
-
-                <div className="rounded-md border border-slate-100 bg-slate-50/80 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-900/60">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <Clock className="size-3.5 text-amber-600" />
-                      SLA Còn lại:
-                    </span>
-                    <span className="font-mono text-sm font-bold text-amber-600 tabular-nums">
-                      03:45:12
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <Sparkles className="size-3.5 text-[#1051A6]" />
-                      Độ tin cậy AI DeepSeek:
-                    </span>
-                    <span className="font-mono font-semibold text-emerald-600 tabular-nums">
-                      94.5%
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                    <span>Đơn vị phụ trách:</span>
-                    <span className="font-medium text-slate-800 dark:text-slate-200">
-                      Cty Công viên Cây xanh ĐN
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                  Ghi chú hiện trường: Nhánh cây dài 6m đường kính 35cm gãy đè lên
-                  hành lang đi bộ và làn xe thô sơ. Đội xử lý số 2 đã có mặt
-                  cùng cưa máy lúc 14:15.
-                </p>
-              </CardContent>
-
-              <CardFooter className="flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-md border-slate-200 text-xs dark:border-slate-700"
-                  onClick={() =>
-                    toast.info(
-                      "Mở bản đồ định vị: 16.0611, 108.2208 trên nền bản đồ MapLibre"
-                    )
-                  }
-                >
-                  <MapPin className="size-3.5 text-[#1051A6]" />
-                  Xem GIS Map
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="rounded-md bg-[#1051A6] text-xs hover:bg-[#0D4185]"
-                  onClick={() => {
-                    setSelectedIncidentForDetail(SAMPLE_INCIDENTS[0]);
-                  }}
-                >
-                  Chi tiết điều phối
-                  <ArrowUpRight className="size-3.5" />
-                </Button>
-              </CardFooter>
-            </Card>
-          </section>
-
-          {/* Khối 3: Form tiếp nhận phản ánh mẫu */}
-          <section className="space-y-3 lg:col-span-7">
-            <div className="flex items-center gap-2">
-              <Send className="size-4 text-[#1051A6]" />
-              <h2 className="text-sm font-semibold tracking-tight text-slate-900 uppercase dark:text-slate-100">
-                Khối 3: Form Tiếp nhận Phản ánh Mẫu (Incident Submission Form)
-              </h2>
-            </div>
-
-            <Card className="rounded-lg border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-card">
-              <CardHeader className="border-b border-slate-100 pb-4 dark:border-slate-800">
-                <CardTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Ghi nhận Phản ánh Hiện trường Mới
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500 dark:text-slate-400">
-                  Nhập thông tin sự cố hạ tầng đô thị. AI sẽ tự động phân loại
-                  nhóm sự cố và kích hoạt chuẩn SLA xử lý.
-                </CardDescription>
-              </CardHeader>
-
-              <form onSubmit={handleOpenSubmitDialog}>
-                <CardContent className="space-y-4 pt-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {/* Danh mục sự cố */}
-                    <div className="space-y-1.5">
-                      <Label
-                        htmlFor="category-select"
-                        className="text-xs font-medium text-slate-700 dark:text-slate-300"
-                      >
-                        Danh mục Sự cố Đô thị
-                      </Label>
-                      <Select value={category} onValueChange={setCategory}>
-                        <SelectTrigger
-                          id="category-select"
-                          className="w-full rounded-md border-slate-200 text-xs dark:border-slate-700"
-                        >
-                          <SelectValue placeholder="Chọn danh mục" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-md border-slate-200 text-xs dark:border-slate-800">
-                          <SelectItem value="traffic">
-                            Giao thông &amp; Hạ tầng đường bộ
-                          </SelectItem>
-                          <SelectItem value="trees">
-                            Cây xanh đô thị &amp; Ngã đổ
-                          </SelectItem>
-                          <SelectItem value="drainage">
-                            Thoát nước &amp; Ngập úng đô thị
-                          </SelectItem>
-                          <SelectItem value="lighting">
-                            Chiếu sáng công cộng &amp; Cột điện
-                          </SelectItem>
-                          <SelectItem value="waste">
-                            Rác thải &amp; Vệ sinh môi trường
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Tọa độ WGS84 */}
-                    <div className="space-y-1.5">
-                      <Label
-                        htmlFor="incident-coords"
-                        className="text-xs font-medium text-slate-700 dark:text-slate-300"
-                      >
-                        Tọa độ WGS84 (Lat, Lon)
-                      </Label>
-                      <Input
-                        id="incident-coords"
-                        value={coordinates}
-                        onChange={(e) => setCoordinates(e.target.value)}
-                        placeholder="16.0611, 108.2208"
-                        className="font-mono rounded-md border-slate-200 text-xs tabular-nums dark:border-slate-700"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Địa chỉ hiện trường */}
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="incident-address"
-                      className="text-xs font-medium text-slate-700 dark:text-slate-300"
-                    >
-                      Địa chỉ Hiện trường (Khu vực Đô thị Lõi)
-                    </Label>
-                    <Input
-                      id="incident-address"
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      placeholder="Số nhà, tên đường, phường, quận..."
-                      className="rounded-md border-slate-200 text-xs dark:border-slate-700"
-                    />
-                  </div>
-
-                  {/* Nội dung mô tả sự cố */}
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="incident-desc"
-                      className="text-xs font-medium text-slate-700 dark:text-slate-300"
-                    >
-                      Nội dung Mô tả Hiện trường &amp; Tác động
-                    </Label>
-                    <Textarea
-                      id="incident-desc"
-                      rows={4}
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Mô tả hiện trạng, mức độ nghiêm trọng, nguy cơ cản trở lưu thông hoặc nguy hiểm..."
-                      className="rounded-md border-slate-200 text-xs dark:border-slate-700"
-                    />
-                  </div>
-                </CardContent>
-
-                <CardFooter className="flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-md border-slate-200 text-xs text-slate-700 dark:border-slate-700 dark:text-slate-300"
-                    onClick={handleResetForm}
-                  >
-                    <RotateCcw className="size-3.5" />
-                    Hủy / Làm lại
-                  </Button>
-
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="rounded-md bg-[#1051A6] text-xs font-medium text-white hover:bg-[#0D4185]"
-                  >
-                    <Send className="size-3.5" />
-                    Gửi phản ánh sự cố
-                  </Button>
-                </CardFooter>
-              </form>
-            </Card>
-          </section>
-        </div>
-
-        {/* Khối 4: Bảng điều phối sự cố gần đây */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Layers className="size-4 text-[#1051A6]" />
-              <h2 className="text-sm font-semibold tracking-tight text-slate-900 uppercase dark:text-slate-100">
-                Khối 4: Bảng Điều phối Sự cố Gần đây (Dispatcher Incident Table)
-              </h2>
-            </div>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Tổng số: 5 sự cố trong ca trực
-            </span>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-card">
-            <Table>
-              <TableHeader className="bg-slate-50/75 dark:bg-slate-900/50">
-                <TableRow className="border-b border-slate-200 dark:border-slate-800">
-                  <TableHead className="w-[150px] text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Mã phiếu
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Danh mục sự cố
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Địa chỉ hiện trường
-                  </TableHead>
-                  <TableHead className="w-[140px] text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Trạng thái
-                  </TableHead>
-                  <TableHead className="w-[150px] text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Hạn xử lý SLA
-                  </TableHead>
-                  <TableHead className="w-[100px] text-right text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Thao tác
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {SAMPLE_INCIDENTS.map((item) => (
-                  <TableRow
-                    key={item.id}
-                    className="border-b border-slate-100 transition-colors hover:bg-slate-50/60 dark:border-slate-800/80 dark:hover:bg-slate-800/40"
-                  >
-                    <TableCell className="font-mono text-xs font-semibold text-slate-800 tabular-nums dark:text-slate-200">
-                      {item.id}
-                    </TableCell>
-                    <TableCell className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                      {item.category}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-600 dark:text-slate-400">
-                      {item.address}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`rounded-md font-mono text-xs font-medium ${item.statusClass}`}
-                      >
-                        {item.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className={`font-mono text-xs tabular-nums ${item.slaClass}`}>
-                      {item.slaRemaining}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 rounded-md border-slate-200 px-2.5 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        onClick={() => setSelectedIncidentForDetail(item)}
-                      >
-                        Chi tiết
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
-      </main>
-
-      {/* Khối 5: Dialog Xác nhận Tiếp nhận Sự cố */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="rounded-lg border-slate-200 p-6 sm:max-w-md dark:border-slate-800">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100">
-              <CheckCircle2 className="size-5 text-[#1051A6]" />
-              Xác nhận Tiếp nhận Phản ánh Sự cố
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500 dark:text-slate-400">
-              Hệ thống sẽ lưu phiếu phản ánh vào CSDL GIS không gian và kích hoạt
-              tiến trình phân tích AI DeepSeek.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 rounded-md border border-slate-100 bg-slate-50/80 p-3 text-xs dark:border-slate-800 dark:bg-slate-900/60">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Mã phiếu dự kiến:</span>
-              <span className="font-mono font-semibold text-slate-900 tabular-nums dark:text-slate-100">
-                DN-202610-A1B2
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Nhóm danh mục:</span>
-              <span className="font-medium text-slate-800 dark:text-slate-200">
-                {getCategoryLabel(category)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Tọa độ WGS84:</span>
-              <span className="font-mono text-slate-800 tabular-nums dark:text-slate-200">
-                {coordinates}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Địa chỉ hiện trường:</span>
-              <span className="max-w-[220px] text-right font-medium text-slate-800 truncate dark:text-slate-200">
-                {address}
-              </span>
-            </div>
-            <div className="flex justify-between border-t border-slate-200/60 pt-2 dark:border-slate-800">
-              <span className="text-slate-500">Thời hạn cam kết SLA:</span>
-              <span className="font-mono font-bold text-amber-600 tabular-nums">
-                04:00:00 (Tiêu chuẩn đô thị lõi)
-              </span>
-            </div>
-          </div>
-
-          <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-md border-slate-200 text-xs dark:border-slate-700"
-              onClick={() => setIsDialogOpen(false)}
-            >
-              Hủy bỏ
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="rounded-md bg-[#1051A6] text-xs font-medium text-white hover:bg-[#0D4185]"
-              onClick={handleConfirmSubmission}
-            >
-              Xác nhận &amp; Gửi điều phối
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog Chi tiết Sự cố từ Bảng Điều phối */}
+      {/* Dialog Thành công sau khi tiếp nhận phản ánh */}
       <Dialog
-        open={selectedIncidentForDetail !== null}
+        open={createdIncident !== null}
         onOpenChange={(open) => {
-          if (!open) setSelectedIncidentForDetail(null);
+          if (!open) {
+            setCreatedIncident(null);
+          }
         }}
       >
-        <DialogContent className="rounded-lg border-slate-200 p-6 sm:max-w-lg dark:border-slate-800">
+        <DialogContent className="sm:max-w-md border-slate-200">
           <DialogHeader>
-            <div className="flex items-center justify-between pr-4">
-              <DialogTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Hồ sơ Chi tiết Sự cố Đô thị
-              </DialogTitle>
-              {selectedIncidentForDetail && (
-                <Badge
-                  variant="outline"
-                  className={`rounded-md font-mono text-xs font-medium ${selectedIncidentForDetail.statusClass}`}
-                >
-                  {selectedIncidentForDetail.status}
-                </Badge>
-              )}
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+              <CheckCircle2 className="h-7 w-7" />
             </div>
-            <DialogDescription className="font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
-              MÃ PHIẾU: {selectedIncidentForDetail?.id}
+            <DialogTitle className="text-center text-lg font-bold text-slate-900">
+              Tiếp nhận phản ánh sự cố thành công!
+            </DialogTitle>
+            <DialogDescription className="text-center text-xs text-slate-500">
+              Hệ thống Điều phối Đô thị Đà Nẵng đã ghi nhận thông tin và đang chuyển dữ liệu
+              đến bộ phận chức năng xử lý.
             </DialogDescription>
           </DialogHeader>
 
-          {selectedIncidentForDetail && (
-            <div className="space-y-3 text-xs">
-              <div className="rounded-md border border-slate-100 bg-slate-50/80 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Danh mục:</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    {selectedIncidentForDetail.category}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Hiện trường:</span>
-                  <span className="font-medium text-slate-800 text-right dark:text-slate-200">
-                    {selectedIncidentForDetail.address}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Thời hạn SLA còn lại:</span>
-                  <span
-                    className={`font-mono tabular-nums ${selectedIncidentForDetail.slaClass}`}
-                  >
-                    {selectedIncidentForDetail.slaRemaining}
-                  </span>
-                </div>
+          {createdIncident && (
+            <div className="space-y-4 py-2">
+              {/* Khối hiển thị mã tra cứu to rõ */}
+              <div className="rounded-md border border-slate-200 bg-slate-100 p-3 text-center">
+                <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                  Mã tra cứu phiếu sự cố
+                </span>
+                <span className="block text-2xl font-mono font-bold tabular-nums text-[#1051A6] select-all mt-0.5">
+                  {createdIncident.ticket_code}
+                </span>
               </div>
 
-              <div className="rounded-md border border-slate-200/60 p-3 space-y-1.5 text-slate-600 dark:border-slate-800 dark:text-slate-400">
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  Quy trình Điều phối IOC:
-                </span>
-                <p className="leading-relaxed">
-                  Phiếu đã được đồng bộ với hệ thống bản đồ số MapLibre và thông báo
-                  đến Đội cơ động tuần tra phụ trách phân vùng Hải Châu.
-                </p>
+              {/* Thông tin vắn tắt sự cố */}
+              <div className="rounded-md border border-slate-200 bg-white p-3 space-y-2 text-xs">
+                <div className="flex justify-between items-start gap-2">
+                  <span className="text-slate-500 shrink-0">Tiêu đề:</span>
+                  <span className="font-medium text-slate-900 text-right line-clamp-2">
+                    {createdIncident.title}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Trạng thái:</span>
+                  <Badge
+                    variant="outline"
+                    className="border-blue-200 bg-blue-50 text-blue-700 font-mono text-[11px]"
+                  >
+                    Ghi nhận mới
+                  </Badge>
+                </div>
+                {createdIncident.sla_due_at && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Thời hạn cam kết (SLA):</span>
+                    <span className="font-mono tabular-nums text-slate-700 font-medium">
+                      {new Date(createdIncident.sla_due_at).toLocaleString("vi-VN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                )}
+                {createdIncident.duplicate_count > 0 && (
+                  <div className="flex justify-between items-center text-amber-700 bg-amber-50 px-2 py-1 rounded">
+                    <span>Đã ghi nhận trùng:</span>
+                    <span className="font-bold tabular-nums">
+                      {createdIncident.duplicate_count} lượt
+                    </span>
+                  </div>
+                )}
               </div>
+
+              <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                Vui lòng lưu lại mã tra cứu để theo dõi tiến độ giải quyết trực tiếp trên Cổng
+                Thông tin hoặc gọi tổng đài <span className="font-mono font-semibold">1022</span>.
+              </p>
             </div>
           )}
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              className="rounded-md border-slate-200 text-xs dark:border-slate-700"
-              onClick={() => setSelectedIncidentForDetail(null)}
+              onClick={handleCopyTicketCode}
+              className="w-full sm:w-auto border-slate-300 text-slate-700"
             >
-              Đóng
+              {copied ? (
+                <>
+                  <Check className="h-4 w-4 mr-1 text-emerald-600" />
+                  Đã sao chép
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4 mr-1" />
+                  Sao chép mã phiếu
+                </>
+              )}
             </Button>
             <Button
               type="button"
-              size="sm"
-              className="rounded-md bg-[#1051A6] text-xs font-medium text-white hover:bg-[#0D4185]"
-              onClick={() => {
-                const id = selectedIncidentForDetail?.id;
-                setSelectedIncidentForDetail(null);
-                toast.success(`Đã phân công lại sự cố ${id} thành công!`);
-              }}
+              onClick={() => setCreatedIncident(null)}
+              className="w-full sm:w-auto bg-[#1051A6] text-white hover:bg-[#0d4185]"
             >
-              Điều phối Đơn vị
+              Đóng / Gửi phản ánh mới
             </Button>
           </DialogFooter>
         </DialogContent>

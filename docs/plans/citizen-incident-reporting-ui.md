@@ -94,7 +94,8 @@
   - `npm run lint` (Exit code 0)
   - `npm run build` (Exit code 0)
 
-### Bước 4: Tích hợp Layout Split-Screen Full-Viewport vào `page.tsx`
+### [x] Bước 4: Tích hợp Layout Split-Screen Full-Viewport vào `page.tsx`
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Xóa bỏ trang showcase cũ, tích hợp `MapView` và `ReportForm` vào layout Split-Screen hoàn chỉnh.
 - **Thực hiện:**
   - Cập nhật `frontend/src/app/page.tsx`:
@@ -104,11 +105,12 @@
     - Trên Mobile: Tab chuyển đổi mượt mà giữa "Bản đồ" và "Báo cáo".
     - Dialog chúc mừng báo cáo thành công: hiển thị mã tra cứu phiếu `DN-YYYYMM-XXXX` (`font-mono tabular-nums`) kèm nút copy.
 - **Lệnh kiểm tra cơ học:**
-  - `npx tsc --noEmit`
-  - `npm run lint`
-  - `npm run build`
+  - `npx tsc --noEmit` (Exit code 0)
+  - `npm run lint` (Exit code 0)
+  - `npm run build` (Exit code 0)
 
-### Bước 5: Audit Độc lập qua Reviewer Subagent & Nghiệm thu
+### [x] Bước 5: Audit Độc lập qua Reviewer Subagent & Nghiệm thu
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Spawn subagent `reviewer` thẩm định toàn diện tính năng so với `AGENTS.md` và `.agents/rules/frontend-nextjs-maplibre.md`.
 - **Tiêu chuẩn nghiệm thu:**
   - Strict TypeScript (0 lỗi `any`, interface chuẩn).
