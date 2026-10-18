@@ -60,7 +60,8 @@
   - `npx tsc --noEmit` (Exit code 0)
   - `npm run lint` (Exit code 0)
 
-### Bước 2: Xây dựng Component Bản đồ GIS MapLibre GL (`map-view.tsx`)
+### [x] Bước 2: Xây dựng Component Bản đồ GIS MapLibre GL (`map-view.tsx`)
+- **Trạng thái:** HOÀN THÀNH (Reviewer: STATUS: PASS)
 - **Mục tiêu:** Xây dựng component bản đồ hiệu năng cao, hỗ trợ WGS84, ranh giới Đà Nẵng và marker vị trí.
 - **Thực hiện:**
   - Tạo `frontend/src/components/map/map-view.tsx`:
@@ -71,8 +72,9 @@
     - Hiển thị các marker màu cam/đỏ cho các sự cố lân cận xung quanh.
     - Cho phép click lên bản đồ để cập nhật tọa độ chọn.
 - **Lệnh kiểm tra cơ học:**
-  - `npx tsc --noEmit`
-  - `npm run lint`
+  - `npx tsc --noEmit` (Exit code 0)
+  - `npm run lint` (Exit code 0)
+  - `npm run build` (Exit code 0)
 
 ### Bước 3: Xây dựng Component Form Báo cáo Hiện trường & Khử trùng lặp (`report-form.tsx`)
 - **Mục tiêu:** Tạo form báo cáo hiện trường tương tác cao, kết nối trực tiếp với bản đồ và backend API.
