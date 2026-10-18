@@ -30,27 +30,30 @@ const DANANG_MAX_BOUNDS: [[number, number], [number, number]] = [
   [108.50, 16.35],
 ];
 
-// Style raster OpenStreetMap chi tiết tên đường tiếng Việt tại Đà Nẵng
-const OSM_STREET_STYLE: maplibregl.StyleSpecification = {
+// Style raster Carto Voyager Retina sắc nét, hiển thị rõ ràng đường phố tiếng Việt, sông Hàn và các cây cầu tại Đà Nẵng
+// Nguồn basemaps.cartocdn.com hoạt động 100% ổn định tại Việt Nam (không bị chặn DNS như tile.openstreetmap.org) và không cần API key
+const CARTO_VOYAGER_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
-    "osm-tiles": {
+    "carto-voyager": {
       type: "raster",
       tiles: [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
+        "https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
       ],
       tileSize: 256,
-      attribution: "&copy; OpenStreetMap Contributors",
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>',
       maxzoom: 19,
     },
   },
   layers: [
     {
-      id: "osm-tiles-layer",
+      id: "carto-voyager-layer",
       type: "raster",
-      source: "osm-tiles",
+      source: "carto-voyager",
       minzoom: 0,
       maxzoom: 19,
     },
@@ -202,7 +205,7 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: OSM_STREET_STYLE,
+      style: CARTO_VOYAGER_STYLE,
       center: initialCenter,
       zoom: 12.5,
       maxBounds: DANANG_MAX_BOUNDS,
