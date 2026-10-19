@@ -31,9 +31,10 @@ const DANANG_MAX_BOUNDS: [[number, number], [number, number]] = [
   [108.50, 16.35],
 ];
 
-// Cấu hình Carto API Key và Style Type từ biến môi trường (khử hoàn toàn watermark CARTO)
+// Cấu hình Goong Maps & Carto API Keys từ biến môi trường
+const GOONG_MAPTILES_KEY = process.env.NEXT_PUBLIC_GOONG_MAPTILES_KEY?.trim() || "";
 const CARTO_API_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY?.trim() || "";
-const MAP_STYLE_TYPE = process.env.NEXT_PUBLIC_MAP_STYLE_TYPE?.trim() || "raster";
+const MAP_STYLE_TYPE = process.env.NEXT_PUBLIC_MAP_STYLE_TYPE?.trim() || "vector";
 
 /**
  * Sinh StyleSpecification cho Carto Voyager raster tiles @2x Retina sắc nét.
@@ -72,10 +73,14 @@ function createCartoVoyagerRasterStyle(apiKey?: string): maplibregl.StyleSpecifi
 
 /**
  * Xác định style khởi tạo cho MapLibre:
- * - Nếu MAP_STYLE_TYPE === "vector" và có CARTO_API_KEY: sử dụng vector style URL
- * - Mặc định: sử dụng Carto Voyager raster tiles @2x Retina kèm API key để khử sạch watermark
+ * - Ưu tiên hàng đầu: Goong Map Vector Style (đầy đủ kiệt hẻm, số nhà, khối nhà 3D bản địa Việt Nam)
+ * - Lựa chọn 2: Carto Voyager Vector Style (nếu có Carto key và MAP_STYLE_TYPE === "vector")
+ * - Dự phòng: Carto Voyager raster tiles @2x Retina
  */
 function getInitialMapStyle(): string | maplibregl.StyleSpecification {
+  if (GOONG_MAPTILES_KEY) {
+    return `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(GOONG_MAPTILES_KEY)}`;
+  }
   if (MAP_STYLE_TYPE === "vector" && CARTO_API_KEY) {
     return `https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json?key=${encodeURIComponent(CARTO_API_KEY)}`;
   }
@@ -289,26 +294,44 @@ export function MapView({
           data: createZonesGeoJSON(activeZonesRef.current),
         });
 
-        map.addLayer({
-          id: LAYER_ZONES_FILL,
-          type: "fill",
-          source: SOURCE_ZONES,
-          paint: {
-            "fill-color": "#1051A6",
-            "fill-opacity": 0.08,
-          },
-        });
+        // Tìm layer nhãn (symbol) đầu tiên để chèn ranh giới bên dưới tên đường/địa danh
+        const layers = map.getStyle().layers;
+        let firstSymbolId: string | undefined;
+        if (layers) {
+          for (const layer of layers) {
+            if (layer.type === "symbol") {
+              firstSymbolId = layer.id;
+              break;
+            }
+          }
+        }
 
-        map.addLayer({
-          id: LAYER_ZONES_LINE,
-          type: "line",
-          source: SOURCE_ZONES,
-          paint: {
-            "line-color": "#1051A6",
-            "line-width": 2,
-            "line-opacity": 0.8,
+        map.addLayer(
+          {
+            id: LAYER_ZONES_FILL,
+            type: "fill",
+            source: SOURCE_ZONES,
+            paint: {
+              "fill-color": "#1051A6",
+              "fill-opacity": 0.08,
+            },
           },
-        });
+          firstSymbolId
+        );
+
+        map.addLayer(
+          {
+            id: LAYER_ZONES_LINE,
+            type: "line",
+            source: SOURCE_ZONES,
+            paint: {
+              "line-color": "#1051A6",
+              "line-width": 2,
+              "line-opacity": 0.8,
+            },
+          },
+          firstSymbolId
+        );
       }
 
       // 1.2 Khởi tạo GeoJSON Source & Layers cho Vòng tròn bán kính 50m
@@ -409,6 +432,15 @@ export function MapView({
           },
           beforeId
         );
+      }
+
+      // 1.4 Tối ưu hóa tầm nhìn của lớp khối nhà 3D (Goong Map hoặc Carto)
+      if (map.getLayer("building")) {
+        try {
+          map.setLayerZoomRange("building", 14.5, 24);
+        } catch {
+          // Bỏ qua nếu style không hỗ trợ thay đổi zoom range trực tiếp
+        }
       }
 
       setMapLoaded(true);
@@ -665,21 +697,18 @@ export function MapView({
           onClick={handleToggle3D}
           title={
             is3DMode
-              ? "Chuyển sang góc nhìn 2D phẳng"
-              : "Chuyển sang góc nhìn 3D khối nhà"
+              ? "Chuyển về góc nhìn 2D phẳng"
+              : "Chuyển sang góc nhìn 3D khối nhà (nghiêng 55°)"
           }
           className={cn(
-            "h-[29px] px-2.5 flex items-center gap-1.5 text-xs font-medium rounded-md border shadow-xs transition-colors backdrop-blur-sm select-none cursor-pointer",
+            "h-[29px] px-2.5 flex items-center gap-1.5 text-xs font-semibold rounded-md border shadow-xs transition-colors backdrop-blur-sm select-none cursor-pointer",
             is3DMode
               ? "bg-[#1051A6] text-white border-[#1051A6] hover:bg-[#0d4287]"
               : "bg-white/95 text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
           )}
         >
           <Box className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">
-            {is3DMode ? "3D Nghiêng" : "2D Phẳng"}
-          </span>
-          <span className="sm:hidden">{is3DMode ? "3D" : "2D"}</span>
+          <span>3D</span>
         </button>
       </div>
 

@@ -57,23 +57,21 @@
   - `npx tsc --noEmit` trong `frontend/` (Passed 0 errors)
   - Thẩm định độc lập qua Reviewer subagent `0a7d9dee-45a4-4628-afac-5f0451b1ce56`: STATUS: PASS.
 
-### Bước 2: Tích hợp Goong Map Vector Style & Khối nhà 3D vào `map-view.tsx`
+### Bước 2: Tích hợp Goong Map Vector Style & Khối nhà 3D vào `map-view.tsx` - [x] ĐÃ HOÀN THÀNH
 - Thêm `NEXT_PUBLIC_GOONG_MAPTILES_KEY=QkzX9ARUi7eycq2Q3KdJqJF4EFooRHCfDJfubhXJ` vào `frontend/.env.local`.
 - Cập nhật `frontend/src/components/map/map-view.tsx`:
   - Khai báo hằng số `GOONG_MAPTILES_KEY = process.env.NEXT_PUBLIC_GOONG_MAPTILES_KEY?.trim() || ""`.
   - Trong `getInitialMapStyle()`: Nếu có `GOONG_MAPTILES_KEY`, trả về URL style vector `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(GOONG_MAPTILES_KEY)}`.
-  - Điều chỉnh layer 3D khối nhà: Goong style đã tích hợp sẵn layer `building` (`VN_Building`), đảm bảo hiển thị hài hòa khi chuyển đổi góc nhìn 3D (pitch 55° / 0°).
-  - Đảm bảo các lớp vùng đa giác `danang-active-zones` và vòng tròn 50m hiển thị rõ ràng trên nền Goong Map.
+  - Tối ưu tầm nhìn lớp khối nhà 3D (`map.setLayerZoomRange("building", 14.5, 24)`).
+  - Chèn các lớp vùng ranh giới `LAYER_ZONES_FILL` và `LAYER_ZONES_LINE` bên dưới lớp `symbol` đầu tiên để không che chữ tên đường/kiệt hẻm.
+  - Tinh gọn nút 3D thành icon kèm nhãn "3D" theo yêu cầu người dùng.
 - Kiểm tra cơ học:
-  - `npx tsc --noEmit` trong `frontend/`
-  - `npm run lint` trong `frontend/`
+  - `npx tsc --noEmit` trong `frontend/` (Passed 0 errors)
+  - `npm run lint` trong `frontend/` (Passed 0 errors)
 
-### Bước 3: Thẩm định Độc lập qua Reviewer Subagent
-- Khởi tạo subagent `reviewer` thẩm định toàn bộ `git diff` theo quy định Rule 4:
-  - Kiểm tra tính chuẩn xác của GeoJSON GADM 4.1 (WGS84 `[lon, lat]`).
-  - Kiểm tra tích hợp Goong Map, không lộ secret vào mã nguồn.
-  - Strict TypeScript, không vi phạm `any`.
-- Đạt `STATUS: PASS` trước khi nghiệm thu.
+### Bước 3: Thẩm định Độc lập qua Reviewer Subagent - [x] ĐÃ HOÀN THÀNH (Reviewer: STATUS: PASS)
+- Subagent `reviewer` `dc1cd732-f650-4516-a162-6c9475531cda` thẩm định độc lập toàn bộ `git diff`.
+- Kết quả: **`STATUS: PASS`** (Không có blocker, bảo mật API key, strict TypeScript).
 
 ### Bước 4: Nghiệm thu Toàn diện, Gộp vào `main` & Push lên GitHub
 - Chạy toàn bộ test suite (`npm run build` và `py -m pytest`).
