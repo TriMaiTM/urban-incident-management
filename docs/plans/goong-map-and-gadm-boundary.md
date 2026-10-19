@@ -73,9 +73,9 @@
 - Subagent `reviewer` `dc1cd732-f650-4516-a162-6c9475531cda` thẩm định độc lập toàn bộ `git diff`.
 - Kết quả: **`STATUS: PASS`** (Không có blocker, bảo mật API key, strict TypeScript).
 
-### Bước 4: Nghiệm thu Toàn diện, Gộp vào `main` & Push lên GitHub
-- Chạy toàn bộ test suite (`npm run build` và `py -m pytest`).
-- Commit các thay đổi với Conventional Commits.
+### Bước 4: Nghiệm thu Toàn diện, Gộp vào `main` & Push lên GitHub - [x] ĐÃ HOÀN THÀNH
+- Chạy toàn bộ test suite (`npm run build`: Compiled successfully; `py -m pytest`: 170/170 passed).
+- Commit các thay đổi với Conventional Commits trên nhánh `feat/goong-map-and-gadm-boundary`.
 - Gộp vào nhánh `main` và push lên GitHub.
 
 ---
