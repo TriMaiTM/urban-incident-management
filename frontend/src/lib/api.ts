@@ -66,7 +66,7 @@ export const FALLBACK_DANANG_ZONES: SystemZoneOut[] = [
     id: "DANANG_CORE",
     name: "Vùng Đô thị Trung tâm Đà Nẵng",
     is_active: true,
-    bounding_box: [107.8167, 15.9181, 108.3384, 16.2254],
+    bounding_box: [107.8167, 15.918, 108.3384, 16.2155],
     description:
       "Khu vực đô thị lõi gồm 6 quận: Hải Châu, Thanh Khê, Sơn Trà, Ngũ Hành Sơn, Cẩm Lệ, Liên Chiểu và huyện Hòa Vang",
     geojson_geometry: {
@@ -138,7 +138,7 @@ export const FALLBACK_CATEGORIES: CategoryOut[] = [
  * bằng thuật toán Ray-casting (Point-in-Polygon) cho toàn bộ MultiPolygon.
  */
 export function isInsideDanangCore(latitude: number, longitude: number): boolean {
-  const [minLon, minLat, maxLon, maxLat] = [107.8167, 15.9181, 108.3384, 16.2254];
+  const [minLon, minLat, maxLon, maxLat] = [107.8167, 15.918, 108.3384, 16.2155];
 
   // 1. Kiểm tra nhanh Bounding Box [107.8167, 15.9181, 108.3384, 16.2254]
   if (

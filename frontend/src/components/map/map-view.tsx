@@ -326,8 +326,8 @@ export function MapView({
             source: SOURCE_ZONES,
             paint: {
               "line-color": "#1051A6",
-              "line-width": 2,
-              "line-opacity": 0.8,
+              "line-width": 2.5,
+              "line-opacity": 0.85,
             },
           },
           firstSymbolId
@@ -480,7 +480,7 @@ export function MapView({
     }
   }, [activeZones, mapLoaded]);
 
-  // 4. Cập nhật màu sắc vòng tròn bán kính khi trạng thái geofence isInsideZone thay đổi
+  // 4. Cập nhật màu sắc vòng tròn bán kính và marker khi trạng thái geofence isInsideZone thay đổi
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
@@ -500,6 +500,17 @@ export function MapView({
         "line-color",
         isInsideZone === false ? "#E11D48" : "#1051A6"
       );
+    }
+
+    if (selectedMarkerRef.current) {
+      const markerEl = selectedMarkerRef.current.getElement();
+      const svgPath = markerEl.querySelector("svg g path");
+      if (svgPath) {
+        svgPath.setAttribute(
+          "fill",
+          isInsideZone === false ? "#E11D48" : "#1051A6"
+        );
+      }
     }
   }, [isInsideZone, mapLoaded]);
 
@@ -528,7 +539,8 @@ export function MapView({
     if (selectedCoords) {
       if (!selectedMarkerRef.current) {
         const marker = new maplibregl.Marker({
-          color: "#1051A6", // Primary Blue Đà Nẵng
+          color:
+            isInsideZoneRef.current === false ? "#E11D48" : "#1051A6", // Primary Blue Đà Nẵng hoặc Đỏ ngoài vùng
           draggable: true,
         })
           .setLngLat([selectedCoords.longitude, selectedCoords.latitude])
@@ -712,11 +724,17 @@ export function MapView({
         </button>
       </div>
 
+      {/* Nhãn phân định vùng tiếp nhận báo cáo Đô thị lõi Đà Nẵng (Chuẩn GovTech) */}
+      <div className="absolute bottom-6 left-3 z-10 hidden sm:flex items-center gap-2 rounded-md border border-slate-200/90 bg-white/95 px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-xs backdrop-blur-sm pointer-events-none select-none">
+        <span className="h-2 w-2 rounded-full bg-[#1051A6] ring-2 ring-[#1051A6]/20" />
+        <span>Vùng đô thị tiếp nhận phản ánh (Đà Nẵng)</span>
+      </div>
+
       {/* Cảnh báo nằm ngoài hàng rào địa lý Đà Nẵng (Chuẩn GovTech / Rule 6) */}
       {selectedCoords && isInsideZone === false && (
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-2 rounded-md border border-rose-200 bg-rose-50/95 px-3 py-1.5 text-xs font-medium text-rose-700 shadow-sm backdrop-blur-sm">
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-2 rounded-md border border-rose-200 bg-rose-50/95 px-3 py-1.5 text-xs font-medium text-rose-700 shadow-sm backdrop-blur-sm animate-in fade-in">
           <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-          Tọa độ nằm ngoài phạm vi hành chính Đà Nẵng
+          Tọa độ nằm ngoài phạm vi tiếp nhận sự cố TP. Đà Nẵng
         </div>
       )}
     </div>
