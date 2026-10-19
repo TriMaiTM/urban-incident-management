@@ -66,7 +66,7 @@ export const FALLBACK_DANANG_ZONES: SystemZoneOut[] = [
     id: "DANANG_CORE",
     name: "Vùng Đô thị Trung tâm Đà Nẵng",
     is_active: true,
-    bounding_box: [107.8167, 15.9180, 108.3384, 16.2155],
+    bounding_box: [107.8167, 15.9181, 108.3384, 16.2254],
     description:
       "Khu vực đô thị lõi gồm 6 quận: Hải Châu, Thanh Khê, Sơn Trà, Ngũ Hành Sơn, Cẩm Lệ, Liên Chiểu và huyện Hòa Vang",
     geojson_geometry: {
@@ -135,12 +135,12 @@ export const FALLBACK_CATEGORIES: CategoryOut[] = [
 
 /**
  * Thẩm định nhanh vị trí (WGS84 lat, lon) có nằm trong vùng lõi Đà Nẵng hay không
- * bằng thuật toán Ray-casting (Point-in-Polygon).
+ * bằng thuật toán Ray-casting (Point-in-Polygon) cho toàn bộ MultiPolygon.
  */
 export function isInsideDanangCore(latitude: number, longitude: number): boolean {
-  const [minLon, minLat, maxLon, maxLat] = [107.8167, 15.9180, 108.3384, 16.2155];
+  const [minLon, minLat, maxLon, maxLat] = [107.8167, 15.9181, 108.3384, 16.2254];
 
-  // 1. Kiểm tra nhanh Bounding Box [107.8167, 15.9180, 108.3384, 16.2155]
+  // 1. Kiểm tra nhanh Bounding Box [107.8167, 15.9181, 108.3384, 16.2254]
   if (
     longitude < minLon ||
     longitude > maxLon ||
@@ -150,26 +150,32 @@ export function isInsideDanangCore(latitude: number, longitude: number): boolean
     return false;
   }
 
-  // 2. Thuật toán Ray-casting với polygon ring Đà Nẵng
-  const ring = DANANG_CORE_POLYGON_COORDINATES[0][0];
-  let inside = false;
+  // 2. Thuật toán Ray-casting duyệt qua các polygon của Đà Nẵng
+  for (const poly of DANANG_CORE_POLYGON_COORDINATES) {
+    const ring = poly[0];
+    let inside = false;
 
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i][0];
-    const yi = ring[i][1];
-    const xj = ring[j][0];
-    const yj = ring[j][1];
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0];
+      const yi = ring[i][1];
+      const xj = ring[j][0];
+      const yj = ring[j][1];
 
-    const intersect =
-      yi > latitude !== yj > latitude &&
-      longitude < ((xj - xi) * (latitude - yi)) / (yj - yi) + xi;
+      const intersect =
+        yi > latitude !== yj > latitude &&
+        longitude < ((xj - xi) * (latitude - yi)) / (yj - yi) + xi;
 
-    if (intersect) {
-      inside = !inside;
+      if (intersect) {
+        inside = !inside;
+      }
+    }
+
+    if (inside) {
+      return true;
     }
   }
 
-  return inside;
+  return false;
 }
 
 /**
