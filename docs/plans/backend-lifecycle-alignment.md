@@ -135,7 +135,7 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 3:** `feat(sla): compute sla_due_at by priority from created_at and reset on reopen`
 
-### [ ] Bước 4: Mở rộng bộ lọc `GET /api/v1/incidents`
+### [x] Bước 4: Mở rộng bộ lọc `GET /api/v1/incidents`
 - **Thay đổi trong `backend/app/api/v1/endpoints/incidents.py`:**
   - Bổ sung tham số truy vấn cho `list_incidents`:
     - `status` (`list[str] | None = Query(None, alias="status")`): hỗ trợ truyền nhiều trạng thái qua query lặp (`?status=SUBMITTED&status=TRIAGED`) hoặc chuỗi phân cách dấu phẩy (`?status=SUBMITTED,TRIAGED`).

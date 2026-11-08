@@ -26,7 +26,7 @@ from geoalchemy2.functions import (
     ST_MakePoint,
     ST_SetSRID,
 )
-from sqlalchemy import cast, func, select
+from sqlalchemy import cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1118,44 +1118,87 @@ async def submit_incident_feedback(
 async def list_incidents(
     page: int = Query(1, ge=1, description="Số trang (bắt đầu từ 1)"),
     page_size: int = Query(20, ge=1, le=100, description="Số lượng mục trên mỗi trang"),
-    incident_status: str | None = Query(None, alias="status", description="Lọc theo trạng thái sự cố"),
+    incident_status: list[str] | None = Query(None, alias="status", description="Lọc theo một hoặc nhiều trạng thái sự cố"),
+    priority: list[str] | None = Query(None, description="Lọc theo một hoặc nhiều mức độ ưu tiên"),
+    q: str | None = Query(None, description="Từ khóa tìm kiếm theo mã phiếu, tên đường hoặc tiêu đề"),
+    assigned_technician_id: UUID | None = Query(None, description="Lọc theo ID kỹ thuật viên phụ trách"),
+    mine: bool = Query(False, description="Chỉ lấy các phiếu phản ánh của công dân đang đăng nhập"),
     district: str | None = Query(None, description="Lọc theo quận/huyện"),
     category_code: str | None = Query(None, description="Lọc theo mã danh mục sự cố"),
     category_id: UUID | None = Query(None, description="Lọc theo ID danh mục sự cố"),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> IncidentListOut:
     """
-    Tra cứu danh sách sự cố có phân trang, hỗ trợ lọc theo trạng thái, quận/huyện và danh mục.
+    Tra cứu danh sách sự cố có phân trang, hỗ trợ lọc theo nhiều trạng thái, mức độ ưu tiên,
+    từ khóa (mã phiếu, tên đường, tiêu đề), kỹ thuật viên phụ trách, phiếu của tôi, quận/huyện và danh mục.
     """
-    count_stmt = select(func.count(Incident.id))
-    if category_code:
-        count_stmt = count_stmt.join(Category, Incident.category_id == Category.id).where(Category.code == category_code)
-    if category_id:
-        count_stmt = count_stmt.where(Incident.category_id == category_id)
-    if incident_status:
-        count_stmt = count_stmt.where(Incident.status == incident_status)
-    if district:
-        count_stmt = count_stmt.where(Incident.district == district)
+    if mine and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Vui lòng đăng nhập để tra cứu danh sách phản ánh của bạn (mine=true).",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
+    parsed_statuses: list[str] = []
+    if incident_status:
+        for raw_st in incident_status:
+            for part in raw_st.split(","):
+                clean_part = part.strip().upper()
+                if clean_part:
+                    parsed_statuses.append(clean_part)
+
+    parsed_priorities: list[str] = []
+    if priority:
+        for raw_pr in priority:
+            for part in raw_pr.split(","):
+                clean_part = part.strip().upper()
+                if clean_part:
+                    parsed_priorities.append(clean_part)
+
+    clean_q = q.strip() if q and q.strip() else None
+
+    def _apply_filters(stmt):
+        if category_code:
+            stmt = stmt.join(Category, Incident.category_id == Category.id).where(Category.code == category_code)
+        if category_id:
+            stmt = stmt.where(Incident.category_id == category_id)
+        if len(parsed_statuses) == 1:
+            stmt = stmt.where(Incident.status == parsed_statuses[0])
+        elif len(parsed_statuses) > 1:
+            stmt = stmt.where(Incident.status.in_(parsed_statuses))
+        if len(parsed_priorities) == 1:
+            stmt = stmt.where(Incident.priority == parsed_priorities[0])
+        elif len(parsed_priorities) > 1:
+            stmt = stmt.where(Incident.priority.in_(parsed_priorities))
+        if district:
+            stmt = stmt.where(Incident.district == district)
+        if assigned_technician_id is not None:
+            stmt = stmt.where(Incident.assigned_technician_id == assigned_technician_id)
+        if mine and current_user is not None:
+            stmt = stmt.where(Incident.citizen_id == current_user.id)
+        if clean_q:
+            pattern = f"%{clean_q}%"
+            stmt = stmt.where(
+                or_(
+                    Incident.ticket_code.ilike(pattern),
+                    Incident.address_text.ilike(pattern),
+                    Incident.title.ilike(pattern),
+                )
+            )
+        return stmt
+
+    count_stmt = _apply_filters(select(func.count(Incident.id)))
     total_res = await db.execute(count_stmt)
     total = total_res.scalar() or 0
 
-    items_stmt = (
-        select(Incident)
-        .options(
+    items_stmt = _apply_filters(
+        select(Incident).options(
             selectinload(Incident.category),
             selectinload(Incident.assigned_department),
             selectinload(Incident.media),
         )
     )
-    if category_code:
-        items_stmt = items_stmt.join(Category, Incident.category_id == Category.id).where(Category.code == category_code)
-    if category_id:
-        items_stmt = items_stmt.where(Incident.category_id == category_id)
-    if incident_status:
-        items_stmt = items_stmt.where(Incident.status == incident_status)
-    if district:
-        items_stmt = items_stmt.where(Incident.district == district)
 
     items_stmt = (
         items_stmt.order_by(Incident.created_at.desc())

@@ -176,6 +176,7 @@ class MockAsyncSession:
         self.refreshed = []
         self.zone_id: str | None = "DANANG_CORE"
         self.execute_queue: list[MockResult] = []
+        self.executed_statements: list[object] = []
         self.get_item = None
 
     def add(self, obj):
@@ -210,6 +211,7 @@ class MockAsyncSession:
         return None
 
     async def execute(self, stmt, *args, **kwargs):
+        self.executed_statements.append(stmt)
         if self.execute_queue:
             return self.execute_queue.pop(0)
 
@@ -836,3 +838,66 @@ async def test_get_incident_detail_by_uuid(
     assert data["id"] == str(inc_id)
     assert data["ticket_code"] == "DN-202610-UUID1"
     assert data["citizen_contact"] == "0905***456"
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_extended_filters(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+):
+    """Test 16: GET /api/v1/incidents with multi-status, priority, q, assigned_technician_id, and mine filters."""
+    tech_id = uuid4()
+    citizen = User(
+        id=uuid4(),
+        email="citizen_flt@danang.gov.vn",
+        role="CITIZEN",
+        full_name="Công Dân Lọc",
+        auth_provider="LOCAL",
+    )
+    inc = _make_mock_incident(
+        ticket_code="DN-202611-FLT1",
+        status="IN_PROGRESS",
+        priority="HIGH",
+    )
+
+    try:
+        # 1. mine=true without login -> 401 Unauthorized
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+        res_unauth = await client.get("/api/v1/incidents?mine=true")
+        assert res_unauth.status_code == 401
+
+        # 2. Combined filters with authenticated user
+        app.dependency_overrides[get_current_user_optional] = lambda: citizen
+        mock_db_session.executed_statements.clear()
+        mock_db_session.execute_queue = [
+            MockResult(1),
+            MockResult([inc]),
+        ]
+
+        res = await client.get(
+            "/api/v1/incidents",
+            params=[
+                ("status", "ASSIGNED,IN_PROGRESS"),
+                ("status", "REOPENED"),
+                ("priority", "HIGH,EMERGENCY"),
+                ("q", "Điện Biên Phủ"),
+                ("assigned_technician_id", str(tech_id)),
+                ("mine", "true"),
+            ],
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticket_code"] == "DN-202611-FLT1"
+
+        assert len(mock_db_session.executed_statements) == 2
+        compiled_sql = str(mock_db_session.executed_statements[1]).lower()
+        assert "incidents.status in" in compiled_sql
+        assert "incidents.priority in" in compiled_sql
+        assert "incidents.assigned_technician_id =" in compiled_sql
+        assert "incidents.citizen_id =" in compiled_sql
+        assert "ilike" in compiled_sql or "lower(" in compiled_sql
+    finally:
+        app.dependency_overrides.pop(get_current_user_optional, None)
+
