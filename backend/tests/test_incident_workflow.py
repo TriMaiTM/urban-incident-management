@@ -1396,3 +1396,63 @@ async def test_route_precedence_map_not_shadowed_by_ticket_code(client: httpx.As
     assert resp_ticket.status_code == 200
     ticket_data = resp_ticket.json()
     assert ticket_data["ticket_code"] == "DN-202610-ABCD"
+
+
+@pytest.mark.asyncio
+async def test_workflow_mutations_accept_ticket_code(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Ensure triage, assign, status, and feedback endpoints accept ticket_code in URL path."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_code@danang.gov.vn")
+    citizen = _make_mock_user(role="CITIZEN", email="cit_code@danang.gov.vn")
+
+    category = Category(
+        id=uuid4(),
+        code="ROAD_DAMAGE",
+        name="Hư hỏng mặt đường",
+        default_sla_hours=24,
+        created_at=datetime.now(timezone.utc),
+    )
+    department = Department(
+        id=uuid4(),
+        code="SGTVT_DN",
+        name="Sở Giao thông Vận tải",
+        level="CITY_DEPT",
+        created_at=datetime.now(timezone.utc),
+    )
+    incident = _make_mock_incident(
+        ticket_code="DN-202611-TK01",
+        status="SUBMITTED",
+        priority="NORMAL",
+    )
+    incident.citizen_id = citizen.id
+    mock_session.seed(dispatcher, technician, citizen, category, department, incident)
+
+    # 1. Triage by ticket_code
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    res_triage = await client.patch(
+        "/api/v1/incidents/DN-202611-TK01/triage",
+        json={
+            "category_id": str(category.id),
+            "priority": "HIGH",
+            "assigned_department_id": str(department.id),
+        },
+    )
+    assert res_triage.status_code == 200
+    assert res_triage.json()["status"] == "TRIAGED"
+
+    # 2. Assign by ticket_code
+    res_assign = await client.patch(
+        "/api/v1/incidents/DN-202611-TK01/assign",
+        json={"assigned_technician_id": str(technician.id)},
+    )
+    assert res_assign.status_code == 200
+    assert res_assign.json()["status"] == "ASSIGNED"
+
+    # 3. Status update by ticket_code
+    app.dependency_overrides[get_current_user] = lambda: technician
+    res_status = await client.patch(
+        "/api/v1/incidents/DN-202611-TK01/status",
+        data={"to_status": "IN_PROGRESS", "note": "Bắt đầu xử lý theo mã phiếu"},
+    )
+    assert res_status.status_code == 200
+    assert res_status.json()["status"] == "IN_PROGRESS"

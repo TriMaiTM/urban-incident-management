@@ -99,6 +99,49 @@ def _get_upload_dirs() -> tuple[Path, Path]:
     return private_dir, public_dir
 
 
+async def _resolve_incident(
+    db: AsyncSession,
+    id_or_code: str | UUID,
+    load_relations: bool = True,
+) -> Incident | None:
+    """Resolve an Incident by either UUID primary key or public ticket_code (DN-YYYYMM-XXXX)."""
+    clean_ref = str(id_or_code).strip()
+    parsed_uuid: UUID | None = None
+    if isinstance(id_or_code, UUID):
+        parsed_uuid = id_or_code
+    else:
+        try:
+            parsed_uuid = UUID(clean_ref)
+        except (ValueError, TypeError):
+            parsed_uuid = None
+
+    if not load_relations:
+        if parsed_uuid is not None:
+            inc = await db.get(Incident, parsed_uuid)
+            if inc is not None:
+                return inc
+            stmt = select(Incident).where(Incident.id == parsed_uuid)
+            return (await db.execute(stmt)).scalar_one_or_none()
+        stmt = select(Incident).where(Incident.ticket_code == clean_ref)
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    options = [
+        selectinload(Incident.category),
+        selectinload(Incident.assigned_department),
+        selectinload(Incident.assigned_technician),
+        selectinload(Incident.media),
+        selectinload(Incident.history),
+        selectinload(Incident.feedback),
+    ]
+    if parsed_uuid is not None:
+        stmt = select(Incident).where(Incident.id == parsed_uuid).options(*options)
+    else:
+        stmt = select(Incident).where(Incident.ticket_code == clean_ref).options(*options)
+
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def process_incident_ai_triage(
     incident_id: UUID,
     image_path: str,
@@ -414,23 +457,23 @@ async def get_nearby_incidents(
 
 
 @router.post(
-    "/{id}/vote-duplicate",
+    "/{id_or_code}/vote-duplicate",
     response_model=IncidentVoteDuplicateOut,
     summary="Xác nhận sự cố trùng lặp và tăng bộ đếm trùng lặp",
 )
 async def vote_duplicate(
-    id: UUID,
+    id_or_code: str,
     db: AsyncSession = Depends(get_db),
 ) -> IncidentVoteDuplicateOut:
     """
     Người dân xác nhận sự cố gặp phải trùng với sự cố đã có tại hiện trường,
-    hệ thống tăng duplicate_count thêm 1 đơn vị.
+    hệ thống tăng duplicate_count thêm 1 đơn vị. Hỗ trợ truyền UUID hoặc ticket_code.
     """
-    incident = await db.get(Incident, id)
+    incident = await _resolve_incident(db, id_or_code, load_relations=False)
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+            detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
     incident.duplicate_count += 1
@@ -446,12 +489,12 @@ async def vote_duplicate(
 
 
 @router.patch(
-    "/{id}/triage",
+    "/{id_or_code}/triage",
     response_model=IncidentDetailOut,
     summary="Duyệt phân loại sự cố và ấn định hạn xử lý SLA",
 )
 async def triage_incident(
-    id: UUID,
+    id_or_code: str,
     payload: IncidentTriageIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
@@ -459,31 +502,18 @@ async def triage_incident(
     """
     Điều phối viên (IOC Dispatcher) duyệt phân loại sự cố:
     - Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).
-    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.
     - Kiểm tra danh mục (Category) và phòng ban/đơn vị (Department) hợp lệ.
     - Thẩm định mức độ ưu tiên (LOW, NORMAL, HIGH, EMERGENCY).
     - Tính hạn SLA: lấy default_sla_hours từ Category (nếu EMERGENCY: giảm 50%, tối thiểu 1 giờ).
     - Chuyển trạng thái sang TRIAGED và cập nhật category_id, priority, assigned_department_id.
     - Ghi lịch sử biến động trạng thái vào IncidentHistory.
     """
-    stmt = (
-        select(Incident)
-        .where(Incident.id == id)
-        .options(
-            selectinload(Incident.category),
-            selectinload(Incident.assigned_department),
-            selectinload(Incident.assigned_technician),
-            selectinload(Incident.media),
-            selectinload(Incident.history),
-            selectinload(Incident.feedback),
-        )
-    )
-    result = await db.execute(stmt)
-    incident = result.scalar_one_or_none()
+    incident = await _resolve_incident(db, id_or_code, load_relations=True)
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+            detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
     if incident.status in {"CLOSED", "REJECTED"}:
@@ -581,12 +611,12 @@ async def triage_incident(
 
 
 @router.patch(
-    "/{id}/assign",
+    "/{id_or_code}/assign",
     response_model=IncidentDetailOut,
     summary="Phân công đơn vị hoặc cán bộ kỹ thuật xử lý sự cố hiện trường",
 )
 async def assign_incident(
-    id: UUID,
+    id_or_code: str,
     payload: IncidentAssignIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
@@ -594,30 +624,17 @@ async def assign_incident(
     """
     Phân công sự cố cho đơn vị hoặc kỹ thuật viên hiện trường:
     - Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).
-    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.
     - Nếu gán assigned_department_id: kiểm tra Department tồn tại.
     - Nếu gán assigned_technician_id: kiểm tra User tồn tại và có vai trò TECHNICIAN, DISPATCHER hoặc ADMIN.
     - Chuyển trạng thái sự cố sang ASSIGNED.
     - Ghi lịch sử biến động trạng thái vào IncidentHistory.
     """
-    stmt = (
-        select(Incident)
-        .where(Incident.id == id)
-        .options(
-            selectinload(Incident.category),
-            selectinload(Incident.assigned_department),
-            selectinload(Incident.assigned_technician),
-            selectinload(Incident.media),
-            selectinload(Incident.history),
-            selectinload(Incident.feedback),
-        )
-    )
-    result = await db.execute(stmt)
-    incident = result.scalar_one_or_none()
+    incident = await _resolve_incident(db, id_or_code, load_relations=True)
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+            detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
     if incident.status in {"CLOSED", "REJECTED"}:
@@ -716,12 +733,12 @@ async def assign_incident(
 
 
 @router.patch(
-    "/{id}/status",
+    "/{id_or_code}/status",
     response_model=IncidentDetailOut,
     summary="Cập nhật tiến độ xử lý và minh chứng hoàn thành sự cố hiện trường",
 )
 async def update_incident_status(
-    id: UUID,
+    id_or_code: str,
     to_status: str = Form(..., description="Trạng thái: IN_PROGRESS, RESOLVED, REJECTED, CLOSED"),
     note: str | None = Form(None, description="Ghi chú cập nhật tiến độ hoặc lý do từ chối"),
     proof_image: UploadFile | None = File(None, description="Ảnh minh chứng sau khắc phục (bắt buộc khi chuyển sang RESOLVED)"),
@@ -741,24 +758,11 @@ async def update_incident_status(
     - Chuyển sang 'CLOSED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' hoặc 'CONFIRMED'.
     - Ghi nhận biến động trạng thái vào IncidentHistory.
     """
-    stmt = (
-        select(Incident)
-        .where(Incident.id == id)
-        .options(
-            selectinload(Incident.category),
-            selectinload(Incident.assigned_department),
-            selectinload(Incident.assigned_technician),
-            selectinload(Incident.media),
-            selectinload(Incident.history),
-            selectinload(Incident.feedback),
-        )
-    )
-    result = await db.execute(stmt)
-    incident = result.scalar_one_or_none()
+    incident = await _resolve_incident(db, id_or_code, load_relations=True)
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+            detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
     allowed_statuses = {"IN_PROGRESS", "RESOLVED", "REJECTED", "CLOSED"}
@@ -942,13 +946,13 @@ async def update_incident_status(
 
 
 @router.post(
-    "/{id}/feedback",
+    "/{id_or_code}/feedback",
     response_model=IncidentFeedbackOut,
     status_code=status.HTTP_201_CREATED,
     summary="Đánh giá mức độ hài lòng hoặc khiếu nại mở lại sự cố sau khắc phục",
 )
 async def submit_incident_feedback(
-    id: UUID,
+    id_or_code: str,
     payload: IncidentFeedbackCreateIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -956,7 +960,7 @@ async def submit_incident_feedback(
     """
     Công dân đánh giá chất lượng khắc phục sự cố:
     - Bắt buộc người dùng đã đăng nhập (current_user).
-    - Tải sự cố với đầy đủ quan hệ selectinload.
+    - Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.
     - Sự cố bắt buộc đang ở trạng thái RESOLVED. Nếu không: 400 Bad Request.
     - Kiểm tra sự cố chưa có feedback trước đó (incident.feedback is not None): Nếu có: 400 Bad Request.
     - Tạo bản ghi IncidentFeedback (rating từ 1 đến 5 sao).
@@ -969,24 +973,11 @@ async def submit_incident_feedback(
         - Ghi nhận IncidentHistory (note="Công dân không hài lòng...").
     - db.commit() và trả về IncidentFeedbackOut.
     """
-    stmt = (
-        select(Incident)
-        .where(Incident.id == id)
-        .options(
-            selectinload(Incident.category),
-            selectinload(Incident.assigned_department),
-            selectinload(Incident.assigned_technician),
-            selectinload(Incident.media),
-            selectinload(Incident.history),
-            selectinload(Incident.feedback),
-        )
-    )
-    result = await db.execute(stmt)
-    incident = result.scalar_one_or_none()
+    incident = await _resolve_incident(db, id_or_code, load_relations=True)
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Không tìm thấy sự cố với ID '{id}'.",
+            detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
     if incident.status != "RESOLVED":
@@ -1306,32 +1297,21 @@ async def get_incidents_analytics_summary(
 
 
 @router.get(
-    "/{ticket_code}",
+    "/{id_or_code}",
     response_model=IncidentDetailOut,
-    summary="Tra cứu chi tiết sự cố theo mã phiếu",
+    summary="Tra cứu chi tiết sự cố theo mã phiếu hoặc UUID",
 )
 async def get_incident_by_ticket_code(
-    ticket_code: str,
+    id_or_code: str,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> IncidentDetailOut:
     """
-    Tra cứu chi tiết sự cố theo mã phiếu tra cứu công khai (ví dụ DN-202610-A1B2).
+    Tra cứu chi tiết sự cố theo mã phiếu tra cứu công khai (ví dụ DN-202610-A1B2) hoặc UUID.
     Che giấu thông tin liên hệ người dân (PII masking) và ảnh gốc BEFORE_ORIGINAL nếu người gọi không phải ADMIN hoặc DISPATCHER.
     """
-    clean_code = ticket_code.strip()
-    stmt = (
-        select(Incident)
-        .where(Incident.ticket_code == clean_code)
-        .options(
-            selectinload(Incident.category),
-            selectinload(Incident.assigned_department),
-            selectinload(Incident.media),
-            selectinload(Incident.history),
-        )
-    )
-    result = await db.execute(stmt)
-    incident = result.scalar_one_or_none()
+    clean_code = id_or_code.strip()
+    incident = await _resolve_incident(db, clean_code, load_relations=True)
 
     if not incident:
         raise HTTPException(

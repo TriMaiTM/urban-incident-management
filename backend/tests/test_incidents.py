@@ -789,3 +789,50 @@ async def test_process_incident_ai_triage_task_execution(
         last_hist = histories[-1]
         assert last_hist.from_status == "SUBMITTED"
         assert last_hist.to_status == "TRIAGED"
+
+
+@pytest.mark.asyncio
+async def test_vote_duplicate_by_ticket_code(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+):
+    """Test 14: Citizen votes duplicate using public ticket_code instead of UUID."""
+    inc_id = uuid4()
+    incident = _make_mock_incident(
+        id=inc_id,
+        ticket_code="DN-202610-CODE1",
+        duplicate_count=1,
+    )
+    mock_db_session.execute_queue = [MockResult(incident)]
+
+    response = await client.post("/api/v1/incidents/DN-202610-CODE1/vote-duplicate")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["incident_id"] == str(inc_id)
+    assert data["ticket_code"] == "DN-202610-CODE1"
+    assert data["duplicate_count"] == 2
+    assert mock_db_session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_get_incident_detail_by_uuid(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+):
+    """Test 15: Lookup incident detail using UUID on GET /api/v1/incidents/{id_or_code}."""
+    inc_id = uuid4()
+    incident = _make_mock_incident(
+        id=inc_id,
+        ticket_code="DN-202610-UUID1",
+        citizen_contact="0905123456",
+    )
+    mock_db_session.execute_queue = [MockResult(incident)]
+
+    response = await client.get(f"/api/v1/incidents/{inc_id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(inc_id)
+    assert data["ticket_code"] == "DN-202610-UUID1"
+    assert data["citizen_contact"] == "0905***456"
