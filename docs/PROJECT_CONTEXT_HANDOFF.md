@@ -75,158 +75,78 @@ Xây dựng nền tảng GovTech thông minh phục vụ tiếp nhận, phân lo
 
 ---
 
-## 4. BÁO CÁO THỰC THI THIẾT KẾ UI/UX TRÊN FIGMA (PAGE: "Screens")
+## 4. QUY HOẠCH & THIẾT KẾ LẠI TOÀN BỘ UI/UX TRÊN FIGMA (RESET V2)
 
-Toàn bộ các màn hình được xây dựng trực tiếp trên file Figma qua plugin TalkToFigma (kênh `8hhye5g9`), tuân thủ hệ thống Design System của shadcn/ui kit và nhận diện GovTech IOC Đà Nẵng.
+> **Thông báo quan trọng về trạng thái UI/UX:**  
+> Toàn bộ giao diện mẫu cũ trên Figma được đưa về trạng thái **Reset làm lại từ đầu**. Dự án tái quy hoạch toàn diện hệ thống UI/UX thành **34 màn hình** theo tài liệu chuẩn tại [docs/screen.md](file:///d:/HK10/DATN/docs/screen.md).  
+> - **Tiến độ UI hiện tại:** 0 / 34 màn hình (Bắt đầu thiết kế lại từ đầu trên Figma).  
+> - **Nguyên tắc thiết kế mới:** Tối giản, trực diện, loại bỏ toàn bộ các badge, tag, chữ thừa và chi tiết trang trí rườm rà; người dùng ở từng vai trò chỉ cần nhìn vào màn hình là biết ngay mình đang làm gì và cần thao tác gì.  
+> - **Hỗ trợ vai trò Kỹ thuật viên (Technician):** Hỗ trợ đầy đủ cả **Desktop** (tại văn phòng/đội xe) và **Mobile** (ngoài hiện trường).
 
-### 4.1. Shell Điều hướng Chung (App Shells)
-1. **Shell Công khai (`105:1307`):** Desktop 1440x56px.
-   - Logo & Brand: Icon siren đỏ, tiêu đề "IOC ĐÀ NẴNG", phụ đề "Cổng phản ánh sự cố đô thị".
-   - Thanh tra cứu nhanh: Ô tìm kiếm bo góc với placeholder `"Nhập mã phiếu (VD: DN-202610-0001)"`.
-   - Nút Đăng nhập: Chuyển đổi linh hoạt giữa Solid (khi không có action chính) và Outline trung tính (khi trên trang đã có một nút hành động chính).
-2. **Shell Nhân viên (`105:1334`):** Thanh điều hướng dành cho cán bộ Điều phối IOC.
-3. **Shell Kỹ thuật viên (`105:1409`):** Thanh điều hướng dành cho cán bộ/kỹ thuật viên hiện trường.
-
-### 4.2. Bộ Component: Trạng thái Phiếu (Badge) (`131:1484`)
-Đã tạo một Component Set duy nhất với thuộc tính `Trạng thái`, gồm 9 biến thể màu nền nhạt, chữ cùng tông màu đậm hơn (không dùng chữ đen, khác biệt với nút bấm solid):
-- `Mới tiếp nhận (SUBMITTED)`: Nền xám `#f1f5f9`, chữ `#475569`.
-- `Đã phân loại (TRIAGED)`: Nền xám `#f1f5f9`, chữ `#475569`.
-- `Đã phân công (ASSIGNED)`: Nền xanh dương nhạt `#e0f2fe`, chữ `#0369a1`.
-- `Đang xử lý (IN_PROGRESS)`: Nền xanh dương nhạt `#e0f2fe`, chữ `#0369a1`.
-- `Đã xử lý (RESOLVED)`: Nền xanh lá nhạt `#dcfce7`, chữ `#15803d`.
-- `Đã xác nhận (CONFIRMED)`: Nền xanh lá nhạt `#dcfce7`, chữ `#15803d`.
-- `Đã đóng (CLOSED)`: Nền xanh lá nhạt `#dcfce7`, chữ `#15803d`.
-- `Từ chối (REJECTED)`: Nền đỏ nhạt `#fee2e2`, chữ `#b91c1c`.
-- `Mở lại (REOPENED)`: Nền cam nhạt `#ffedd5`, chữ `#c2410c`.
+### 4.1. Kiến trúc phân hệ 34 Màn hình (Tham chiếu `docs/screen.md`)
+1. **Phân hệ Công cộng (Screens 1 - 5):** Trang chủ & Bản đồ đô thị (`/`), Báo cáo hiện trường (`/report`), Tra cứu tiến độ (`/tracking/[code]`), Danh sách sự cố (`/incidents`), Tài liệu Open311 (`/developers/open311`).
+2. **Phân hệ Xác thực & Danh tính (Screens 6 - 9):** Đăng nhập (`/auth/login`), Đăng ký công dân (`/auth/register`), Quên mật khẩu (`/auth/forgot-password`), Hồ sơ cá nhân (`/profile`).
+3. **Phân hệ Công dân (Screens 10 - 13):** Phản ánh của tôi (`/citizen/my-reports`), Chi tiết phản ánh (`/citizen/reports/[id]`), Đánh giá & khiếu nại (`/citizen/feedback/[code]`), Thông báo (`/citizen/notifications`).
+4. **Phân hệ Điều phối viên IOC (Screens 14 - 18):** Bàn tác chiến & điều phối (`/dispatcher/command-center`), Bàn nghiệm thu & đối chiếu minh chứng (`/dispatcher/verify`), Giám sát hạn SLA (`/dispatcher/sla-watch`), Bản đồ điều động đội cơ động (`/dispatcher/field-units`), Sổ bộ & lịch sử điều phối (`/dispatcher/incidents`).
+5. **Phân hệ Kỹ thuật viên Hiện trường (Screens 19 - 23 - Desktop & Mobile):** Danh sách nhiệm vụ phân công (`/technician/tasks`), Chi tiết nhiệm vụ & dẫn đường (`/technician/tasks/[id]`), Báo cáo nghiệm thu & nộp minh chứng (`/technician/tasks/[id]/resolve`), Nhật ký công tác & vật tư (`/technician/history`), Trực ban & trạng thái đội (`/technician/profile`).
+6. **Phân hệ Quản trị & Phân tích (Screens 24 - 29):** Dashboard chỉ số & GIS Heatmap (`/admin/analytics`), Quản lý người dùng & phân quyền (`/admin/users`), Quản lý phân vùng GIS (`/admin/zones`), Cấu hình danh mục/SLA/đơn vị (`/admin/settings`), Nhật ký kiểm toán an ninh (`/admin/audit-logs`), Quản lý kênh ngoại vi & webhook (`/admin/integrations`).
+7. **Phân hệ Ngoại lệ & Hệ thống (Screens 30 - 34):** 404 Không tìm thấy trang, 403 Từ chối truy cập, 500 Lỗi máy chủ, Màn hình bảo trì, Màn hình ngoại tuyến (PWA Offline).
 
 ---
 
-### 4.3. Chi tiết 3 Màn hình đã Hoàn thành trên Figma
+## 5. BỘ QUY TẮC THIẾT KẾ UI/UX TINH GỌN (LEAN DESIGN INVARIANTS)
 
-#### Màn hình 1: Báo cáo Hiện trường (`/report`)
-Thiết kế split-screen (Cột trái: Form phản ánh, Cột phải: Khung bản đồ Goong Maps định vị). Gồm 4 biến thể:
-1. **Form trống ban đầu:** Ô tải ảnh hiện trường (placeholder), ô Loại sự cố ở trạng thái disabled, các trường nhập liệu trống, nút "Gửi phản ánh" đậm, khung bản đồ bên phải phủ kín không có viền/nền trắng thừa.
-2. **AI đang phân tích:** Khung ảnh hiển thị hiệu ứng Skeleton loading, ô Loại sự cố bị vô hiệu hóa đang chờ kết quả phân tích AI.
-3. **Đã tải ảnh & AI Triage xong:** Ảnh hiện trường thật, ô Loại sự cố tự động điền giá trị kèm dòng phụ nhỏ `"Đã gợi ý tự động từ ảnh, bạn có thể sửa"`, tọa độ hiển thị thu nhỏ thành dòng phụ `"16.068412° N, 108.224538° E"`, thẻ cảnh báo trùng lặp 50m (`"Có phản ánh tương tự cách 35m, gửi 12 phút trước"`) kèm 2 nút outline `"Đây là cùng sự cố"` và `"Không phải"`.
-4. **Xác nhận thành công:** Bỏ cột bản đồ phải, thẻ xác nhận căn giữa tối đa 560px, hiển thị mã phiếu lớn `DN-202610-0001`, nút đậm `"Theo dõi phiếu"`, phía dưới có dòng nhỏ `"Đăng nhập để lưu phiếu này vào hồ sơ của bạn"` kèm liên kết Đăng nhập.
-
-#### Màn hình 2: Trung tâm Tiếp nhận & Điều phối Sự cố (`/dispatcher/command-center`)
-Thiết kế bảng điều phối chuyên dụng dành cho cán bộ IOC:
-- **Thang màu mức độ ưu tiên:**
-  - Khẩn cấp: Đỏ `#ef4444`.
-  - Cao: Cam `#f97316`.
-  - Trung bình: Vàng nhạt `#eab308`.
-  - Thấp: Xám `#64748b`.
-  - Xanh dương `#1d4ed8`: Chỉ dùng cho mục đang chọn (Active selection) và nút hành động chính.
-- **Thống nhất mã phiếu & SLA:** Mã phiếu chuẩn `DN-202610-0001`, mốc gửi 28/10/2026 11:25, hạn SLA 24h là 29/10/2026 11:25.
-- **Bản đồ điều phối:** Bỏ nền trắng thừa quanh các icon bản đồ, nhãn sự cố trùng lặp rút gọn thành `#0004 - 35m` không bị che khuất, thẻ cảnh báo trùng lặp ghim trên cùng của vùng bản đồ.
-- **Thẻ phiếu & Panel chi tiết:** Ô ảnh hiện trường nhỏ vuông bo góc 56x56, khung ảnh lớn 16:9 có icon ảnh ở giữa kèm dòng nhỏ `"Đã che mờ mặt và biển số theo NĐ13"`, bỏ toàn bộ các pill/label không cần thiết, 2 nút hành động tinh gọn `"Từ chối"` (outline) và `"Duyệt"` (solid).
-
-#### Màn hình 3: Tra cứu & Chi tiết Phiếu (`/tracking/[code]`)
-Thiết kế 2 cột chuẩn desktop 1440px theo toán học Auto Layout không tràn pixel:
-- **Cấu trúc khung:** Rộng đúng 1440px, chiều cao ôm sát nội dung (`HUG`). Khung nội dung trang có padding Trái 64px, Phải 64px, Trên 32px, Dưới 48px, khoảng cách giữa 2 cột là 32px (`64 + 720 + 32 + 560 + 64 = 1440px`).
-- **Mọi nhóm nội dung:** Đều là một instance Card của kit (nền trắng `#ffffff`, viền mảnh `#e2e8f0` 1px, bo góc 10px, padding đúng 24px cả 4 phía, khoảng cách giữa các thẻ trong cột là 16px).
-- **3 Biến thể hoàn chỉnh:**
-  1. **`Tra cứu - Đang xử lý` (`134:1503`):**
-     - Cột Trái (720px): Nhóm tiêu đề nằm ngoài thẻ (Breadcrumb + Title + Badge "Đang xử lý" + Subtitle); Thẻ "Tiến độ xử lý" (Timeline dọc 5 mốc: Tiếp nhận, Đã phân loại, Đã phân công, Đang xử lý, Đã xử lý với đường nối đậm hoàn thành, đường nối nhạt tương lai, mốc 4 active, có ghi chú kỹ thuật viên); Thẻ "Đơn vị phụ trách & Cam kết xử lý" (Công ty CP Cầu đường Đà Nẵng, Hạn 24h).
-     - Cột Phải (560px): Thẻ "Vị trí sự cố phản ánh" (Bản đồ chỉ đọc 512x200px + Địa chỉ 120 Bạch Đằng); Thẻ "Ảnh chụp hiện trường tiếp nhận" (Ảnh 16:9 kích thước 512x288px + Người phản ánh ẩn danh `0905***123`).
-  2. **`Tra cứu - Đã xử lý` (`134:1604`):**
-     - Cột Trái bổ sung Thẻ thứ 3: "Kết quả xử lý hiện trường" (gồm 2 khung ảnh 16:9 Trước / Sau kích thước 329x185px, Khung ghi chú kỹ thuật viên `"Đội phản ứng nhanh đã có mặt, rào chắn cảnh báo và tiến hành dặm vá mặt đường."`, Hàng đánh giá kết quả có nút `"Hài lòng"` và `"Khiếu nại"` kèm dòng phụ `"Cần xác thực số điện thoại để đánh giá"`).
-     - Dòng SLA cập nhật: `"Hạn: 11:25 ngày 29/10/2026 • Hoàn tất lúc 09:15, trước hạn 2 giờ 10 phút"`.
-  3. **`Tra cứu - Không tìm thấy` (`134:1725`):**
-     - Thẻ thông báo căn giữa rộng tối đa 560px, nút Đăng nhập trên header chuyển sang outline, duy nhất 1 nút đậm `"Gửi phản ánh mới"`.
-- **Số liệu nghiệm thu kiểm tra bằng toán học:**
-  - Số thẻ có padding < 20: **0 / 9 thẻ** (100% đạt chuẩn 24px).
-  - Số phần tử con tràn lòng thẻ (`x + w > w_thẻ - padding_phải`): **0 phần tử**.
-  - Số frame có chiều rộng khác 1440px: **0 frame**.
-
----
-
-## 5. BỘ QUY TẮC BẤT BIẾN TRONG THIẾT KẾ UI/UX (DESIGN INVARIANTS)
-
-Bất kỳ màn hình nào thiết kế mới hoặc hiệu chỉnh đều phải tuân thủ nghiêm ngặt các quy tắc sau:
+Mọi màn hình thiết kế mới trên Figma bắt buộc tuân thủ bộ nguyên tắc:
 
 1. **Ngôn ngữ & Kiểu chữ:**
-   - 100% tiếng Việt có dấu đầy đủ và chính xác.
+   - 100% tiếng Việt có dấu đầy đủ, chuẩn xác, văn phong hành chính hiện đại.
    - **Tuyệt đối KHÔNG sử dụng emoji** trong text layer, code hay chú thích.
-   - Text layer tắt fill (nền trong suốt), không để dải màu trắng thừa phía sau chữ.
+   - Chữ viết ngắn gọn, tường minh, dứt khoát; loại bỏ các cụm từ giải thích dài dòng.
 2. **Quy tắc Màu sắc & Tương phản:**
-   - **Một màu nhấn đậm duy nhất:** Chỉ nút hành động chính (Primary Action) mang màu nhấn xanh dương đậm (`#1d4ed8` / `#1051a6`).
-   - Các nút phụ, nút lựa chọn phân vân đều dùng viền outline trung tính (`#e2e8f0`, chữ `#0f172a`).
-   - Icon trên nút bấm phải có độ tương phản chuẩn: Nút nền đậm thì icon và chữ màu trắng `#ffffff`.
-   - Badge trạng thái dùng tông chữ đậm trên nền nhạt cùng họ màu (không dùng chữ đen).
-3. **Quy tắc Auto Layout & Bố cục:**
-   - Desktop chuẩn 1440px, chiều cao tự động co giãn (`HUG`).
-   - Khoảng cách lề trang: Trái 64px, Phải 64px, Trên 32px, Dưới 48px.
-   - Khoảng cách giữa 2 cột: 32px. Cột Trái 720px, Cột Phải 560px.
-   - Mọi nhóm nội dung phải nằm trong instance Card kit (nền `#ffffff`, viền `#e2e8f0` 1px, bo góc 10px, padding 24px cả 4 phía).
-   - Phần tử con bên trong thẻ dùng `FILL` container theo chiều ngang, không đặt chiều rộng cố định lớn hơn lòng thẻ, tắt `clipsContent`.
-4. **Quy tắc An toàn Dữ liệu (Nghị định 13/2023/NĐ-CP):**
-   - Mọi khung ảnh hiện trường công khai đều có ghi chú `"Đã che mờ mặt và biển số theo NĐ13"`.
-   - Thông tin cá nhân người phản ánh luôn ẩn danh dạng `0905***123`.
+   - **Một màu nhấn chính (Primary Action):** Nút hành động cốt lõi mang màu xanh dương đậm (`#1051a6` / `#1d4ed8`) hoặc xanh lá nghiệm thu (`#15803d`).
+   - Các nút phụ, nút hủy dùng viền outline trung tính (`#e2e8f0`, chữ `#0f172a`).
+   - Cắt giảm tối đa các badge, tag màu mè không cần thiết để tránh làm phân tán thị giác người dùng.
+3. **Quy tắc Bố cục & Khung nhìn:**
+   - Desktop chuẩn 1440px cố định, Mobile chuẩn 390x844px.
+   - Bố cục lưới rõ ràng, phân vùng tác chiến mạch lạc giữa Form nhập liệu - Bản đồ GIS - Hàng nút hành động.
+4. **Quy chuẩn Pháp lý & Nghiệp vụ Bất biến:**
+   - Hình ảnh hiện trường công khai luôn tuân thủ Nghị định 13/2023/NĐ-CP (làm mờ mặt và biển số xe).
+   - Kiểm tra định vị không gian PostGIS trong bán kính kiểm soát $\le 50\text{m}$.
+   - Khóa phạm vi địa lý tiếp nhận trong Vùng Đô thị Lõi Đà Nẵng (8.007 đỉnh trắc địa).
 
 ---
 
-## 6. KẾ HOẠCH & YÊU CẦU MÀN HÌNH TIẾP THEO: MÀN HÌNH 4 - NGHIỆM THU SỰ CỐ
-
-### 6.1. Mục tiêu Màn hình 4
-Màn hình **Nghiệm thu sự cố & Báo cáo hoàn thành hiện trường** (`/technician/resolve` hoặc `/dispatcher/verify`):
-Dành cho **Kỹ thuật viên / Đội phản ứng nhanh hiện trường** hoàn tất công việc, tải ảnh chứng minh hiện trường (Proof of Work), và **Cán bộ Điều phối IOC** kiểm tra, đối chiếu ảnh Trước / Sau trước khi duyệt đóng hoặc chuyển trạng thái sang `RESOLVED` / `CONFIRMED`.
-
-### 6.2. Các yêu cầu thiết kế dự kiến cho Màn hình 4
-1. **Shell áp dụng:** `Shell Kỹ thuật viên` (`105:1409`) hoặc `Shell Nhân viên` (`105:1334`).
-2. **Kích thước & Bố cục:** Desktop 1440px, Auto Layout HUG, 2 cột theo đúng tỷ lệ chuẩn (Cột Trái 720px, Cột Phải 560px, padding lề 64px, cách đỉnh 32px, gap 32px).
-3. **Cột Trái (Thông tin xử lý & Đối chiếu Trước/Sau):**
-   - Tiêu đề phiếu + Badge trạng thái (Đang xử lý / Đã xử lý).
-   - Card 1: Khối đối chiếu minh chứng hiện trường (Before & After Proof of Work):
-     - Khung ảnh 1: Hiện trường lúc tiếp nhận (chụp lúc 11:22 28/10/2026, đã làm mờ NĐ13).
-     - Khung ảnh 2: Hiện trường sau khi dặm vá/khắc phục (tải lên từ camera điện thoại kỹ thuật viên, hiển thị tọa độ GPS trích xuất từ EXIF để xác thực trùng khớp bán kính 50m).
-   - Card 2: Biên bản xử lý kỹ thuật:
-     - Biện pháp khắc phục đã áp dụng (Select / Tag: Dặm vá mặt đường bê tông nhựa, rào chắn cảnh báo...).
-     - Vật tư & Thiết bị sử dụng.
-     - Thời gian bắt đầu thi công và thời gian hoàn tất thực tế.
-     - Ghi chú hiện trường của đội phản ứng nhanh.
-4. **Cột Phải (Vị trí & Thông tin điều phối):**
-   - Card 1: Bản đồ định vị hiện trường có bán kính kiểm soát 50m (đánh dấu vị trí tiếp nhận ban đầu và vị trí kỹ thuật viên đứng chụp ảnh hoàn tất).
-   - Card 2: Thông tin SLA & Đơn vị phụ trách (Công ty CP Cầu đường Đà Nẵng, thời gian còn lại trước hạn).
-5. **Hàng Nút Hành động Duyệt/Nghiệm thu (Bottom Action Bar):**
-   - Nút chính đậm: `"Xác nhận nghiệm thu & Đóng phiếu"` (`#15803d` hoặc `#1d4ed8`).
-   - Nút phụ outline: `"Yêu cầu xử lý lại"` (khi ảnh minh chứng chưa đạt chất lượng hoặc sai vị trí).
-   - Nút chuyển tiếp: `"Lưu nháp biên bản"`.
-
----
-
-## 7. LỘ TRÌNH KẾ TIẾP CỦA TOÀN DỰ ÁN
+## 6. LỘ TRÌNH THIẾT KẾ LẠI UI TRÊN FIGMA
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        LỘ TRÌNH TRIỂN KHAI TIẾP THEO                   │
+│                        LỘ TRÌNH THIẾT KẾ LẠI TỪ ĐẦU                   │
 ├────────────────────────────────────────────────────────────────────────┤
-│ Bước 1: Thiết kế Màn hình 4 - Nghiệm thu sự cố trên Figma               │
-│         - Dựng biến thể dành cho Kỹ thuật viên (tải minh chứng)        │
-│         - Dựng biến thể dành cho Điều phối IOC (nghiệm thu đối chiếu)  │
+│ Giai đoạn 1: Chuẩn hóa Design System & Bộ UI Primitives trên Figma     │
+│              - Bảng màu GovTech Đà Nẵng, Typography, Bố cục Grid       │
+│              - Bộ UI components cơ bản (Button, Input, Card, Modal)     │
 │                                                                        │
-│ Bước 2: Thiết kế Màn hình 5 - Dashboard Thống kê & Phân tích SLA       │
-│         - Biểu đồ nhiệt GIS (Heatmap) mật độ sự cố tại các quận        │
-│         - Tỷ lệ hoàn thành đúng hạn SLA theo từng đơn vị hạ tầng       │
+│ Giai đoạn 2: Thiết kế Nhóm 1 - Phân hệ Công cộng & Tiếp nhận (1 - 5)   │
+│              - Báo cáo hiện trường (/report), Tra cứu (/tracking)      │
 │                                                                        │
-│ Bước 3: Ráp nối Frontend Next.js với Backend FastAPI                   │
-│         - Kết nối API tiếp nhận `/api/v1/incidents/`                   │
-│         - Tích hợp Goong Maps SDK trên Next.js App Router              │
-│         - Kết nối State Machine và luồng tra cứu `/tracking/[code]`    │
+│ Giai đoạn 3: Thiết kế Nhóm 2 & 3 - Xác thực & Công dân (6 - 13)        │
+│              - Đăng nhập/Đăng ký, Sổ tay phản ánh, Đánh giá/Khiếu nại  │
 │                                                                        │
-│ Bước 4: Kiểm thử End-to-End toàn diện & Đóng gói Docker                │
-│         - Chạy kiểm thử tự động e2e luồng từ Tiếp nhận -> Nghiệm thu   │
-│         - Docker Compose hoàn chỉnh một lệnh khởi chạy toàn hệ thống   │
+│ Giai đoạn 4: Thiết kế Nhóm 4 - Bàn Tác chiến Điều phối IOC (14 - 18)   │
+│              - Command Center (/dispatcher/command-center), Nghiệm thu │
 │                                                                        │
-│ Bước 5: Hoàn thiện Thuyết minh Đồ án Tốt nghiệp & Slide Bảo vệ        │
+│ Giai đoạn 5: Thiết kế Nhóm 5 - Kỹ thuật viên Hiện trường (19 - 23)     │
+│              - Thiết kế đồng thời bản Desktop & Mobile                 │
+│                                                                        │
+│ Giai đoạn 6: Thiết kế Nhóm 6 & 7 - Quản trị, Phân tích & Lỗi (24 - 34) │
+│              - Dashboard Heatmap, Quản trị Users/Zones/SLA, Trang Lỗi  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 8. HƯỚNG DẪN DÀNH CHO CONVERSATION MỚI (QUICK CONTEXT RESTORE)
+## 7. HƯỚNG DẪN DÀNH CHO CONVERSATION MỚI (QUICK CONTEXT RESTORE)
 
 Khi bắt đầu một cuộc trò chuyện mới, hãy gửi thông điệp sau cho trợ lý AI:
 
-> *"Tôi đang tiếp tục dự án Đồ án Tốt nghiệp DATN-HK10-URBAN-INCIDENT (Nền tảng Quản lý Sự cố Đô thị Đà Nẵng). Đọc file `docs/PROJECT_CONTEXT_HANDOFF.md` để nắm toàn bộ kiến trúc, CSDL PostGIS, quy tắc thiết kế Figma và các màn hình đã hoàn thành. Hiện tại đã xong 3 màn hình (/report, /dispatcher/command-center, /tracking/[code]). Nhiệm vụ tiếp theo là triển khai Màn hình 4: Nghiệm thu sự cố & Báo cáo hiện trường. Hãy bắt đầu từ Màn hình 4."*
+> *"Tôi đang tiếp tục dự án Đồ án Tốt nghiệp DATN-HK10-URBAN-INCIDENT (Nền tảng Quản lý Sự cố Đô thị Đà Nẵng). Đọc file `docs/PROJECT_CONTEXT_HANDOFF.md` và `docs/screen.md`. Toàn bộ Backend, CSDL PostGIS và AI Pipeline đã hoàn thiện. Toàn bộ phần UI/UX đang được thiết kế lại từ đầu trên Figma theo quy chuẩn tinh gọn 34 màn hình (Kỹ thuật viên hỗ trợ cả Desktop & Mobile). Hãy bắt đầu tiến hành thiết kế lại UI từ Giai đoạn 1."*

@@ -1,0 +1,11 @@
+{
+  "title": "urbana",
+  "description": "A minimalist landing page displaying the Urbana title on a soft gray background, offering a clean and uncluttered brand introduction.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
