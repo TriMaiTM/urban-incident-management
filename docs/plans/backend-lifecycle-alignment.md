@@ -124,7 +124,7 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - **Commit 2:** `feat(workflow): align incident state machine and citizen confirm/dispute rules`
 - *(Dừng báo cáo lần 1 sau Commit 2).*
 
-### [ ] Bước 3: Tính hạn SLA theo quyết định (`4h / 12h / 24h / 48h`)
+### [x] Bước 3: Tính hạn SLA theo quyết định (`4h / 12h / 24h / 48h`)
 - **Thay đổi trong `backend/app/api/v1/endpoints/incidents.py`, `webhooks.py`, `open311.py`:**
   - Định nghĩa bảng hằng số và hàm dùng chung `calculate_sla_due_at(priority: str, base_time: datetime) -> datetime`:
     - `SLA_HOURS_BY_PRIORITY = {"EMERGENCY": 4, "HIGH": 12, "NORMAL": 24, "LOW": 48}`.

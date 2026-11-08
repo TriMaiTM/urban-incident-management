@@ -63,6 +63,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/incidents", tags=["Incidents & Field Reports"])
 
+SLA_HOURS_BY_PRIORITY: dict[str, int] = {
+    "EMERGENCY": 4,
+    "HIGH": 12,
+    "NORMAL": 24,
+    "LOW": 48,
+}
+
+
+def calculate_sla_due_at(priority: str | None, base_time: datetime | None = None) -> datetime:
+    """Compute SLA deadline from base_time (created_at or reopen time) based on priority."""
+    anchor = base_time if base_time is not None else datetime.now(timezone.utc)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    hours = SLA_HOURS_BY_PRIORITY.get((priority or "NORMAL").upper(), 24)
+    return anchor + timedelta(hours=hours)
+
 
 def generate_ticket_code() -> str:
     """Generate unique public ticket code formatted as DN-YYYYMM-XXXX."""
@@ -188,9 +204,10 @@ async def process_incident_ai_triage(
         incident.assigned_department_id = matched_dept.id if matched_dept else None
         incident.ai_classification_raw = dict(ai_res)
         incident.ai_confidence = ai_res["confidence"]
-
-        if matched_cat and matched_cat.default_sla_hours:
-            incident.sla_due_at = datetime.now(timezone.utc) + timedelta(hours=matched_cat.default_sla_hours)
+        incident.sla_due_at = calculate_sla_due_at(
+            incident.priority,
+            getattr(incident, "created_at", None) or datetime.now(timezone.utc),
+        )
 
         old_status = incident.status
         incident.status = "TRIAGED"
@@ -314,6 +331,7 @@ async def create_incident(
         ticket_code = generate_ticket_code()
 
     # 4. Tạo bản ghi Incident
+    now = datetime.now(timezone.utc)
     incident = Incident(
         ticket_code=ticket_code,
         title=title,
@@ -328,6 +346,8 @@ async def create_incident(
         district=district,
         ward=ward,
         duplicate_count=0,
+        sla_due_at=calculate_sla_due_at("NORMAL", now),
+        created_at=now,
     )
     db.add(incident)
     await db.flush()
@@ -543,12 +563,9 @@ async def triage_incident(
             detail=f"Mức độ ưu tiên '{payload.priority}' không hợp lệ. Phải thuộc {allowed_priorities}.",
         )
 
-    sla_hours = category.default_sla_hours or 24
-    if payload.priority == "EMERGENCY":
-        sla_hours = max(1, sla_hours // 2)
-
     now = datetime.now(timezone.utc)
-    incident.sla_due_at = now + timedelta(hours=sla_hours)
+    base_created = getattr(incident, "created_at", None) or now
+    incident.sla_due_at = calculate_sla_due_at(payload.priority, base_created)
 
     old_status = incident.status
     incident.category_id = payload.category_id
@@ -883,6 +900,7 @@ async def update_incident_status(
                 detail=f"Chỉ có thể yêu cầu làm lại (REOPENED) khi sự cố đang ở trạng thái 'RESOLVED' (trạng thái hiện tại: '{incident.status}').",
             )
         incident.resolved_at = None
+        incident.sla_due_at = calculate_sla_due_at(incident.priority, now)
 
     elif clean_to_status == "REJECTED":
         if current_user.role not in {"ADMIN", "DISPATCHER"}:
@@ -1067,6 +1085,7 @@ async def submit_incident_feedback(
         old_status = incident.status
         incident.status = "REOPENED"
         incident.resolved_at = None
+        incident.sla_due_at = calculate_sla_due_at(incident.priority, now)
         history = IncidentHistory(
             incident_id=incident.id,
             actor_id=current_user.id,
