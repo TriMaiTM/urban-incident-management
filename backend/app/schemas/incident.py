@@ -1,6 +1,7 @@
 """Pydantic schemas for Incident Ingestion, AI Triage, Detail, Nearby, and Management."""
 
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -93,7 +94,7 @@ class IncidentFeedbackOut(BaseModel):
     id: UUID
     incident_id: UUID
     citizen_id: UUID
-    rating: int
+    rating: int | None = None
     comment: str | None = None
     created_at: datetime
 
@@ -101,10 +102,20 @@ class IncidentFeedbackOut(BaseModel):
 
 
 class IncidentFeedbackCreateIn(BaseModel):
-    """Schema for citizen post-resolution feedback submission."""
+    """Schema for citizen post-verification confirmation or dispute submission."""
 
-    rating: int = Field(..., ge=1, le=5, description="Điểm đánh giá từ 1 đến 5 sao")
-    comment: str | None = Field(None, max_length=1000, description="Ý kiến nhận xét của công dân")
+    action: Literal["CONFIRM", "DISPUTE"] = Field(
+        "CONFIRM",
+        description="Hành động của công dân: CONFIRM (xác nhận hài lòng đóng phiếu) hoặc DISPUTE (khiếu nại mở lại)",
+    )
+    rating: int | None = Field(None, ge=1, le=5, description="Điểm đánh giá tùy chọn từ 1 đến 5 sao")
+    comment: str | None = Field(None, max_length=1000, description="Ý kiến nhận xét hoặc lý do khiếu nại")
+
+    @model_validator(mode="after")
+    def validate_dispute_comment(self) -> "IncidentFeedbackCreateIn":
+        if self.action == "DISPUTE" and (not self.comment or not self.comment.strip()):
+            raise ValueError("Bắt buộc phải cung cấp lý do khi gửi khiếu nại (comment).")
+        return self
 
 
 class IncidentCreateForm(BaseModel):
@@ -343,7 +354,10 @@ class IncidentAssignIn(BaseModel):
 class IncidentStatusUpdateIn(BaseModel):
     """Schema for status transition updates."""
 
-    status: str = Field(..., description="Trạng thái mục tiêu: IN_PROGRESS, RESOLVED, REJECTED, CLOSED")
+    status: str = Field(
+        ...,
+        description="Trạng thái mục tiêu: IN_PROGRESS, RESOLVED, CONFIRMED, REOPENED, REJECTED, CLOSED",
+    )
     note: str | None = None
 
 

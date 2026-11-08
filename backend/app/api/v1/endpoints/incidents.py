@@ -748,14 +748,17 @@ async def update_incident_status(
     """
     Cập nhật trạng thái sự cố hiện trường theo quy trình (State Machine):
     - RBAC: Yêu cầu vai trò ADMIN, DISPATCHER hoặc TECHNICIAN.
-    - Validate to_status thuộc {'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'CLOSED'}.
+    - Validate to_status thuộc {'IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'REOPENED', 'REJECTED', 'CLOSED'}.
     - Chặn cập nhật đối với sự cố đã ở trạng thái kết thúc ('CLOSED', 'REJECTED').
-    - Chuyển sang 'IN_PROGRESS': chỉ cho phép khi trạng thái hiện tại là 'ASSIGNED' hoặc 'RESOLVED' (mở lại).
-      Nếu mở lại từ 'RESOLVED', đặt lại resolved_at = None.
+    - Chuyển sang 'IN_PROGRESS': chỉ cho phép khi trạng thái hiện tại là 'ASSIGNED' hoặc 'REOPENED'.
     - Chuyển sang 'RESOLVED': chỉ cho phép khi trạng thái hiện tại là 'IN_PROGRESS', bắt buộc có ảnh
       minh chứng sau sửa chữa (AFTER_PROOF). Làm mờ khuôn mặt/biển số xe (Nghị định 13) và lưu công khai.
-    - Chuyển sang 'REJECTED': chỉ DISPATCHER hoặc ADMIN có quyền, bắt buộc phải có ghi chú giải trình lý do.
-    - Chuyển sang 'CLOSED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' hoặc 'CONFIRMED'.
+    - Chuyển sang 'CONFIRMED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' (duyệt nghiệm thu).
+    - Chuyển sang 'REOPENED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' (yêu cầu làm lại),
+      đặt lại resolved_at = None.
+    - Chuyển sang 'REJECTED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'SUBMITTED', 'TRIAGED', 'ASSIGNED',
+      bắt buộc phải có ghi chú giải trình lý do.
+    - Chuyển sang 'CLOSED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'CONFIRMED' với phiếu ẩn danh (citizen_id is None).
     - Ghi nhận biến động trạng thái vào IncidentHistory.
     """
     incident = await _resolve_incident(db, id_or_code, load_relations=True)
@@ -765,7 +768,7 @@ async def update_incident_status(
             detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
-    allowed_statuses = {"IN_PROGRESS", "RESOLVED", "REJECTED", "CLOSED"}
+    allowed_statuses = {"IN_PROGRESS", "RESOLVED", "CONFIRMED", "REOPENED", "REJECTED", "CLOSED"}
     clean_to_status = to_status.strip()
     if clean_to_status not in allowed_statuses:
         raise HTTPException(
@@ -782,13 +785,11 @@ async def update_incident_status(
     now = datetime.now(timezone.utc)
 
     if clean_to_status == "IN_PROGRESS":
-        if incident.status not in {"ASSIGNED", "RESOLVED"}:
+        if incident.status not in {"ASSIGNED", "REOPENED"}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Chỉ có thể chuyển sang 'IN_PROGRESS' khi sự cố đang ở trạng thái 'ASSIGNED' hoặc 'RESOLVED' (khiếu nại mở lại) (trạng thái hiện tại: '{incident.status}').",
+                detail=f"Chỉ có thể chuyển sang 'IN_PROGRESS' khi sự cố đang ở trạng thái 'ASSIGNED' hoặc 'REOPENED' (trạng thái hiện tại: '{incident.status}').",
             )
-        if incident.status == "RESOLVED":
-            incident.resolved_at = None
 
     elif clean_to_status == "RESOLVED":
         if incident.status != "IN_PROGRESS":
@@ -858,11 +859,41 @@ async def update_incident_status(
 
         incident.resolved_at = now
 
+    elif clean_to_status == "CONFIRMED":
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền duyệt nghiệm thu (CONFIRMED).",
+            )
+        if incident.status != "RESOLVED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể duyệt nghiệm thu (CONFIRMED) khi sự cố đang ở trạng thái 'RESOLVED' (trạng thái hiện tại: '{incident.status}').",
+            )
+
+    elif clean_to_status == "REOPENED":
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền yêu cầu làm lại (REOPENED).",
+            )
+        if incident.status != "RESOLVED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể yêu cầu làm lại (REOPENED) khi sự cố đang ở trạng thái 'RESOLVED' (trạng thái hiện tại: '{incident.status}').",
+            )
+        incident.resolved_at = None
+
     elif clean_to_status == "REJECTED":
         if current_user.role not in {"ADMIN", "DISPATCHER"}:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền từ chối sự cố.",
+            )
+        if incident.status not in {"SUBMITTED", "TRIAGED", "ASSIGNED"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chỉ có thể từ chối sự cố khi đang ở trạng thái 'SUBMITTED', 'TRIAGED' hoặc 'ASSIGNED' (trạng thái hiện tại: '{incident.status}').",
             )
         if not note or not note.strip():
             raise HTTPException(
@@ -876,10 +907,15 @@ async def update_incident_status(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền đóng sự cố.",
             )
-        if incident.status not in {"RESOLVED", "CONFIRMED"}:
+        if incident.status != "CONFIRMED":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Chỉ có thể đóng sự cố khi ở trạng thái 'RESOLVED' hoặc 'CONFIRMED' (trạng thái hiện tại: '{incident.status}').",
+                detail=f"Chỉ có thể đóng sự cố (CLOSED) khi đang ở trạng thái 'CONFIRMED' (trạng thái hiện tại: '{incident.status}').",
+            )
+        if incident.citizen_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phiếu phản ánh có công dân sở hữu chỉ có thể đóng bởi chính công dân tạo phiếu thông qua bước xác nhận.",
             )
 
     old_status = incident.status
@@ -958,19 +994,19 @@ async def submit_incident_feedback(
     current_user: User = Depends(get_current_user),
 ) -> IncidentFeedbackOut:
     """
-    Công dân đánh giá chất lượng khắc phục sự cố:
-    - Bắt buộc người dùng đã đăng nhập (current_user).
+    Công dân xác nhận hoàn tất (CONFIRM) hoặc khiếu nại mở lại (DISPUTE) sự cố:
+    - Bắt buộc người dùng đã đăng nhập (current_user) và phải là chủ phiếu (incident.citizen_id == current_user.id).
     - Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.
-    - Sự cố bắt buộc đang ở trạng thái RESOLVED. Nếu không: 400 Bad Request.
+    - Sự cố bắt buộc đang ở trạng thái CONFIRMED. Nếu không: 400 Bad Request.
     - Kiểm tra sự cố chưa có feedback trước đó (incident.feedback is not None): Nếu có: 400 Bad Request.
-    - Tạo bản ghi IncidentFeedback (rating từ 1 đến 5 sao).
-    - Nếu rating >= 3:
-        - Chuyển status sang CONFIRMED.
-        - Ghi nhận IncidentHistory (note="Công dân hài lòng...").
-    - Nếu rating <= 2:
-        - Chuyển status về IN_PROGRESS.
-        - Đặt lại resolved_at = None (bắt buộc theo domain invariant).
-        - Ghi nhận IncidentHistory (note="Công dân không hài lòng...").
+    - Tạo bản ghi IncidentFeedback (rating từ 1 đến 5 sao là tùy chọn).
+    - Nếu action == "CONFIRM":
+        - Chuyển status sang CLOSED (không phụ thuộc số sao).
+        - Ghi nhận IncidentHistory.
+    - Nếu action == "DISPUTE":
+        - Bắt buộc có comment (lý do khiếu nại).
+        - Chuyển status sang REOPENED, đặt lại resolved_at = None.
+        - Ghi nhận IncidentHistory.
     - db.commit() và trả về IncidentFeedbackOut.
     """
     incident = await _resolve_incident(db, id_or_code, load_relations=True)
@@ -980,10 +1016,16 @@ async def submit_incident_feedback(
             detail=f"Không tìm thấy sự cố với ID/mã phiếu '{id_or_code}'.",
         )
 
-    if incident.status != "RESOLVED":
+    if incident.citizen_id is None or incident.citizen_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ công dân tạo phiếu phản ánh mới có quyền xác nhận hoặc khiếu nại sự cố này.",
+        )
+
+    if incident.status != "CONFIRMED":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Chỉ có thể đánh giá đối với sự cố đã được khắc phục (trạng thái RESOLVED).",
+            detail="Chỉ có thể xác nhận hoặc khiếu nại đối với sự cố đã được điều phối viên duyệt nghiệm thu (trạng thái CONFIRMED).",
         )
 
     if incident.feedback is not None:
@@ -1004,27 +1046,33 @@ async def submit_incident_feedback(
     db.add(feedback)
     incident.feedback = feedback
 
-    if payload.rating >= 3:
+    rating_label = f" ({payload.rating} sao)" if payload.rating is not None else ""
+    if payload.action == "CONFIRM":
         old_status = incident.status
-        incident.status = "CONFIRMED"
+        incident.status = "CLOSED"
         history = IncidentHistory(
             incident_id=incident.id,
             actor_id=current_user.id,
             from_status=old_status,
-            to_status="CONFIRMED",
-            note=f"Công dân hài lòng ({payload.rating} sao): {payload.comment or 'Đồng ý nghiệm thu'}",
+            to_status="CLOSED",
+            note=f"Công dân xác nhận đóng phiếu{rating_label}: {payload.comment or 'Đồng ý nghiệm thu'}",
             created_at=now,
         )
     else:
+        if not payload.comment or not payload.comment.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bắt buộc phải nhập lý do khi khiếu nại mở lại phiếu (action='DISPUTE').",
+            )
         old_status = incident.status
-        incident.status = "IN_PROGRESS"
+        incident.status = "REOPENED"
         incident.resolved_at = None
         history = IncidentHistory(
             incident_id=incident.id,
             actor_id=current_user.id,
             from_status=old_status,
-            to_status="IN_PROGRESS",
-            note=f"Công dân không hài lòng ({payload.rating} sao), yêu cầu xử lý lại: {payload.comment or 'Chưa đạt yêu cầu'}",
+            to_status="REOPENED",
+            note=f"Công dân khiếu nại mở lại{rating_label}: {payload.comment.strip()}",
             created_at=now,
         )
 
@@ -1197,7 +1245,7 @@ async def get_incidents_analytics_summary(
     total_res = await db.execute(total_stmt)
     total_incidents = total_res.scalar() or 0
 
-    # 2. Status distribution (8 states initialized to 0)
+    # 2. Status distribution (9 states initialized to 0)
     by_status: dict[str, int] = {
         "SUBMITTED": 0,
         "TRIAGED": 0,
@@ -1207,6 +1255,7 @@ async def get_incidents_analytics_summary(
         "CONFIRMED": 0,
         "CLOSED": 0,
         "REJECTED": 0,
+        "REOPENED": 0,
     }
     status_stmt = select(Incident.status, func.count(Incident.id))
     if conditions:

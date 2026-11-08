@@ -414,15 +414,30 @@ def test_incident_status_update_in():
 
 
 def test_incident_feedback_create_in():
-    # Valid feedback
+    # Valid feedback (default action="CONFIRM")
     fb = IncidentFeedbackCreateIn(rating=5, comment="Xử lý rất nhanh và sạch sẽ")
+    assert fb.action == "CONFIRM"
     assert fb.rating == 5
     assert fb.comment == "Xử lý rất nhanh và sạch sẽ"
+
+    # CONFIRM with optional rating=None
+    fb_no_rating = IncidentFeedbackCreateIn(action="CONFIRM")
+    assert fb_no_rating.action == "CONFIRM"
+    assert fb_no_rating.rating is None
+    assert fb_no_rating.comment is None
 
     # Rating boundary values
     fb_min = IncidentFeedbackCreateIn(rating=1)
     assert fb_min.rating == 1
     assert fb_min.comment is None
+
+    # DISPUTE requires non-empty comment
+    fb_dispute = IncidentFeedbackCreateIn(action="DISPUTE", comment="Mặt đường vẫn còn sụt lún")
+    assert fb_dispute.action == "DISPUTE"
+    assert fb_dispute.rating is None
+
+    with pytest.raises(ValidationError):
+        IncidentFeedbackCreateIn(action="DISPUTE", comment="   ")
 
     # Invalid rating < 1
     with pytest.raises(ValidationError):

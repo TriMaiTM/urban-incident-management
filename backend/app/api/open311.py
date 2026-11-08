@@ -38,6 +38,7 @@ OPEN311_STATUS_NOTES: dict[str, str] = {
     "CONFIRMED": "Đã xác nhận hoàn thành (CONFIRMED)",
     "CLOSED": "Đã đóng (CLOSED)",
     "REJECTED": "Từ chối tiếp nhận (REJECTED)",
+    "REOPENED": "Mở lại (REOPENED)",
 }
 
 

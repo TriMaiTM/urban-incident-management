@@ -896,16 +896,17 @@ async def test_status_transition_to_rejected_without_note_fails(client: httpx.As
 
 @pytest.mark.asyncio
 async def test_status_transition_to_closed_dispatcher_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Dispatcher successfully closes resolved incident -> status CLOSED."""
+    """Dispatcher successfully closes anonymous CONFIRMED incident (citizen_id is None) -> status CLOSED."""
     dispatcher = _make_mock_user(role="DISPATCHER")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = None
     mock_session.seed(dispatcher, incident)
 
     response = await client.patch(
         f"/api/v1/incidents/{incident.id}/status",
-        data={"to_status": "CLOSED", "note": "Đã hoàn tất quy trình nghiệm thu"},
+        data={"to_status": "CLOSED", "note": "Đã hoàn tất quy trình nghiệm thu phiếu khách vãng lai"},
     )
 
     assert response.status_code == 200, f"Error: {response.text}"
@@ -918,7 +919,7 @@ async def test_status_transition_to_closed_technician_forbidden(client: httpx.As
     technician = _make_mock_user(role="TECHNICIAN")
     app.dependency_overrides[get_current_user] = lambda: technician
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
     mock_session.seed(technician, incident)
 
     response = await client.patch(
@@ -932,7 +933,7 @@ async def test_status_transition_to_closed_technician_forbidden(client: httpx.As
 
 @pytest.mark.asyncio
 async def test_status_transition_to_closed_invalid_source_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Closing an incident that is still IN_PROGRESS (not RESOLVED/CONFIRMED) -> 400 Bad Request."""
+    """Closing an incident that is still IN_PROGRESS (not CONFIRMED) -> 400 Bad Request."""
     dispatcher = _make_mock_user(role="DISPATCHER")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
@@ -945,34 +946,44 @@ async def test_status_transition_to_closed_invalid_source_status_fails(client: h
     )
 
     assert response.status_code == 400
-    assert "Chỉ có thể đóng sự cố khi ở trạng thái 'RESOLVED' hoặc 'CONFIRMED'" in response.json()["detail"]
+    assert "Chỉ có thể đóng sự cố (CLOSED) khi đang ở trạng thái 'CONFIRMED'" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_status_transition_reopen_from_resolved_resets_resolved_at(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Reopening incident from RESOLVED back to IN_PROGRESS resets resolved_at to None."""
+    """Dispatcher reopens incident from RESOLVED -> REOPENED (resets resolved_at), then technician transitions REOPENED -> IN_PROGRESS."""
     dispatcher = _make_mock_user(role="DISPATCHER")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_reopen@danang.gov.vn")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
     incident = _make_mock_incident(status="RESOLVED")
     incident.resolved_at = datetime.now(timezone.utc)
-    mock_session.seed(dispatcher, incident)
+    mock_session.seed(dispatcher, technician, incident)
 
     response = await client.patch(
         f"/api/v1/incidents/{incident.id}/status",
-        data={"to_status": "IN_PROGRESS", "note": "Yêu cầu xử lý lại do người dân phản ánh chưa đạt"},
+        data={"to_status": "REOPENED", "note": "Yêu cầu xử lý lại do ảnh minh chứng chưa đạt"},
     )
 
     assert response.status_code == 200, f"Error: {response.text}"
     data = response.json()
-    assert data["status"] == "IN_PROGRESS"
+    assert data["status"] == "REOPENED"
     assert data["resolved_at"] is None
     assert incident.resolved_at is None
+
+    # Technician starts working again: REOPENED -> IN_PROGRESS
+    app.dependency_overrides[get_current_user] = lambda: technician
+    resp_in_prog = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên bắt đầu xử lý lại"},
+    )
+    assert resp_in_prog.status_code == 200
+    assert resp_in_prog.json()["status"] == "IN_PROGRESS"
 
 
 @pytest.mark.asyncio
 async def test_status_transition_invalid_target_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Target status not in {'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'CLOSED'} -> 422 Unprocessable Entity."""
+    """Target status not in {'IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'REOPENED', 'REJECTED', 'CLOSED'} -> 422 Unprocessable Entity."""
     technician = _make_mock_user(role="TECHNICIAN")
     app.dependency_overrides[get_current_user] = lambda: technician
 
@@ -1021,14 +1032,16 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Citizen rates 5 stars on RESOLVED incident -> status CONFIRMED, creates feedback record and audit history."""
+    """Citizen confirms completion (action=CONFIRM, rating=5) on CONFIRMED incident -> status CLOSED."""
     citizen = _make_mock_user(role="CITIZEN", email="citizen@danang.gov.vn", full_name="Lê Văn Dân")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = citizen.id
     mock_session.seed(citizen, incident)
 
     payload = {
+        "action": "CONFIRM",
         "rating": 5,
         "comment": "Đội ngũ kỹ thuật xử lý rất nhanh và sạch sẽ, tôi rất hài lòng.",
     }
@@ -1044,7 +1057,7 @@ async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncC
     assert data["citizen_id"] == str(citizen.id)
     assert data["created_at"] is not None
 
-    assert incident.status == "CONFIRMED"
+    assert incident.status == "CLOSED"
     assert mock_session.committed is True
 
     feedbacks = [o for o in mock_session.added if isinstance(o, IncidentFeedback)]
@@ -1052,24 +1065,26 @@ async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncC
     assert feedbacks[-1].rating == 5
 
     histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
-    conf_hist = [h for h in histories if h.to_status == "CONFIRMED"]
-    assert len(conf_hist) >= 1
-    assert conf_hist[-1].from_status == "RESOLVED"
-    assert conf_hist[-1].actor_id == citizen.id
-    assert "Công dân hài lòng (5 sao)" in (conf_hist[-1].note or "")
+    closed_hist = [h for h in histories if h.to_status == "CLOSED"]
+    assert len(closed_hist) >= 1
+    assert closed_hist[-1].from_status == "CONFIRMED"
+    assert closed_hist[-1].actor_id == citizen.id
+    assert "Công dân xác nhận đóng phiếu (5 sao)" in (closed_hist[-1].note or "")
 
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_disputed_reopens_to_in_progress(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Citizen rates <= 2 stars (dispute) -> reopens to IN_PROGRESS, resets resolved_at to None."""
+    """Citizen disputes on CONFIRMED incident (action=DISPUTE) -> reopens to REOPENED, resets resolved_at to None."""
     citizen = _make_mock_user(role="CITIZEN", email="citizen@danang.gov.vn")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = citizen.id
     incident.resolved_at = datetime.now(timezone.utc)
     mock_session.seed(citizen, incident)
 
     payload = {
+        "action": "DISPUTE",
         "rating": 2,
         "comment": "Chưa hoàn trả mặt đường phẳng, vẫn còn gồ ghề nguy hiểm.",
     }
@@ -1080,32 +1095,33 @@ async def test_citizen_feedback_disputed_reopens_to_in_progress(client: httpx.As
     data = response.json()
 
     assert data["rating"] == 2
-    assert incident.status == "IN_PROGRESS"
+    assert incident.status == "REOPENED"
     assert incident.resolved_at is None
     assert mock_session.committed is True
 
     histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
-    reopen_hist = [h for h in histories if h.to_status == "IN_PROGRESS"]
+    reopen_hist = [h for h in histories if h.to_status == "REOPENED"]
     assert len(reopen_hist) >= 1
-    assert reopen_hist[-1].from_status == "RESOLVED"
+    assert reopen_hist[-1].from_status == "CONFIRMED"
     assert reopen_hist[-1].actor_id == citizen.id
-    assert "Công dân không hài lòng (2 sao)" in (reopen_hist[-1].note or "")
+    assert "Công dân khiếu nại mở lại (2 sao)" in (reopen_hist[-1].note or "")
 
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_on_unresolved_incident_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Submitting feedback on incident not in RESOLVED status -> 400 Bad Request."""
+    """Submitting feedback on incident not in CONFIRMED status -> 400 Bad Request."""
     citizen = _make_mock_user(role="CITIZEN")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
-    incident = _make_mock_incident(status="IN_PROGRESS")
+    incident = _make_mock_incident(status="RESOLVED")
+    incident.citizen_id = citizen.id
     mock_session.seed(citizen, incident)
 
-    payload = {"rating": 4, "comment": "Tốt"}
+    payload = {"action": "CONFIRM", "rating": 4, "comment": "Tốt"}
     response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
 
     assert response.status_code == 400
-    assert "Chỉ có thể đánh giá đối với sự cố đã được khắc phục" in response.json()["detail"]
+    assert "Chỉ có thể xác nhận hoặc khiếu nại đối với sự cố đã được điều phối viên duyệt nghiệm thu (trạng thái CONFIRMED)." in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -1122,11 +1138,12 @@ async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncCl
         comment="Đã đánh giá trước đó",
         created_at=datetime.now(timezone.utc),
     )
-    incident = _make_mock_incident(status="RESOLVED", feedback=existing_feedback)
+    incident = _make_mock_incident(status="CONFIRMED", feedback=existing_feedback)
+    incident.citizen_id = citizen.id
     existing_feedback.incident_id = incident.id
     mock_session.seed(citizen, incident, existing_feedback)
 
-    payload = {"rating": 5, "comment": "Thử đánh giá lần 2"}
+    payload = {"action": "CONFIRM", "rating": 5, "comment": "Thử đánh giá lần 2"}
     response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
 
     assert response.status_code == 400
@@ -1456,3 +1473,145 @@ async def test_workflow_mutations_accept_ticket_code(client: httpx.AsyncClient, 
     )
     assert res_status.status_code == 200
     assert res_status.json()["status"] == "IN_PROGRESS"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_confirmed_dispatcher_and_technician_rbac(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Dispatcher transitions RESOLVED -> CONFIRMED; technician is forbidden (403)."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_conf@danang.gov.vn")
+    incident = _make_mock_incident(status="RESOLVED")
+    mock_session.seed(dispatcher, technician, incident)
+
+    # Technician cannot confirm
+    app.dependency_overrides[get_current_user] = lambda: technician
+    resp_tech = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CONFIRMED", "note": "Thử tự duyệt nghiệm thu"},
+    )
+    assert resp_tech.status_code == 403
+
+    # Dispatcher confirms RESOLVED -> CONFIRMED
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    resp_disp = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CONFIRMED", "note": "Đã đối chiếu ảnh minh chứng đạt yêu cầu"},
+    )
+    assert resp_disp.status_code == 200
+    assert resp_disp.json()["status"] == "CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_rejected_only_from_early_states(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """REJECTED is only allowed from SUBMITTED, TRIAGED, ASSIGNED; blocked from IN_PROGRESS/RESOLVED/CONFIRMED."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    inc_in_prog = _make_mock_incident(status="IN_PROGRESS")
+    mock_session.seed(dispatcher, inc_in_prog)
+
+    resp = await client.patch(
+        f"/api/v1/incidents/{inc_in_prog.id}/status",
+        data={"to_status": "REJECTED", "note": "Thử từ chối khi đang xử lý"},
+    )
+    assert resp.status_code == 400
+    assert "Chỉ có thể từ chối sự cố khi đang ở trạng thái 'SUBMITTED', 'TRIAGED' hoặc 'ASSIGNED'" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_closed_blocked_when_citizen_id_present(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Dispatcher cannot close CONFIRMED incident via PATCH /status if citizen_id is not None."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    citizen = _make_mock_user(role="CITIZEN", email="owner@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = citizen.id
+    mock_session.seed(dispatcher, citizen, incident)
+
+    resp = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CLOSED", "note": "Điều phối thử đóng thay công dân"},
+    )
+    assert resp.status_code == 400
+    assert "chỉ có thể đóng bởi chính công dân tạo phiếu" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_confirm_without_rating_and_low_rating_closes(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Citizen CONFIRM closes CONFIRMED incident regardless of whether rating is None or low (e.g. 2 stars)."""
+    citizen = _make_mock_user(role="CITIZEN", email="cit_opt@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    inc1 = _make_mock_incident(status="CONFIRMED", ticket_code="DN-202611-CF01")
+    inc1.citizen_id = citizen.id
+    inc2 = _make_mock_incident(status="CONFIRMED", ticket_code="DN-202611-CF02")
+    inc2.citizen_id = citizen.id
+    mock_session.seed(citizen, inc1, inc2)
+
+    # 1. CONFIRM with rating=None
+    resp1 = await client.post(
+        f"/api/v1/incidents/{inc1.id}/feedback",
+        json={"action": "CONFIRM", "comment": "Đã xử lý xong, không chấm sao"},
+    )
+    assert resp1.status_code == 201
+    assert resp1.json()["rating"] is None
+    assert inc1.status == "CLOSED"
+
+    # 2. CONFIRM with rating=2 still closes
+    resp2 = await client.post(
+        f"/api/v1/incidents/{inc2.id}/feedback",
+        json={"action": "CONFIRM", "rating": 2, "comment": "Hơi chậm nhưng đồng ý đóng phiếu"},
+    )
+    assert resp2.status_code == 201
+    assert resp2.json()["rating"] == 2
+    assert inc2.status == "CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_non_owner_forbidden(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Only the citizen who owns the ticket (citizen_id == current_user.id) can confirm or dispute."""
+    owner = _make_mock_user(role="CITIZEN", email="owner1@danang.gov.vn")
+    other_citizen = _make_mock_user(role="CITIZEN", email="other2@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: other_citizen
+
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = owner.id
+    mock_session.seed(owner, other_citizen, incident)
+
+    resp = await client.post(
+        f"/api/v1/incidents/{incident.id}/feedback",
+        json={"action": "CONFIRM", "rating": 5},
+    )
+    assert resp.status_code == 403
+    assert "Chỉ công dân tạo phiếu phản ánh mới có quyền" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_init_db_apply_schema_migrations_idempotent():
+    """Verify apply_schema_migrations in scripts/init_db.py runs twice consecutively without error."""
+    from scripts.init_db import SCHEMA_ALTER_STATEMENTS, apply_schema_migrations
+
+    executed_sql: list[str] = []
+
+    class DummyConn:
+        async def execute(self, clause):
+            executed_sql.append(str(clause))
+
+    conn = DummyConn()
+    await apply_schema_migrations(conn)
+    await apply_schema_migrations(conn)
+
+    assert len(executed_sql) == 2 * len(SCHEMA_ALTER_STATEMENTS)
+    assert any("ALTER TABLE incident_feedback ALTER COLUMN rating DROP NOT NULL" in s for s in executed_sql)
+

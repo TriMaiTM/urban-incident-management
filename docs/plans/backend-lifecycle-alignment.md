@@ -85,7 +85,7 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 1:** `feat(incidents): accept UUID or ticket_code across incident endpoints`
 
-### [ ] Bước 2: Máy trạng thái mới (`REOPENED`, `CONFIRMED`, `CLOSED`), Migration `ALTER COLUMN rating DROP NOT NULL` & Tách hành động Xác nhận / Khiếu nại
+### [x] Bước 2: Máy trạng thái mới (`REOPENED`, `CONFIRMED`, `CLOSED`), Migration `ALTER COLUMN rating DROP NOT NULL` & Tách hành động Xác nhận / Khiếu nại
 - **Thay đổi trong `backend/app/models/incident.py` & `backend/scripts/init_db.py`:**
   - Cập nhật comment trạng thái trên `Incident.status` bao gồm `REOPENED`.
   - Đổi `IncidentFeedback.rating` thành `Mapped[Optional[int]] = mapped_column(Integer, nullable=True)`.

@@ -16,6 +16,16 @@ from app.core.config import settings
 from app.core.database import Base, engine
 import app.models  # Ensure all models are registered with Base.metadata
 
+SCHEMA_ALTER_STATEMENTS: list[str] = [
+    "ALTER TABLE incident_feedback ALTER COLUMN rating DROP NOT NULL;",
+]
+
+
+async def apply_schema_migrations(conn) -> None:
+    """Run idempotent ALTER TABLE statements safely on existing databases."""
+    for stmt in SCHEMA_ALTER_STATEMENTS:
+        await conn.execute(text(stmt))
+
 
 async def init_database():
     print(f"Connecting to database: {settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}...")
@@ -33,6 +43,10 @@ async def init_database():
         print("   [OK] Tables created successfully:")
         for table_name in Base.metadata.tables.keys():
             print(f"        - {table_name}")
+
+        print("3. Applying idempotent schema migrations...")
+        await apply_schema_migrations(conn)
+        print("   [OK] Schema migrations applied successfully.")
 
     await engine.dispose()
     print("\nDatabase initialization completed successfully!")
