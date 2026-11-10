@@ -1011,7 +1011,7 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
 
     response = await client.patch(
         f"/api/v1/incidents/{incident_closed.id}/status",
-        data={"to_status": "IN_PROGRESS"},
+        data={"to_status": "CONFIRMED"},
     )
     assert response.status_code == 400
     assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response.json()["detail"]
@@ -1021,7 +1021,7 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
 
     response_rej = await client.patch(
         f"/api/v1/incidents/{incident_rejected.id}/status",
-        data={"to_status": "IN_PROGRESS"},
+        data={"to_status": "CONFIRMED"},
     )
     assert response_rej.status_code == 400
     assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response_rej.json()["detail"]
@@ -1127,7 +1127,7 @@ async def test_citizen_feedback_on_unresolved_incident_fails(client: httpx.Async
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Submitting feedback when incident already has feedback -> 400 Bad Request."""
+    """Submitting feedback when incident is CONFIRMED updates existing feedback; calling again after CLOSED fails with 400."""
     citizen = _make_mock_user(role="CITIZEN")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
@@ -1135,8 +1135,8 @@ async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncCl
         id=uuid4(),
         incident_id=uuid4(),
         citizen_id=citizen.id,
-        rating=4,
-        comment="Đã đánh giá trước đó",
+        rating=2,
+        comment="Khiếu nại lần 1",
         created_at=datetime.now(timezone.utc),
     )
     incident = _make_mock_incident(status="CONFIRMED", feedback=existing_feedback)
@@ -1144,11 +1144,19 @@ async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncCl
     existing_feedback.incident_id = incident.id
     mock_session.seed(citizen, incident, existing_feedback)
 
-    payload = {"action": "CONFIRM", "rating": 5, "comment": "Thử đánh giá lần 2"}
+    # First call while CONFIRMED updates existing feedback in place and transitions to CLOSED
+    payload = {"action": "CONFIRM", "rating": 5}
     response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+    assert response.status_code == 201
+    assert response.json()["rating"] == 5
+    # Comment was not sent in payload, so previous comment is preserved
+    assert response.json()["comment"] == "Khiếu nại lần 1"
+    assert incident.status == "CLOSED"
 
-    assert response.status_code == 400
-    assert "Sự cố này đã được gửi đánh giá phản hồi trước đó." in response.json()["detail"]
+    # Calling feedback again now that incident is CLOSED -> 400 Bad Request
+    response_again = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+    assert response_again.status_code == 400
+    assert "trạng thái CONFIRMED" in response_again.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -1658,27 +1666,27 @@ ALL_STATUSES = [
 
 STATE_MACHINE_MATRIX_CASES: list[tuple[str, str, str, bool, int]] = []
 
-# 1. Endpoint TRIAGE (target: TRIAGED)
+# 1. Endpoint TRIAGE (target: TRIAGED — allowed from SUBMITTED, TRIAGED)
 for src in ALL_STATUSES:
     for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
         if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
             STATE_MACHINE_MATRIX_CASES.append(("TRIAGE", src, role, False, 403))
-        elif src == "SUBMITTED":
+        elif src in {"SUBMITTED", "TRIAGED"}:
             STATE_MACHINE_MATRIX_CASES.append(("TRIAGE", src, role, True, 200))
         else:
             STATE_MACHINE_MATRIX_CASES.append(("TRIAGE", src, role, False, 400))
 
-# 2. Endpoint ASSIGN (target: ASSIGNED)
+# 2. Endpoint ASSIGN (target: ASSIGNED — allowed from TRIAGED, ASSIGNED, REOPENED)
 for src in ALL_STATUSES:
     for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
         if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
             STATE_MACHINE_MATRIX_CASES.append(("ASSIGN", src, role, False, 403))
-        elif src == "TRIAGED":
+        elif src in {"TRIAGED", "ASSIGNED", "REOPENED"}:
             STATE_MACHINE_MATRIX_CASES.append(("ASSIGN", src, role, True, 200))
         else:
             STATE_MACHINE_MATRIX_CASES.append(("ASSIGN", src, role, False, 400))
 
-# 3. Endpoint STATUS -> REJECTED
+# 3. Endpoint STATUS -> REJECTED (role 403 checked before source status 400)
 for src in ALL_STATUSES:
     for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
         if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
@@ -1688,43 +1696,31 @@ for src in ALL_STATUSES:
         else:
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_REJECTED", src, role, False, 400))
 
-# 4. Endpoint STATUS -> IN_PROGRESS
+# 4. Endpoint STATUS -> IN_PROGRESS (role/ownership 403 checked before source status 400)
 for src in ALL_STATUSES:
     for role in ["ASSIGNED_TECHNICIAN", "OTHER_TECHNICIAN", "DISPATCHER", "ADMIN", "OWNER_CITIZEN"]:
-        if role == "OWNER_CITIZEN":
-            STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, False, 403))
-        elif src in {"CLOSED", "REJECTED"}:
-            STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, False, 400))
-        elif role != "ASSIGNED_TECHNICIAN":
+        if role != "ASSIGNED_TECHNICIAN":
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, False, 403))
         elif src in {"ASSIGNED", "REOPENED"}:
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, True, 200))
         else:
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, False, 400))
 
-# 5. Endpoint STATUS -> RESOLVED
+# 5. Endpoint STATUS -> RESOLVED (role/ownership 403 checked before source status 400)
 for src in ALL_STATUSES:
     for role in ["ASSIGNED_TECHNICIAN", "OTHER_TECHNICIAN", "DISPATCHER", "ADMIN", "OWNER_CITIZEN"]:
-        if role == "OWNER_CITIZEN":
-            STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, False, 403))
-        elif src in {"CLOSED", "REJECTED"}:
-            STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, False, 400))
-        elif role != "ASSIGNED_TECHNICIAN":
+        if role != "ASSIGNED_TECHNICIAN":
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, False, 403))
         elif src == "IN_PROGRESS":
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, True, 200))
         else:
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, False, 400))
 
-# 6. Endpoint STATUS -> CONFIRMED and STATUS -> REOPENED
+# 6. Endpoint STATUS -> CONFIRMED and STATUS -> REOPENED (role 403 checked before source status 400)
 for target_op in ["STATUS_CONFIRMED", "STATUS_REOPENED"]:
     for src in ALL_STATUSES:
         for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
-            if role == "OWNER_CITIZEN":
-                STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, False, 403))
-            elif src in {"CLOSED", "REJECTED"}:
-                STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, False, 400))
-            elif role == "ASSIGNED_TECHNICIAN":
+            if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
                 STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, False, 403))
             elif src == "RESOLVED":
                 STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, True, 200))
@@ -1734,12 +1730,7 @@ for target_op in ["STATUS_CONFIRMED", "STATUS_REOPENED"]:
 # 7. Endpoint STATUS -> CLOSED (anonymous ticket: citizen_id=None vs owned ticket: citizen_id!=None)
 for src in ALL_STATUSES:
     for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
-        # Anonymous ticket (citizen_id is None)
-        if role == "OWNER_CITIZEN":
-            STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, False, 403))
-        elif src in {"CLOSED", "REJECTED"}:
-            STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, False, 400))
-        elif role == "ASSIGNED_TECHNICIAN":
+        if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, False, 403))
         elif src == "CONFIRMED":
             STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, True, 200))
@@ -2033,6 +2024,63 @@ async def test_sla_calculation_by_priority_and_reset_on_reopen(
     assert inc2.status == "REOPENED"
     assert inc2.sla_due_at is not None
     assert 47.9 <= (inc2.sla_due_at - before_dispute).total_seconds() / 3600 <= 48.1
+
+
+@pytest.mark.asyncio
+async def test_technician_same_department_claims_unassigned_incident_and_other_department_forbidden(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Technician in same department starts unassigned incident -> 200 and gets assigned; other dept -> 403."""
+    dept_road = Department(id=uuid4(), code="SGTVT_DN", name="Sở GTVT", level="CITY_DEPT")
+    dept_water = Department(id=uuid4(), code="CTDN_WATER", name="Cty Thoát nước", level="UTILITY_COMPANY")
+
+    tech_same_dept = _make_mock_user(role="TECHNICIAN", email="tech_road@danang.gov.vn")
+    tech_same_dept.department_id = dept_road.id
+
+    tech_other_dept = _make_mock_user(role="TECHNICIAN", email="tech_water@danang.gov.vn")
+    tech_other_dept.department_id = dept_water.id
+
+    incident = _make_mock_incident(status="ASSIGNED")
+    incident.assigned_department_id = dept_road.id
+    incident.assigned_department = dept_road
+    incident.assigned_technician_id = None
+    incident.assigned_technician = None
+
+    mock_session.seed(dept_road, dept_water, tech_same_dept, tech_other_dept, incident)
+
+    # 1. Technician from different department is rejected with 403
+    app.dependency_overrides[get_current_user] = lambda: tech_other_dept
+    res_other = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên khác đơn vị thử nhận"},
+    )
+    assert res_other.status_code == 403
+    assert incident.assigned_technician_id is None
+
+    # 2. Technician from same department succeeds (200) and gets assigned_technician_id = current_user.id
+    app.dependency_overrides[get_current_user] = lambda: tech_same_dept
+    res_same = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên cùng đơn vị nhận xử lý"},
+    )
+    assert res_same.status_code == 200, f"Error: {res_same.text}"
+    assert res_same.json()["status"] == "IN_PROGRESS"
+    assert res_same.json()["assigned_technician_id"] == str(tech_same_dept.id)
+    assert incident.assigned_technician_id == tech_same_dept.id
+
+
+@pytest.mark.asyncio
+async def test_fastapi_lifespan_runs_schema_migrations_twice_idempotent():
+    """Verify FastAPI lifespan in app/main.py executes apply_schema_migrations twice without error."""
+    from app.core.database import engine
+    from app.main import app as fastapi_app, lifespan
+
+    async with lifespan(fastapi_app):
+        pass
+    async with lifespan(fastapi_app):
+        pass
+    await engine.dispose()
+
 
 
 

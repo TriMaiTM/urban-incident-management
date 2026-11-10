@@ -42,6 +42,7 @@
 ## 3. Phạm vi & Giới hạn (Scope & Non-goals)
 
 ### 3.1. Các file được phép thay đổi (Allowed Files)
+- `backend/app/main.py`
 - `backend/app/core/config.py`
 - `backend/app/models/incident.py`
 - `backend/app/schemas/incident.py`
@@ -145,8 +146,16 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
     - `mine: bool = Query(False)`: nếu `mine=True`, yêu cầu `current_user` đã đăng nhập (trả `401` nếu chưa đăng nhập) và lọc `Incident.citizen_id == current_user.id`.
 - **Tests:** Thêm test lọc nhiều `status`, lọc `priority`, tìm kiếm `q` theo mã phiếu/tên đường, lọc `assigned_technician_id`, và lọc `mine=true` (cả khi đã đăng nhập và khi chưa đăng nhập).
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
-- **Commit 4:** `feat(incidents): add multi-status, priority, search q, technician, and mine filters`
+- **Commit 4:** `feat(incidents): add multi-status, priority, keyword, technician, and mine filters`
 - *(Dừng báo cáo lần 2 sau Commit 4).*
+
+### [x] Bước 4b (Bổ sung theo quyết định): Ràng buộc nguồn `/triage`, `/assign`, quyền `TECHNICIAN` trên `IN_PROGRESS`/`RESOLVED`, cập nhật `feedback` lặp lại & `apply_schema_migrations` trong `lifespan`
+- `/triage`: chỉ cho phép từ `SUBMITTED` và `TRIAGED`; các trạng thái khác trả `400`.
+- `/assign`: chỉ cho phép từ `TRIAGED`, `ASSIGNED`, `REOPENED` (sau đó `status = "ASSIGNED"`); các trạng thái khác trả `400`.
+- `PATCH /status` với `IN_PROGRESS` và `RESOLVED`: kiểm tra quyền (`403`) trước kiểm tra trạng thái nguồn (`400`). Chỉ `role == "TECHNICIAN"` và chỉ khi `(incident.assigned_technician_id == current_user.id)` hoặc `(incident.assigned_technician_id is None and incident.assigned_department_id is not None and incident.assigned_department_id == current_user.department_id)`. Khi chuyển sang `IN_PROGRESS` mà `assigned_technician_id is None` thì gán `incident.assigned_technician_id = current_user.id`. `DISPATCHER` và `ADMIN` gọi hai chuyển này bị `403`.
+- `POST /feedback`: bỏ kiểm tra `incident.feedback is not None`, chỉ kiểm tra `status == "CONFIRMED"` (sau khi kiểm tra chủ phiếu `403`). Nếu đã có `incident.feedback` thì cập nhật tại chỗ (chỉ ghi đè trường được gửi: `rating`, `comment`), nếu chưa thì tạo mới. Lý do khiếu nại luôn ghi vào `incident_history.note`.
+- Gọi `apply_schema_migrations` trong `lifespan` của `backend/app/main.py` (idempotent) và thêm test khởi động hai lần.
+- **Commit:** `fix(workflow): enforce transition source states, technician ownership and repeatable feedback`
 
 ### [ ] Bước 5: Mở rộng Schema (`assigned_technician_name`, `category_code` ở `nearby`, `duplicate_count` ở `map`, `rejection_reason` bảo mật, GPS ảnh sau & Migration `init_db.py`)
 - **Thay đổi trong `backend/app/models/incident.py` & `backend/scripts/init_db.py`:**

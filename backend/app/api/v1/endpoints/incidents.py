@@ -541,6 +541,11 @@ async def triage_incident(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Không thể điều phối sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
         )
+    if incident.status not in {"SUBMITTED", "TRIAGED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Chỉ có thể điều phối phân loại khi sự cố đang ở trạng thái 'SUBMITTED' hoặc 'TRIAGED' (trạng thái hiện tại: '{incident.status}').",
+        )
 
     category = await db.get(Category, payload.category_id)
     if not category:
@@ -658,6 +663,11 @@ async def assign_incident(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Không thể phân công sự cố đã kết thúc (trạng thái hiện tại: '{incident.status}').",
+        )
+    if incident.status not in {"TRIAGED", "ASSIGNED", "REOPENED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Chỉ có thể phân công khi sự cố đang ở trạng thái 'TRIAGED', 'ASSIGNED' hoặc 'REOPENED' (trạng thái hiện tại: '{incident.status}').",
         )
 
     if payload.assigned_department_id is None and payload.assigned_technician_id is None:
@@ -793,6 +803,34 @@ async def update_incident_status(
             detail=f"Trạng thái '{to_status}' không hợp lệ. Phải thuộc {allowed_statuses}.",
         )
 
+    # 1. Kiểm tra vai trò và quyền sở hữu/đơn vị (403) TRƯỚC khi kiểm tra trạng thái nguồn (400)
+    if clean_to_status in {"IN_PROGRESS", "RESOLVED"}:
+        if current_user.role != "TECHNICIAN":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Kỹ thuật viên hiện trường (TECHNICIAN) mới có quyền cập nhật trạng thái xử lý (IN_PROGRESS / RESOLVED).",
+            )
+        is_assigned_tech = (
+            incident.assigned_technician_id is not None
+            and incident.assigned_technician_id == current_user.id
+        )
+        is_same_dept_unassigned = (
+            incident.assigned_technician_id is None
+            and incident.assigned_department_id == current_user.department_id
+        )
+        if not (is_assigned_tech or is_same_dept_unassigned):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ kỹ thuật viên được giao hoặc thuộc cùng đơn vị phụ trách (khi chưa giao đích danh) mới có quyền xử lý sự cố này.",
+            )
+    else:
+        if current_user.role not in {"ADMIN", "DISPATCHER"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Chỉ Điều phối viên (DISPATCHER) hoặc Quản trị viên (ADMIN) mới có quyền chuyển trạng thái sang '{clean_to_status}'.",
+            )
+
+    # 2. Kiểm tra trạng thái nguồn (400)
     if incident.status in {"CLOSED", "REJECTED"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -807,6 +845,9 @@ async def update_incident_status(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Chỉ có thể chuyển sang 'IN_PROGRESS' khi sự cố đang ở trạng thái 'ASSIGNED' hoặc 'REOPENED' (trạng thái hiện tại: '{incident.status}').",
             )
+        if incident.assigned_technician_id is None:
+            incident.assigned_technician_id = current_user.id
+            incident.assigned_technician = current_user
 
     elif clean_to_status == "RESOLVED":
         if incident.status != "IN_PROGRESS":
@@ -1046,23 +1087,26 @@ async def submit_incident_feedback(
             detail="Chỉ có thể xác nhận hoặc khiếu nại đối với sự cố đã được điều phối viên duyệt nghiệm thu (trạng thái CONFIRMED).",
         )
 
-    if incident.feedback is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sự cố này đã được gửi đánh giá phản hồi trước đó.",
-        )
-
     now = datetime.now(timezone.utc)
-    feedback = IncidentFeedback(
-        id=uuid4(),
-        incident_id=incident.id,
-        citizen_id=current_user.id,
-        rating=payload.rating,
-        comment=payload.comment,
-        created_at=now,
-    )
-    db.add(feedback)
-    incident.feedback = feedback
+    if incident.feedback is not None:
+        feedback = incident.feedback
+        feedback.citizen_id = current_user.id
+        if payload.rating is not None:
+            feedback.rating = payload.rating
+        if payload.comment is not None:
+            feedback.comment = payload.comment
+        db.add(feedback)
+    else:
+        feedback = IncidentFeedback(
+            id=uuid4(),
+            incident_id=incident.id,
+            citizen_id=current_user.id,
+            rating=payload.rating,
+            comment=payload.comment,
+            created_at=now,
+        )
+        db.add(feedback)
+        incident.feedback = feedback
 
     rating_label = f" ({payload.rating} sao)" if payload.rating is not None else ""
     if payload.action == "CONFIRM":

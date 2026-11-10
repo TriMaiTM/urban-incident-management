@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api.open311 import router as open311_router
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.database import engine
+from scripts.init_db import apply_schema_migrations
 
 
 UPLOAD_PUBLIC_DIR = os.path.join(settings.UPLOAD_DIR, "public")
@@ -15,7 +17,9 @@ UPLOAD_PRIVATE_DIR = os.path.join(settings.UPLOAD_DIR, "private")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Upload directories are initialized upon startup
+    # Upload directories and idempotent schema migrations are initialized upon startup
+    async with engine.begin() as conn:
+        await apply_schema_migrations(conn)
     yield
 
 
