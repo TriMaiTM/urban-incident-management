@@ -555,6 +555,10 @@ class IncidentAnalyticsSummaryOut(BaseModel):
     by_priority: dict[str, int]
     by_district: dict[str, int]
     sla_compliance: dict[str, object]
+    avg_resolution_time_minutes: float = 0.0
+    avg_satisfaction_rating: float = 0.0
+    satisfaction_score: float = 0.0
+    completion_rate_by_district: dict[str, float] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
 

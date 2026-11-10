@@ -1502,12 +1502,74 @@ async def get_incidents_analytics_summary(
         "compliance_rate": compliance_rate,
     }
 
+    # 6. Average resolution time (minutes from created_at to resolved_at)
+    res_time_stmt = (
+        select(Incident.created_at, Incident.resolved_at)
+        .where(Incident.resolved_at.isnot(None), Incident.created_at.isnot(None))
+    )
+    if conditions:
+        res_time_stmt = res_time_stmt.where(*conditions)
+    res_time_rows = (await db.execute(res_time_stmt)).all()
+    durations_minutes: list[float] = []
+    for cre_at, res_at in res_time_rows:
+        if cre_at is not None and res_at is not None:
+            cre_tz = cre_at if cre_at.tzinfo else cre_at.replace(tzinfo=timezone.utc)
+            res_tz = res_at if res_at.tzinfo else res_at.replace(tzinfo=timezone.utc)
+            diff_min = (res_tz - cre_tz).total_seconds() / 60.0
+            if diff_min >= 0:
+                durations_minutes.append(diff_min)
+    avg_resolution_time_minutes = (
+        round(sum(durations_minutes) / len(durations_minutes), 1)
+        if durations_minutes
+        else 0.0
+    )
+
+    # 7. Citizen satisfaction rating & score (scale 100)
+    rating_stmt = (
+        select(IncidentFeedback.rating)
+        .join(Incident, IncidentFeedback.incident_id == Incident.id)
+        .where(IncidentFeedback.rating.isnot(None))
+    )
+    if conditions:
+        rating_stmt = rating_stmt.where(*conditions)
+    rating_values = [
+        int(r) for r in (await db.execute(rating_stmt)).scalars().all() if r is not None
+    ]
+    avg_satisfaction_rating = (
+        round(sum(rating_values) / len(rating_values), 2) if rating_values else 0.0
+    )
+    satisfaction_score = round(avg_satisfaction_rating * 20.0, 1) if rating_values else 0.0
+
+    # 8. Completion rate by district ("completed" counts CONFIRMED and CLOSED)
+    dist_status_stmt = (
+        select(Incident.district, Incident.status, func.count(Incident.id))
+        .where(Incident.district.isnot(None))
+    )
+    if conditions:
+        dist_status_stmt = dist_status_stmt.where(*conditions)
+    dist_status_stmt = dist_status_stmt.group_by(Incident.district, Incident.status)
+    dist_status_rows = (await db.execute(dist_status_stmt)).all()
+
+    completed_by_district: dict[str, int] = {d: 0 for d in by_district}
+    for d, st, cnt in dist_status_rows:
+        if d and st in {"CONFIRMED", "CLOSED"}:
+            completed_by_district[d] = completed_by_district.get(d, 0) + int(cnt)
+
+    completion_rate_by_district: dict[str, float] = {}
+    for d, total_d in by_district.items():
+        comp_d = completed_by_district.get(d, 0)
+        completion_rate_by_district[d] = round((comp_d / total_d) * 100.0, 1) if total_d > 0 else 0.0
+
     return IncidentAnalyticsSummaryOut(
         total_incidents=total_incidents,
         by_status=by_status,
         by_priority=by_priority,
         by_district=by_district,
         sla_compliance=sla_compliance,
+        avg_resolution_time_minutes=avg_resolution_time_minutes,
+        avg_satisfaction_rating=avg_satisfaction_rating,
+        satisfaction_score=satisfaction_score,
+        completion_rate_by_district=completion_rate_by_district,
     )
 
 

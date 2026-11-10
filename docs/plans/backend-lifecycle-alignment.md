@@ -177,7 +177,7 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 5:** `feat(schemas): expose technician name, nearby category_code, map duplicate_count, rejection reason, and proof GPS`
 
-### [ ] Bước 6: Mở rộng Analytics (`GET /api/v1/incidents/analytics/summary`)
+### [x] Bước 6: Mở rộng Analytics (`GET /api/v1/incidents/analytics/summary`)
 - **Thay đổi trong `backend/app/schemas/incident.py` & `backend/app/api/v1/endpoints/incidents.py`:**
   - Bổ sung vào `IncidentAnalyticsSummaryOut`:
     - `avg_resolution_time_minutes: float = 0.0` (thời gian giải quyết trung bình tính bằng phút từ `created_at` đến `resolved_at` của các sự cố có `resolved_at is not None`).

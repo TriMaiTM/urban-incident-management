@@ -622,6 +622,10 @@ def test_incident_analytics_summary_out():
     assert summary.total_incidents == 150
     assert summary.by_status["IN_PROGRESS"] == 40
     assert summary.sla_compliance["compliance_rate"] == 80.0
+    assert summary.avg_resolution_time_minutes == 0.0
+    assert summary.avg_satisfaction_rating == 0.0
+    assert summary.satisfaction_score == 0.0
+    assert summary.completion_rate_by_district == {}
 
 
 def test_abbreviate_person_name_and_step5_schema_fields():

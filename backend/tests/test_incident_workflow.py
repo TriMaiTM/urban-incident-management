@@ -229,6 +229,21 @@ class MockWorkflowSession:
             col_names = [getattr(c, "name", "") for c in stmt.selected_columns]
 
         stmt_str = str(stmt).lower()
+        if "from incident_feedback" in stmt_str:
+            ratings: list[int] = []
+            seen_ids: set[UUID] = set()
+            for (cls, _), obj in self.entities.items():
+                if cls is IncidentFeedback and getattr(obj, "rating", None) is not None:
+                    seen_ids.add(obj.id)
+                    ratings.append(int(obj.rating))
+            for (cls, _), inc in self.entities.items():
+                if cls is Incident:
+                    fb = getattr(inc, "feedback", None)
+                    if fb is not None and getattr(fb, "rating", None) is not None and fb.id not in seen_ids:
+                        seen_ids.add(fb.id)
+                        ratings.append(int(fb.rating))
+            return MockResult(ratings)
+
         if "from incidents" in stmt_str:
             params = {}
             try:
@@ -268,6 +283,37 @@ class MockWorkflowSession:
                     if getattr(inc, "sla_due_at", None) is not None
                 ]
                 return MockResult(rows)
+
+            if col_names == ["created_at", "resolved_at"]:
+                rows = [
+                    (getattr(inc, "created_at", None), getattr(inc, "resolved_at", None))
+                    for inc in incidents
+                    if getattr(inc, "resolved_at", None) is not None and getattr(inc, "created_at", None) is not None
+                ]
+                return MockResult(rows)
+
+            if col_names == ["district", "status", "count"]:
+                ds_counts: dict[tuple[str, str], int] = {}
+                for inc in incidents:
+                    d = getattr(inc, "district", None)
+                    st = getattr(inc, "status", None)
+                    if d and st:
+                        ds_counts[(d, st)] = ds_counts.get((d, st), 0) + 1
+                return MockResult([(d, st, c) for (d, st), c in ds_counts.items()])
+
+            if col_names == ["rating"]:
+                ratings: list[int] = []
+                seen_ids: set[UUID] = set()
+                for (cls, _), obj in self.entities.items():
+                    if cls is IncidentFeedback and getattr(obj, "rating", None) is not None:
+                        seen_ids.add(obj.id)
+                        ratings.append(int(obj.rating))
+                for inc in incidents:
+                    fb = getattr(inc, "feedback", None)
+                    if fb is not None and getattr(fb, "rating", None) is not None and fb.id not in seen_ids:
+                        seen_ids.add(fb.id)
+                        ratings.append(int(fb.rating))
+                return MockResult(ratings)
 
             # 2. Single incident by ticket_code
             if "incidents.ticket_code =" in stmt_str:
@@ -2185,6 +2231,84 @@ async def test_step5_proof_gps_and_privacy_masking_for_rejection_and_technician_
         assert d_disp["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
     finally:
         app.dependency_overrides.pop(get_current_user_optional, None)
+
+
+@pytest.mark.asyncio
+async def test_step6_analytics_resolution_time_satisfaction_and_district_completion(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify avg_resolution_time_minutes, avg_satisfaction_rating, satisfaction_score, and completion_rate_by_district (CONFIRMED + CLOSED)."""
+    base = datetime(2026, 11, 10, 8, 0, 0, tzinfo=timezone.utc)
+    cit1 = _make_mock_user(role="CITIZEN", email="c1@danang.gov.vn")
+    cit2 = _make_mock_user(role="CITIZEN", email="c2@danang.gov.vn")
+
+    # District Hải Châu: 3 incidents (1 CONFIRMED [60 min], 1 CLOSED [120 min], 1 IN_PROGRESS) -> 2/3 completed = 66.7%
+    inc_hc_confirmed = _make_mock_incident(ticket_code="DN-202611-AN1", status="CONFIRMED", district="Hải Châu")
+    inc_hc_confirmed.created_at = base
+    inc_hc_confirmed.resolved_at = base + timedelta(minutes=60)
+    fb1 = IncidentFeedback(
+        id=uuid4(),
+        incident_id=inc_hc_confirmed.id,
+        citizen_id=cit1.id,
+        rating=4,
+        comment="Tốt",
+        created_at=base + timedelta(minutes=65),
+    )
+    inc_hc_confirmed.feedback = fb1
+
+    inc_hc_closed = _make_mock_incident(ticket_code="DN-202611-AN2", status="CLOSED", district="Hải Châu")
+    inc_hc_closed.created_at = base
+    inc_hc_closed.resolved_at = base + timedelta(minutes=120)
+    fb2 = IncidentFeedback(
+        id=uuid4(),
+        incident_id=inc_hc_closed.id,
+        citizen_id=cit2.id,
+        rating=5,
+        comment="Rất hài lòng",
+        created_at=base + timedelta(minutes=130),
+    )
+    inc_hc_closed.feedback = fb2
+
+    inc_hc_inprog = _make_mock_incident(ticket_code="DN-202611-AN3", status="IN_PROGRESS", district="Hải Châu")
+    inc_hc_inprog.created_at = base
+    inc_hc_inprog.resolved_at = None
+
+    # District Thanh Khê: 2 incidents (1 RESOLVED [not yet CONFIRMED/CLOSED, 90 min], 1 SUBMITTED) -> 0/2 completed = 0.0%
+    inc_tk_resolved = _make_mock_incident(ticket_code="DN-202611-AN4", status="RESOLVED", district="Thanh Khê")
+    inc_tk_resolved.created_at = base
+    inc_tk_resolved.resolved_at = base + timedelta(minutes=90)
+
+    inc_tk_sub = _make_mock_incident(ticket_code="DN-202611-AN5", status="SUBMITTED", district="Thanh Khê")
+    inc_tk_sub.created_at = base
+    inc_tk_sub.resolved_at = None
+
+    mock_session.seed(
+        cit1,
+        cit2,
+        inc_hc_confirmed,
+        inc_hc_closed,
+        inc_hc_inprog,
+        inc_tk_resolved,
+        inc_tk_sub,
+        fb1,
+        fb2,
+    )
+
+    res = await client.get("/api/v1/incidents/analytics/summary")
+    assert res.status_code == 200, f"Error: {res.text}"
+    data = res.json()
+
+    # Average resolution time across 3 resolved incidents: (60 + 120 + 90) / 3 = 90.0 minutes
+    assert data["avg_resolution_time_minutes"] == 90.0
+
+    # Average satisfaction rating: (4 + 5) / 2 = 4.5 -> score = 4.5 * 20 = 90.0
+    assert data["avg_satisfaction_rating"] == 4.5
+    assert data["satisfaction_score"] == 90.0
+
+    # Completion rate by district: CONFIRMED + CLOSED count as completed
+    assert data["completion_rate_by_district"]["Hải Châu"] == 66.7
+    assert data["completion_rate_by_district"]["Thanh Khê"] == 0.0
+
 
 
 
