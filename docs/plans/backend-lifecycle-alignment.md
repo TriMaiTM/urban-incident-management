@@ -157,7 +157,7 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - Gọi `apply_schema_migrations` trong `lifespan` của `backend/app/main.py` (idempotent) và thêm test khởi động hai lần.
 - **Commit:** `fix(workflow): enforce transition source states, technician ownership and repeatable feedback`
 
-### [ ] Bước 5: Mở rộng Schema (`assigned_technician_name`, `category_code` ở `nearby`, `duplicate_count` ở `map`, `rejection_reason` bảo mật, GPS ảnh sau & Migration `init_db.py`)
+### [x] Bước 5: Mở rộng Schema (`assigned_technician_name`, `category_code` ở `nearby`, `duplicate_count` ở `map`, `rejection_reason` bảo mật, GPS ảnh sau & Migration `init_db.py`)
 - **Thay đổi trong `backend/app/models/incident.py` & `backend/scripts/init_db.py`:**
   - Thêm `latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)` và `longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)` vào `IncidentMedia`.
   - Trong `backend/scripts/init_db.py` (`apply_schema_migrations`): bổ sung `ALTER TABLE incident_media ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;` và `ALTER TABLE incident_media ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;`.

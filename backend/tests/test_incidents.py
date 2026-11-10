@@ -901,3 +901,88 @@ async def test_list_incidents_extended_filters(
     finally:
         app.dependency_overrides.pop(get_current_user_optional, None)
 
+
+@pytest.mark.asyncio
+async def test_nearby_incidents_includes_category_code_and_list_rejection_privacy(
+    client: httpx.AsyncClient,
+    mock_db_session: MockAsyncSession,
+):
+    """Test 17: nearby returns category_code, and GET /incidents enforces rejection_reason RBAC."""
+    cat = Category(id=uuid4(), code="LIGHTING", name="Chiếu sáng công cộng", default_sla_hours=24)
+    inc_near = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202611-NR01",
+        title="Đèn đường hỏng",
+        status="TRIAGED",
+        priority="NORMAL",
+        latitude=16.0612,
+        longitude=108.2209,
+    )
+    inc_near.category = cat
+    mock_db_session.execute_queue = [MockResult([(inc_near, 15.3)])]
+
+    res_near = await client.get(
+        "/api/v1/incidents/nearby",
+        params={"latitude": 16.0611, "longitude": 108.2208, "radius": 50},
+    )
+    assert res_near.status_code == 200
+    near_items = res_near.json()["items"]
+    assert len(near_items) == 1
+    assert near_items[0]["category_code"] == "LIGHTING"
+
+    # Rejection reason privacy in GET /api/v1/incidents
+    owner = User(id=uuid4(), email="owner@danang.gov.vn", role="CITIZEN", full_name="Chủ Phiếu", auth_provider="LOCAL")
+    stranger = User(id=uuid4(), email="other@danang.gov.vn", role="CITIZEN", full_name="Người Khác", auth_provider="LOCAL")
+    dispatcher = User(id=uuid4(), email="disp@danang.gov.vn", role="DISPATCHER", full_name="Điều Phối", auth_provider="LOCAL")
+
+    inc_rej = _make_mock_incident(
+        id=uuid4(),
+        ticket_code="DN-202611-REJ1",
+        status="REJECTED",
+        priority="LOW",
+    )
+    inc_rej.citizen_id = owner.id
+    inc_rej.history = [
+        IncidentHistory(
+            id=uuid4(),
+            incident_id=inc_rej.id,
+            actor_id=dispatcher.id,
+            from_status="SUBMITTED",
+            to_status="REJECTED",
+            note="Nội dung phản ánh trùng lặp và không chính xác",
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+
+    try:
+        # Anonymous user -> rejection_reason is None
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+        mock_db_session.execute_queue = [MockResult(1), MockResult([inc_rej])]
+        r_anon = await client.get("/api/v1/incidents")
+        assert r_anon.status_code == 200
+        assert r_anon.json()["items"][0]["rejection_reason"] is None
+
+        # Other citizen -> rejection_reason is None
+        app.dependency_overrides[get_current_user_optional] = lambda: stranger
+        mock_db_session.execute_queue = [MockResult(1), MockResult([inc_rej])]
+        r_stranger = await client.get("/api/v1/incidents")
+        assert r_stranger.status_code == 200
+        assert r_stranger.json()["items"][0]["rejection_reason"] is None
+
+        # Owner -> sees rejection_reason
+        app.dependency_overrides[get_current_user_optional] = lambda: owner
+        mock_db_session.execute_queue = [MockResult(1), MockResult([inc_rej])]
+        r_owner = await client.get("/api/v1/incidents")
+        assert r_owner.status_code == 200
+        assert r_owner.json()["items"][0]["rejection_reason"] == "Nội dung phản ánh trùng lặp và không chính xác"
+
+        # Dispatcher -> sees rejection_reason
+        app.dependency_overrides[get_current_user_optional] = lambda: dispatcher
+        mock_db_session.execute_queue = [MockResult(1), MockResult([inc_rej])]
+        r_disp = await client.get("/api/v1/incidents")
+        assert r_disp.status_code == 200
+        assert r_disp.json()["items"][0]["rejection_reason"] == "Nội dung phản ánh trùng lặp và không chính xác"
+    finally:
+        app.dependency_overrides.pop(get_current_user_optional, None)
+
+

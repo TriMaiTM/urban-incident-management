@@ -86,6 +86,8 @@ class IncidentMedia(Base):
     )
     media_type: Mapped[str] = mapped_column(String(50), nullable=False)  # BEFORE_ORIGINAL, BEFORE_ANONYMIZED, AFTER_PROOF
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

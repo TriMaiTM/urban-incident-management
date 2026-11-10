@@ -623,3 +623,89 @@ def test_incident_analytics_summary_out():
     assert summary.by_status["IN_PROGRESS"] == 40
     assert summary.sla_compliance["compliance_rate"] == 80.0
 
+
+def test_abbreviate_person_name_and_step5_schema_fields():
+    from app.schemas.incident import abbreviate_person_name
+
+    assert abbreviate_person_name(None) is None
+    assert abbreviate_person_name("   ") is None
+    assert abbreviate_person_name("Hùng") == "Hùng"
+    assert abbreviate_person_name("Trần Văn Kỹ") == "Trần V. K."
+    assert abbreviate_person_name("Nguyễn Thị Minh Ánh") == "Nguyễn T. M. Á."
+
+    now = datetime.now(timezone.utc)
+    inc_id = uuid4()
+
+    # IncidentMediaOut with GPS
+    media_out = IncidentMediaOut(
+        id=uuid4(),
+        incident_id=inc_id,
+        media_type="AFTER_PROOF",
+        file_url="/uploads/public/proof.jpg",
+        latitude=16.0612,
+        longitude=108.2209,
+        created_at=now,
+    )
+    assert media_out.latitude == 16.0612
+    assert media_out.longitude == 108.2209
+
+    # IncidentNearbyItem with category_code
+    nearby_item = IncidentNearbyItem(
+        id=inc_id,
+        ticket_code="DN-202611-NEAR",
+        title="Ổ gà đường Bạch Đằng",
+        status="TRIAGED",
+        priority="HIGH",
+        category_code="ROAD_DAMAGE",
+        distance_meters=12.5,
+        latitude=16.0612,
+        longitude=108.2209,
+        created_at=now,
+    )
+    assert nearby_item.category_code == "ROAD_DAMAGE"
+
+    # IncidentMapProperties with duplicate_count
+    map_props = IncidentMapProperties.model_validate(
+        {
+            "id": inc_id,
+            "ticket_code": "DN-202611-MAP",
+            "title": "Ngập nước",
+            "status": "IN_PROGRESS",
+            "priority": "HIGH",
+            "address_text": "Lê Duẩn",
+            "duplicate_count": 4,
+            "created_at": now,
+        }
+    )
+    assert map_props.duplicate_count == 4
+
+    # IncidentDetailOut with assigned_technician and rejection_reason extracted from history
+    detail = IncidentDetailOut.model_validate(
+        {
+            "id": inc_id,
+            "ticket_code": "DN-202611-REJ",
+            "title": "Báo cáo sai vị trí",
+            "description": "Kiểm tra không có sự cố",
+            "status": "REJECTED",
+            "priority": "LOW",
+            "address_text": "Trần Phú, Đà Nẵng",
+            "latitude": 16.0678,
+            "longitude": 108.2208,
+            "assigned_technician": {"full_name": "Trần Văn Kỹ"},
+            "history": [
+                {
+                    "id": uuid4(),
+                    "incident_id": inc_id,
+                    "from_status": "SUBMITTED",
+                    "to_status": "REJECTED",
+                    "note": "Ảnh chụp không phải hiện trường thực tế",
+                    "created_at": now,
+                }
+            ],
+            "created_at": now,
+        }
+    )
+    assert detail.assigned_technician_name == "Trần Văn Kỹ"
+    assert detail.rejection_reason == "Ảnh chụp không phải hiện trường thực tế"
+
+

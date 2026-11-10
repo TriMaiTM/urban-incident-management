@@ -2082,5 +2082,111 @@ async def test_fastapi_lifespan_runs_schema_migrations_twice_idempotent():
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_step5_proof_gps_and_privacy_masking_for_rejection_and_technician_name(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify AFTER_PROOF GPS coordinates, technician name abbreviation, rejection_reason RBAC, and map duplicate_count."""
+    from app.api.deps import get_current_user_optional
+
+    owner = _make_mock_user(role="CITIZEN", email="owner_s5@danang.gov.vn", full_name="Lê Văn Chủ")
+    other_citizen = _make_mock_user(role="CITIZEN", email="other_s5@danang.gov.vn", full_name="Phạm Thị Khác")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_s5@danang.gov.vn", full_name="Trần Văn Kỹ")
+    dispatcher = _make_mock_user(role="DISPATCHER", email="disp_s5@danang.gov.vn", full_name="Nguyễn Điều Phối")
+
+    incident = _make_mock_incident(
+        ticket_code="DN-202611-STP5",
+        status="IN_PROGRESS",
+        duplicate_count=7,
+    )
+    incident.citizen_id = owner.id
+    incident.assigned_technician_id = technician.id
+    incident.assigned_technician = technician
+    mock_session.seed(owner, other_citizen, technician, dispatcher, incident)
+
+    # 1. Technician uploads AFTER_PROOF with proof_latitude & proof_longitude
+    app.dependency_overrides[get_current_user] = lambda: technician
+    img_bytes = _create_synthetic_image_bytes()
+    res_resolve = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={
+            "to_status": "RESOLVED",
+            "note": "Đã xử lý tại hiện trường có tọa độ GPS",
+            "proof_latitude": "16.0615",
+            "proof_longitude": "108.2212",
+        },
+        files={"proof_image": ("proof_gps.jpg", img_bytes, "image/jpeg")},
+    )
+    assert res_resolve.status_code == 200, f"Failed: {res_resolve.text}"
+    resolve_body = res_resolve.json()
+    proof_items = [m for m in resolve_body["media"] if m["media_type"] == "AFTER_PROOF"]
+    assert len(proof_items) == 1
+    assert proof_items[0]["latitude"] == pytest.approx(16.0615, abs=1e-5)
+    assert proof_items[0]["longitude"] == pytest.approx(108.2212, abs=1e-5)
+    assert resolve_body["assigned_technician_name"] == "Trần Văn Kỹ"
+
+    # 2. Check GET /map exposes duplicate_count
+    res_map = await client.get("/api/v1/incidents/map")
+    assert res_map.status_code == 200
+    feat = next(f for f in res_map.json()["features"] if f["properties"]["ticket_code"] == "DN-202611-STP5")
+    assert feat["properties"]["duplicate_count"] == 7
+
+    # 3. Create a REJECTED incident with assigned technician and test GET /{id_or_code} privacy rules
+    rej_inc = _make_mock_incident(
+        ticket_code="DN-202611-REJ5",
+        status="ASSIGNED",
+    )
+    rej_inc.citizen_id = owner.id
+    rej_inc.assigned_technician_id = technician.id
+    rej_inc.assigned_technician = technician
+    mock_session.seed(rej_inc)
+
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    res_rej = await client.patch(
+        f"/api/v1/incidents/{rej_inc.id}/status",
+        data={"to_status": "REJECTED", "note": "Báo cáo sai địa điểm thực tế"},
+    )
+    assert res_rej.status_code == 200
+    assert res_rej.json()["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
+
+    try:
+        # 3a. Anonymous lookup: assigned_technician_name is abbreviated, rejection_reason is None, REJECTED history note is None
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+        r_anon = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_anon.status_code == 200
+        d_anon = r_anon.json()
+        assert d_anon["assigned_technician_name"] == "Trần V. K."
+        assert d_anon["rejection_reason"] is None
+        rej_hist_anon = [h for h in d_anon["history"] if h["to_status"] == "REJECTED"]
+        assert all(h["note"] is None for h in rej_hist_anon)
+
+        # 3b. Other citizen (logged in): assigned_technician_name is full, rejection_reason is None
+        app.dependency_overrides[get_current_user_optional] = lambda: other_citizen
+        r_other = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_other.status_code == 200
+        d_other = r_other.json()
+        assert d_other["assigned_technician_name"] == "Trần Văn Kỹ"
+        assert d_other["rejection_reason"] is None
+
+        # 3c. Owner citizen: sees full assigned_technician_name and rejection_reason
+        app.dependency_overrides[get_current_user_optional] = lambda: owner
+        r_owner = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_owner.status_code == 200
+        d_owner = r_owner.json()
+        assert d_owner["assigned_technician_name"] == "Trần Văn Kỹ"
+        assert d_owner["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
+
+        # 3d. Dispatcher: sees full assigned_technician_name and rejection_reason
+        app.dependency_overrides[get_current_user_optional] = lambda: dispatcher
+        r_disp = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_disp.status_code == 200
+        d_disp = r_disp.json()
+        assert d_disp["assigned_technician_name"] == "Trần Văn Kỹ"
+        assert d_disp["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
+    finally:
+        app.dependency_overrides.pop(get_current_user_optional, None)
+
+
+
 
 

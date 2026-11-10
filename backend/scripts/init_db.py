@@ -18,6 +18,8 @@ import app.models  # Ensure all models are registered with Base.metadata
 
 SCHEMA_ALTER_STATEMENTS: list[str] = [
     "ALTER TABLE incident_feedback ALTER COLUMN rating DROP NOT NULL;",
+    "ALTER TABLE incident_media ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;",
+    "ALTER TABLE incident_media ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;",
 ]
 
 

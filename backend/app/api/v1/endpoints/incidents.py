@@ -55,6 +55,7 @@ from app.schemas.incident import (
     IncidentTriageIn,
     IncidentVoteDuplicateOut,
     _extract_lat_lon,
+    abbreviate_person_name,
 )
 from app.services.anonymizer import anonymize_image
 from app.services.deepseek_vision import classify_incident_image
@@ -100,6 +101,52 @@ def mask_citizen_contact(contact: str | None) -> str | None:
     prefix_len = 4 if len(s) >= 10 else 3
     suffix_len = 3
     return f"{s[:prefix_len]}***{s[-suffix_len:]}"
+
+
+def _can_view_rejection_reason(incident_citizen_id: UUID | None, current_user: User | None) -> bool:
+    """Return True only if current_user is the ticket owner, DISPATCHER, or ADMIN."""
+    if current_user is None:
+        return False
+    if current_user.role in {"ADMIN", "DISPATCHER"}:
+        return True
+    if incident_citizen_id is not None and incident_citizen_id == current_user.id:
+        return True
+    return False
+
+
+def _apply_incident_out_privacy(
+    item: IncidentOut,
+    incident_citizen_id: UUID | None,
+    current_user: User | None,
+) -> IncidentOut:
+    """Enforce rejection_reason visibility on summary IncidentOut."""
+    if not _can_view_rejection_reason(incident_citizen_id, current_user):
+        item.rejection_reason = None
+    return item
+
+
+def _apply_incident_detail_privacy(
+    detail_out: IncidentDetailOut,
+    current_user: User | None,
+    mask_contact_and_media: bool = True,
+) -> IncidentDetailOut:
+    """Enforce PII masking, rejection_reason RBAC, and technician name abbreviation."""
+    is_privileged = current_user is not None and current_user.role in {"ADMIN", "DISPATCHER"}
+    if mask_contact_and_media and not is_privileged:
+        if detail_out.citizen_contact:
+            detail_out.citizen_contact = mask_citizen_contact(detail_out.citizen_contact)
+        detail_out.media = [m for m in detail_out.media if m.media_type != "BEFORE_ORIGINAL"]
+
+    if not _can_view_rejection_reason(detail_out.citizen_id, current_user):
+        detail_out.rejection_reason = None
+        for h in detail_out.history:
+            if h.to_status == "REJECTED":
+                h.note = None
+
+    if current_user is None and detail_out.assigned_technician_name:
+        detail_out.assigned_technician_name = abbreviate_person_name(detail_out.assigned_technician_name)
+
+    return detail_out
 
 
 def _get_upload_dirs() -> tuple[Path, Path]:
@@ -429,7 +476,7 @@ async def get_nearby_incidents(
     excluded_statuses = ["RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"]
     stmt = (
         select(Incident, dist_expr)
-        .options(selectinload(Incident.media))
+        .options(selectinload(Incident.media), selectinload(Incident.category))
         .where(
             Incident.status.not_in(excluded_statuses),
             ST_DWithin(loc_geog, point_geog, radius),
@@ -458,6 +505,12 @@ async def get_nearby_incidents(
                     image_url = m.file_url
                     break
 
+        cat_code = (
+            inc.category.code
+            if getattr(inc, "category", None) is not None
+            else getattr(inc, "category_code", None)
+        )
+
         items.append(
             IncidentNearbyItem(
                 id=inc.id,
@@ -465,6 +518,7 @@ async def get_nearby_incidents(
                 title=inc.title,
                 status=inc.status,
                 priority=inc.priority,
+                category_code=cat_code,
                 distance_meters=round(dist, 2),
                 latitude=inc_lat,
                 longitude=inc_lon,
@@ -768,6 +822,8 @@ async def update_incident_status(
     id_or_code: str,
     to_status: str = Form(..., description="Trạng thái: IN_PROGRESS, RESOLVED, REJECTED, CLOSED"),
     note: str | None = Form(None, description="Ghi chú cập nhật tiến độ hoặc lý do từ chối"),
+    proof_latitude: float | None = Form(None, ge=-90.0, le=90.0, description="Vĩ độ GPS nơi chụp ảnh minh chứng"),
+    proof_longitude: float | None = Form(None, ge=-180.0, le=180.0, description="Kinh độ GPS nơi chụp ảnh minh chứng"),
     proof_image: UploadFile | None = File(None, description="Ảnh minh chứng sau khắc phục (bắt buộc khi chuyển sang RESOLVED)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER", "TECHNICIAN"])),
@@ -909,6 +965,8 @@ async def update_incident_status(
                 incident_id=incident.id,
                 media_type="AFTER_PROOF",
                 file_url=f"/uploads/public/{saved_filename}",
+                latitude=proof_latitude,
+                longitude=proof_longitude,
                 created_at=now,
             )
             db.add(proof_media)
@@ -1031,13 +1089,7 @@ async def update_incident_status(
         loaded_incident.history.append(history)
 
     detail_out = IncidentDetailOut.model_validate(loaded_incident)
-    is_privileged = current_user.role in ["ADMIN", "DISPATCHER"]
-    if not is_privileged:
-        if detail_out.citizen_contact:
-            detail_out.citizen_contact = mask_citizen_contact(detail_out.citizen_contact)
-        detail_out.media = [m for m in detail_out.media if m.media_type != "BEFORE_ORIGINAL"]
-
-    return detail_out
+    return _apply_incident_detail_privacy(detail_out, current_user, mask_contact_and_media=True)
 
 
 @router.post(
@@ -1241,6 +1293,7 @@ async def list_incidents(
             selectinload(Incident.category),
             selectinload(Incident.assigned_department),
             selectinload(Incident.media),
+            selectinload(Incident.history),
         )
     )
 
@@ -1252,7 +1305,14 @@ async def list_incidents(
 
     items_res = await db.execute(items_stmt)
     incidents = items_res.scalars().all()
-    items = [IncidentOut.model_validate(inc) for inc in incidents]
+    items = [
+        _apply_incident_out_privacy(
+            IncidentOut.model_validate(inc),
+            getattr(inc, "citizen_id", None),
+            current_user,
+        )
+        for inc in incidents
+    ]
 
     return IncidentListOut(
         total=total,
@@ -1475,11 +1535,4 @@ async def get_incident_by_ticket_code(
         )
 
     detail_out = IncidentDetailOut.model_validate(incident)
-
-    is_privileged = current_user is not None and current_user.role in ["ADMIN", "DISPATCHER"]
-    if not is_privileged:
-        if detail_out.citizen_contact:
-            detail_out.citizen_contact = mask_citizen_contact(detail_out.citizen_contact)
-        detail_out.media = [m for m in detail_out.media if m.media_type != "BEFORE_ORIGINAL"]
-
-    return detail_out
+    return _apply_incident_detail_privacy(detail_out, current_user, mask_contact_and_media=True)
