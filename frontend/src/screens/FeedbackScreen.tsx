@@ -14,6 +14,7 @@ export default function FeedbackScreen({ code }: { code: string }) {
   const [loading, setLoading] = useState(true)
   const [stars, setStars] = useState(0)
   const [hover, setHover] = useState(0)
+  const [reason, setReason] = useState('')
   const [proof, setProof] = useState<'empty' | 'scanning' | 'done'>('empty')
   const [result, setResult] = useState<null | 'ok' | 'complaint'>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -31,7 +32,7 @@ export default function FeedbackScreen({ code }: { code: string }) {
       </CitizenShell>
     )
 
-  const complaint = stars > 0 && stars <= 2
+  const complaint = (stars > 0 && stars <= 2) || reason.trim().length > 0
   const say = (t: string) => { setToast(t); setTimeout(() => setToast(null), 2200) }
 
   const hero = (
@@ -78,14 +79,14 @@ export default function FeedbackScreen({ code }: { code: string }) {
                 <div className="overflow-hidden">
                   <div className="space-y-3 rounded-card bg-surface p-3">
                     <div className="flex items-center gap-2 text-[14px] font-semibold"><IconChip icon={Construction} tone="urgent" size={32} />Khiếu nại làm lại</div>
-                    <InputField kind="textarea" height={72} placeholder="Nêu lý do" />
+                    <InputField kind="textarea" height={72} placeholder="Nêu lý do" value={reason} onChange={setReason} />
                     <EvidenceUploadCard height={170} state={proof} onChoose={() => setProof('scanning')} onCapture={() => setProof('scanning')} onSample={() => setProof('scanning')} />
                   </div>
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 [&>button]:w-full">
-                <Button disabled={stars < 3} onClick={() => { setStatus(r.id, 'CLOSED'); setResult('ok'); say('Đã xác nhận') }}>Xác nhận hài lòng</Button>
-                <Button variant="secondary" disabled={!complaint} onClick={() => { setStatus(r.id, 'REOPENED'); setResult('complaint'); say('Đã gửi khiếu nại') }}>Gửi khiếu nại</Button>
+                <Button onClick={() => { setStatus(r.id, 'CLOSED', { rated: stars || undefined }); setResult('ok'); say('Đã xác nhận') }}>Xác nhận hài lòng</Button>
+                <Button variant="secondary" disabled={!complaint} onClick={() => { setStatus(r.id, 'REOPENED', { rated: stars || undefined, reason: reason.trim() || 'Khiếu nại chất lượng xử lý' }); setResult('complaint'); say('Đã gửi khiếu nại') }}>Gửi khiếu nại</Button>
               </div>
             </section>
           </div>

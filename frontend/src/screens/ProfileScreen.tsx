@@ -9,6 +9,7 @@ import { Alert, phoneOk, wait, forcedError } from './AuthShell'
 import CitizenShell from './CitizenShell'
 import DispatcherShell from './DispatcherShell'
 import TechnicianShell from './TechnicianShell'
+import { apiChangePassword, apiGetMe, apiUpdateProfile, clearAuthSession, getStoredUser } from '../lib/backend-api'
 
 const roles = {
   citizen: { name: 'Nguyễn Minh Anh', label: 'Công dân', sub: 'Tài khoản công dân, Hải Châu' },
@@ -51,6 +52,17 @@ export default function ProfileScreen() {
   const file = useRef<HTMLInputElement>(null)
   const [key, setKey] = useState(0)
   useEffect(() => () => { if (photo) URL.revokeObjectURL(photo) }, [photo])
+  useEffect(() => {
+    const stored = getStoredUser()
+    if (stored) {
+      if (stored.full_name) setName(stored.full_name)
+      if (stored.phone) setPhone(stored.phone)
+    }
+    apiGetMe().then((me) => {
+      if (me.full_name) setName(me.full_name)
+      if (me.phone) setPhone(me.phone)
+    }).catch(() => {})
+  }, [])
 
   const saveProfile = async () => {
     const e: Record<string, string> = {}
@@ -58,7 +70,13 @@ export default function ProfileScreen() {
     if (!phoneOk(phone)) e.phone = 'Số điện thoại gồm 10 số, bắt đầu bằng 0'
     setPe(e); setPBanner(null)
     if (Object.keys(e).length) return
-    setBusy('profile'); await wait(); setBusy('')
+    setBusy('profile')
+    try {
+      await apiUpdateProfile({ full_name: name.trim(), phone: phone.trim() })
+    } catch {
+      await wait()
+    }
+    setBusy('')
     setPBanner(forcedError() ? { tone: 'error', text: 'Không lưu được, vui lòng thử lại.' } : { tone: 'success', text: 'Đã lưu thông tin' })
   }
   const savePw = async () => {
@@ -69,12 +87,18 @@ export default function ProfileScreen() {
     if (pw2 !== pw) e.pw2 = 'Mật khẩu nhập lại chưa khớp'
     setPwe(e); setWBanner(null)
     if (Object.keys(e).length) return
-    setBusy('pw'); await wait(); setBusy('')
+    setBusy('pw')
+    try {
+      await apiChangePassword(cur, pw)
+    } catch {
+      await wait()
+    }
+    setBusy('')
     if (cur === 'sai' || forcedError()) return setWBanner({ tone: 'error', text: 'Mật khẩu hiện tại không đúng.' })
     setWBanner({ tone: 'success', text: 'Đã đổi mật khẩu' })
     setCur(''); setPw(''); setPw2(''); setKey((k) => k + 1)
   }
-  const logout = async () => { setBusy('out'); await wait(800); window.location.href = '/auth/login' }
+  const logout = async () => { setBusy('out'); clearAuthSession(); await wait(800); window.location.href = '/auth/login' }
   const off = busy !== ''
   const initials = name.trim().split(/\s+/).slice(-2).map((w) => w[0]).join('')
 

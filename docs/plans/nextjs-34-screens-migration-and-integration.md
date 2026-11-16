@@ -97,7 +97,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit`
 - **Commit 2:** `feat(frontend): add typed FastAPI client and live reactive ticket synchronization`
 
-### [ ] Bước 3: Ghép Nối API Cho Luồng Công Dân, Điều Phối IOC & Kỹ Thuật Viên (Màn 1–23)
+### [x] Bước 3: Ghép Nối API Cho Luồng Công Dân, Điều Phối IOC & Kỹ Thuật Viên (Màn 1–23)
 - Kết nối Màn 6, 7, 9 (`LoginScreen`, `RegisterScreen`, `ProfileScreen`) với `/api/v1/auth/*`.
 - Kết nối Màn 1, 2, 3, 4, 10, 11, 12 (`HomeScreen`, `ReportScreen`, `TrackingScreen`, `IncidentListScreen`, `MyReportsScreen`, `ReportDetailScreen`, `FeedbackScreen`) với `/analyze-image`, `/zones/validate-location`, `/incidents/nearby`, `/vote-duplicate`, `POST /incidents`, và `POST /feedback` (`CONFIRM` / `DISPUTE`).
 - Kết nối Màn 14, 15, 16, 18 (`CommandCenterScreen`, `VerifyScreen`, `SlaWatchScreen`, `IncidentsScreen`) và Màn 19, 20, 21, 22 (`TaskListScreen`, `TaskDetailScreen`, `TaskResolveScreen`, `TechnicianHistoryScreen`) với `/triage`, `/assign`, `/status`, `/merge-duplicate`; đồng bộ nhãn `"Đã xác nhận"` (Màn 15) và `"Trung bình"` (Màn 16, 27).

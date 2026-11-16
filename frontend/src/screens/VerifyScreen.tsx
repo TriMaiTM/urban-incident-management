@@ -75,7 +75,7 @@ export default function VerifyScreen() {
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => setToast(null), 2200)
   }
-  const approve = () => { setClosed((l) => [...l, c.id]); setStatus(c.id, 'CONFIRMED'); setBurst((b) => b + 1); show('success', 'Đã đóng phiếu') }
+  const approve = () => { setClosed((l) => [...l, c.id]); setStatus(c.id, 'CONFIRMED'); setBurst((b) => b + 1); show('success', 'Đã xác nhận') }
   const redo = () => { setReopened((l) => [...l, c.id]); setStatus(c.id, 'REOPENED'); show('info', 'Đã yêu cầu làm lại') }
   const draft = () => { setDrafts((l) => [...l, c.id]); show('info', 'Đã lưu nháp') }
   const reload = () => { setClosed([]); setReopened([]); setDrafts([]); setIdx(0) }
@@ -142,7 +142,7 @@ export default function VerifyScreen() {
           </div>
           <div className="relative">
             <p key={String(isClosed) + String(isReopened)} className="animate-rise text-[32px] leading-none font-bold">
-              {isClosed ? 'Đã đóng' : isReopened ? 'Mở lại' : pass ? 'Đạt' : 'Không đạt'}
+              {isClosed ? 'Đã xác nhận' : isReopened ? 'Mở lại' : pass ? 'Đạt' : 'Không đạt'}
             </p>
             <ul className="mt-4 space-y-2">
               {checks.map((k) => (

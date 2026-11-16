@@ -16,7 +16,7 @@ const units = ['Đội CTĐT Hải Châu', 'Đội Thoát nước 2', 'Đội C�
 const columns: { level: Level; label: string; hours: number }[] = [
   { level: 'urgent', label: 'Khẩn cấp', hours: 4 },
   { level: 'high', label: 'Cao', hours: 12 },
-  { level: 'normal', label: 'Tiêu chuẩn', hours: 24 },
+  { level: 'normal', label: 'Trung bình', hours: 24 },
 ]
 const dot = { urgent: 'bg-urgent', high: 'bg-high', normal: 'bg-normal' } as Record<string, string>
 

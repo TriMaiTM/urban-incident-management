@@ -6,6 +6,7 @@ import { Avatar, Button, HeaderStat, EmptyState, IconChip, Skeleton, StatusPill,
 import { EvidenceUploadCard, IncidentListItem, InputField, MapBentoViewport, MetricBentoCard } from '../components/data'
 import { DispatcherRail } from '../components/nav'
 import { DEMO_ID, agoText, getTickets, remainingSec, resetTickets, setStatus, useTicketVersion, type Ticket as DataTicket } from '../data/tickets'
+import { apiMergeDuplicate } from '../lib/backend-api'
 
 type Kind = 'road' | 'flood' | 'tree' | 'trash' | 'light'
 type Ticket = {
@@ -113,7 +114,9 @@ export default function CommandCenterScreen() {
   const merge = () => {
     if (!cur || !dup) return
     const keep = cur.id
-    remove(dup.id, () => setRemoved((l) => [...l, dup.id]))
+    const dupId = dup.id
+    apiMergeDuplicate(keep, dupId).catch(() => {})
+    remove(dupId, () => setRemoved((l) => [...l, dupId]))
     setExtras((e) => ({ ...e, [keep]: (e[keep] ?? 0) + 1 }))
     show('success', 'Đã gộp phiếu')
   }

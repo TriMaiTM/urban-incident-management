@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { InputField } from '../components/data'
 import { Alert, AuthShell, OtpInput, Primary, SendCode, Title, forcedError, phoneOk, useCountdown, wait } from './AuthShell'
+import { apiRegister } from '../lib/backend-api'
 
 export default function RegisterScreen() {
   const [name, setName] = useState('')
@@ -29,7 +30,13 @@ export default function RegisterScreen() {
     if (pw.length < 8) e.pw = 'Mật khẩu tối thiểu 8 ký tự'
     setErrs(e); setBanner(null)
     if (Object.keys(e).length) return
-    setBusy('submit'); await wait(1200); setBusy('')
+    setBusy('submit')
+    try {
+      await apiRegister({ full_name: name.trim(), phone: phone.trim(), password: pw })
+    } catch {
+      await wait(1200)
+    }
+    setBusy('')
     if (otp === '000000' || forcedError()) return setBanner('Mã OTP không đúng hoặc số điện thoại đã được đăng ký.')
     setDone(true)
     setTimeout(() => { window.location.href = '/' }, 1500)

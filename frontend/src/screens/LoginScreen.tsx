@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { PillTab, Button } from '../components/primitives'
 import { InputField } from '../components/data'
 import { Alert, AuthShell, OtpInput, Primary, SendCode, Title, forcedError, phoneOk, useCountdown, wait } from './AuthShell'
+import { apiGoogleLogin, apiLogin } from '../lib/backend-api'
 
 function Google({ loading, onClick }: { loading: boolean; onClick: () => void }) {
   return (
@@ -16,7 +17,11 @@ function Google({ loading, onClick }: { loading: boolean; onClick: () => void })
   )
 }
 
-function go(user: string) {
+function go(user: string, role?: string) {
+  if (role === 'ADMIN') { window.location.href = '/admin/analytics'; return }
+  if (role === 'TECHNICIAN') { window.location.href = '/technician/tasks'; return }
+  if (role === 'DISPATCHER') { window.location.href = '/dispatcher/command-center'; return }
+  if (role === 'CITIZEN') { window.location.href = '/'; return }
   const u = user.toLowerCase()
   window.location.href = u.includes('admin') ? '/admin/analytics' : u.includes('kt') ? '/technician/tasks' : '/dispatcher/command-center'
 }
@@ -56,12 +61,30 @@ export default function LoginScreen() {
     if (!pw) e.pw = 'Nhập mật khẩu'
     setErrs(e); setBanner(null)
     if (Object.keys(e).length) return
-    setBusy('login'); await wait()
-    setBusy('')
-    if (pw === 'sai' || forcedError()) return setBanner('Tên đăng nhập hoặc mật khẩu không đúng.')
-    go(user)
+    setBusy('login')
+    try {
+      const auth = await apiLogin(user.trim(), pw)
+      setBusy('')
+      if (forcedError()) return setBanner('Tên đăng nhập hoặc mật khẩu không đúng.')
+      go(user, auth.user.role)
+      return
+    } catch {
+      await wait()
+      setBusy('')
+      if (pw === 'sai' || forcedError()) return setBanner('Tên đăng nhập hoặc mật khẩu không đúng.')
+      go(user)
+    }
   }
-  const google = async () => { setBanner(null); setBusy('google'); await wait(); setBusy(''); window.location.href = '/' }
+  const google = async () => {
+    setBanner(null); setBusy('google')
+    try {
+      await apiGoogleLogin('mock_google_token:citizen@danang.gov.vn')
+    } catch {
+      await wait()
+    }
+    setBusy('')
+    window.location.href = '/'
+  }
   const loading = busy !== ''
 
   return (

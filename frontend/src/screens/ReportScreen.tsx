@@ -23,7 +23,8 @@ import {
   Timeline,
 } from '../components/data'
 import { CitizenTabBar, TopPillNav } from '../components/nav'
-import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket } from '../data/tickets'
+import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident } from '../data/tickets'
+import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate } from '../lib/backend-api'
 
 type Photo = 'empty' | 'scanning' | 'done'
 type Pt = { x: number; y: number }
@@ -176,14 +177,31 @@ export default function ReportScreen() {
   const [dragging, setDragging] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [result, setResult] = useState<null | { code: string; merged: boolean }>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const startUpload = () => {
+  const startUpload = (file?: File) => {
     if (photo === 'scanning') return
+    setSelectedFile(file ?? null)
     setPhoto('scanning')
     setPin(null)
     setDupHandled(false)
+    if (file) {
+      apiAnalyzeImage(file, note).then((ai) => {
+        const c = ai.category_code.toUpperCase()
+        if (c.includes('FLOOD')) setType('Ngập úng')
+        else if (c.includes('TREE')) setType('Cây đổ')
+        else if (c.includes('WASTE') || c.includes('TRASH')) setType('Rác')
+        else if (c.includes('LIGHT')) setType('Đèn')
+        else setType('Đường')
+        const p = ai.priority.toUpperCase()
+        if (p === 'URGENT' || p === 'EMERGENCY' || p === 'CRITICAL') setLevelLabel('Khẩn cấp')
+        else if (p === 'HIGH') setLevelLabel('Cao')
+        else if (p === 'LOW') setLevelLabel('Thấp')
+        else setLevelLabel('Trung bình')
+      }).catch(() => {})
+    }
   }
   useEffect(() => {
     if (photo !== 'scanning') return
@@ -207,8 +225,33 @@ export default function ReportScreen() {
   const current = photo === 'empty' ? 0 : photo === 'scanning' ? 1 : !pin || outside ? 2 : 3
   const steps = ['Ảnh', 'AI', 'Ghim', 'Gửi']
 
-  const submit = () => {
+  const submit = async () => {
     setSending(true)
+    if (selectedFile && pin) {
+      const lon = +(108.15 + (pin.x / 100) * 0.1).toFixed(6)
+      const lat = +(16.10 - (pin.y / 100) * 0.08).toFixed(6)
+      const catCode = type === 'Ngập úng' ? 'FLOODING' : type === 'Cây đổ' ? 'FALLEN_TREE' : type === 'Đèn' ? 'STREETLIGHT' : type === 'Rác' ? 'WASTE' : 'ROAD_DAMAGE'
+      const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
+      try {
+        const created = await apiCreateIncident({
+          title: `${type} ${addr ?? 'Đà Nẵng'}`,
+          description: note.trim() || `${type} tại ${addr ?? 'Đà Nẵng'}`,
+          latitude: lat,
+          longitude: lon,
+          address_text: addr ?? 'Đà Nẵng',
+          category_code: catCode,
+          priority: prio,
+          citizen_contact: phone,
+          image: selectedFile,
+        })
+        upsertBackendIncident(created)
+        setSending(false)
+        setResult({ code: created.ticket_code, merged: false })
+        return
+      } catch {
+        // Fallback to demo ticket
+      }
+    }
     setTimeout(() => {
       setSending(false)
       submitDemoTicket()
@@ -216,10 +259,11 @@ export default function ReportScreen() {
     }, 1200)
   }
   const reset = () => {
-    setPhoto('empty'); setPin(null); setDupHandled(false); setNote(''); setPhone(''); setResult(null); setSheetOpen(false)
+    setPhoto('empty'); setPin(null); setDupHandled(false); setNote(''); setPhone(''); setResult(null); setSheetOpen(false); setSelectedFile(null)
   }
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.length) startUpload()
+    const f = e.target.files?.[0]
+    if (f) startUpload(f)
     e.target.value = ''
   }
   const cycleType = () => setType(TYPES[(TYPES.indexOf(type) + 1) % TYPES.length])
@@ -237,7 +281,7 @@ export default function ReportScreen() {
       className="animate-rise rounded-card bg-card p-2 shadow-card transition hover:-translate-y-0.5"
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) startUpload() }}
+      onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) startUpload(f) }}
     >
       <EvidenceUploadCard
         height={desktop ? 240 : 190}
@@ -245,7 +289,7 @@ export default function ReportScreen() {
         dragging={dragging}
         onCapture={() => camRef.current?.click()}
         onChoose={() => fileRef.current?.click()}
-        onSample={startUpload}
+        onSample={() => startUpload()}
       />
     </section>
   )
@@ -260,7 +304,7 @@ export default function ReportScreen() {
     </section>
   )
   const dupAlert = dup && (
-    <DuplicateAlert meters={dup.m} item={dup} onJoin={() => setResult({ code: dup.code, merged: true })} onNew={() => setDupHandled(true)} />
+    <DuplicateAlert meters={dup.m} item={dup} onJoin={() => { apiVoteDuplicate(dup.code).catch(() => {}); setResult({ code: dup.code, merged: true }) }} onNew={() => setDupHandled(true)} />
   )
 
   const mapOverlay = (
