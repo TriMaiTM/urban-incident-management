@@ -68,7 +68,7 @@ Qua rà soát trực tiếp mã nguồn `frontend/src/`, có **4 điểm nghẽn
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`)
 - **Commit 1:** `feat(frontend): wire full 9-state incident lifecycle mutations to PostgreSQL backend`
 
-### [ ] Bước 2: Kết Nối Tạo Phiếu Thật Trên `ReportScreen` & Đồng Bộ Tức Thì Sang IOC / KTV / Nghiệm Thu
+### [x] Bước 2: Kết Nối Tạo Phiếu Thật Trên `ReportScreen` & Đồng Bộ Tức Thì Sang IOC / KTV / Nghiệm Thu
 - Cập nhật `ReportScreen.tsx`: cả nút "Ảnh mẫu" lẫn tải ảnh từ máy đều tạo phiếu thật trong PostgreSQL qua `POST /api/v1/incidents`, nhận mã phiếu thật và đồng bộ tức thì sang hàng đợi IOC.
 - Cập nhật `CommandCenterScreen.tsx`, `TaskResolveScreen.tsx`, `VerifyScreen.tsx`, `LoginScreen.tsx` để chờ (`await`) phản hồi từ Backend và chọn ngay phiếu mới nhất vừa chuyển sang ở từng bước.
 - Kiểm thử luồng End-to-End thực tế: tạo phiếu mới $\rightarrow$ kiểm tra xuất hiện tại IOC $\rightarrow$ giao việc $\rightarrow$ KTV xử lý $\rightarrow$ IOC nghiệm thu $\rightarrow$ Công dân đánh giá đóng phiếu.

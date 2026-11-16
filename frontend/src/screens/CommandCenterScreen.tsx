@@ -59,7 +59,7 @@ export default function CommandCenterScreen() {
   const [removed, setRemoved] = useState<string[]>([])
   const [extras, setExtras] = useState<Record<string, number>>({})
   const [now, setNow] = useState(0)
-  const [sel, setSel] = useState<string>(DEMO_ID)
+  const [sel, setSel] = useState<string>('')
   const [leaving, setLeaving] = useState<string[]>([])
   const [booting, setBooting] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -84,12 +84,19 @@ export default function CommandCenterScreen() {
   }
 
   const live = useMemo(
-    () => queueTickets().filter((t) => !removed.includes(t.id)).map((t) => ({ ...t, ...edits[t.id], extra: t.extra + (extras[t.id] ?? 0) } as Ticket)),
+    () => queueTickets().filter((t) => !removed.includes(t.id)).map((t) => ({ ...t, ...edits[t.id], extra: t.extra + (extras[t.id] ?? 0) } as Ticket & { _t: DataTicket })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [version, removed, extras, edits, now],
   )
   const queue = useMemo(
-    () => [...live].sort((a, b) => rank[a.level] - rank[b.level] || a.remaining - b.remaining),
+    () =>
+      [...live].sort(
+        (a, b) =>
+          Number(b._t.status === 'SUBMITTED') - Number(a._t.status === 'SUBMITTED') ||
+          b._t.submittedAt - a._t.submittedAt ||
+          rank[a.level] - rank[b.level] ||
+          a.remaining - b.remaining,
+      ),
     [live],
   )
   const active = queue.filter((t) => !leaving.includes(t.id))
@@ -109,7 +116,16 @@ export default function CommandCenterScreen() {
     const rest = active.filter((t) => t.id !== id)
     if (rest[0]) setSel(rest[0].id)
   }
-  const approve = () => { if (!cur) return; const id = cur.id; nextAfter(id); remove(id, () => setStatus(id, 'ASSIGNED')); show('success', 'Đã giao việc') }
+  const approve = () => {
+    if (!cur) return
+    const id = cur.id
+    const curKind = cur.kind
+    const curPrio = cur.level === 'done' ? 'normal' : cur.level
+    const curUnit = edits[id]?.unit ?? unitOf[cur.kind]
+    nextAfter(id)
+    remove(id, () => setStatus(id, 'ASSIGNED', { kind: curKind, priority: curPrio, unit: curUnit }))
+    show('success', 'Đã giao việc')
+  }
   const reject = () => { if (!cur) return; const id = cur.id; nextAfter(id); remove(id, () => setStatus(id, 'REJECTED')); show('error', 'Đã từ chối') }
   const merge = () => {
     if (!cur || !dup) return
