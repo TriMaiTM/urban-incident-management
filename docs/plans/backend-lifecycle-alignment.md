@@ -44,16 +44,24 @@
 ### 3.1. Các file được phép thay đổi (Allowed Files)
 - `backend/app/main.py`
 - `backend/app/core/config.py`
+- `backend/.env.example`
 - `backend/app/models/incident.py`
 - `backend/app/schemas/incident.py`
+- `backend/app/services/anonymizer.py`
+- `backend/app/services/deepseek_vision.py`
 - `backend/app/api/v1/endpoints/incidents.py`
 - `backend/app/api/v1/endpoints/webhooks.py`
 - `backend/app/api/open311.py`
 - `backend/scripts/init_db.py`
+- `backend/scripts/export_openapi.py`
+- `backend/scripts/seed_demo.py`
+- `scripts/seed_demo.py`
 - `backend/tests/test_incidents.py`
 - `backend/tests/test_incident_workflow.py`
 - `backend/tests/test_schemas_incident.py`
 - `backend/tests/test_open311.py`
+- `backend/tests/test_e2e_lifecycle_db.py`
+- `docs/openapi.json`
 - `docs/ui-api-mapping.md`
 - `docs/PROJECT_CONTEXT_HANDOFF.md`
 - `docs/plans/backend-lifecycle-alignment.md`
@@ -188,24 +196,34 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - **Commit 6:** `feat(analytics): add average resolution time, satisfaction score, and district completion rate`
 - *(Dừng báo cáo lần 3 sau Commit 6).*
 
-### [ ] Bước 7: Endpoint Phân tích ảnh AI trước khi gửi (có Rate Limit theo IP) & Lưu `priority` đề xuất tại `POST /api/v1/incidents`
-- **Thay đổi trong `backend/app/core/config.py`, `backend/app/schemas/incident.py` & `backend/app/api/v1/endpoints/incidents.py`:**
-  - Thêm cấu hình `ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE: int = 10` vào `Settings` (`backend/app/core/config.py`).
-  - Tạo bộ giới hạn tần suất theo IP (in-memory sliding window 60 giây theo `request.client.host` / `X-Forwarded-For` dựa trên `settings.ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE`, mặc định 10 lần/phút; trả `429 Too Many Requests` khi vượt ngưỡng).
+### [x] Bước 7: Endpoint Phân tích ảnh AI trước khi gửi (có Rate Limit theo User/IP & Proxy đáng tin) & Lưu `priority` đề xuất tại `POST /api/v1/incidents`
+- **Thay đổi trong `backend/app/core/config.py`, `backend/.env.example`, `backend/app/services/anonymizer.py`, `backend/app/services/deepseek_vision.py`, `backend/app/schemas/incident.py` & `backend/app/api/v1/endpoints/incidents.py`:**
+  - Thêm cấu hình `ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE: int = 10` và `TRUSTED_PROXIES: Union[List[str], str] = ""` vào `Settings` (`backend/app/core/config.py`) và đồng bộ `backend/.env.example`.
+  - Tạo bộ giới hạn tần suất (in-memory sliding window 60 giây):
+    - Khi người gọi đã đăng nhập (`current_user is not None`): khóa theo `user:{current_user.id}`.
+    - Khi là khách vãng lai (`current_user is None`): khóa theo IP `ip:{client_ip}`. Chỉ lấy IP từ `X-Forwarded-For` khi nguồn kết nối trực tiếp (`request.client.host`) nằm trong danh sách `TRUSTED_PROXIES`; mặc định dùng `request.client.host`.
+    - Ghi chú rõ trong docstring rằng hạn mức lưu trong bộ nhớ tiến trình (in-memory), chỉ áp dụng cho một tiến trình (single worker process).
   - Tạo schema `IncidentAnalyzeImageOut`:
     - `category_code: str`, `priority: str`, `suggested_department_code: str`, `summary_vi: str`, `hazard_warning: str | None = None`, `confidence: float`, `sla_hours: int`, `is_blurred: bool`, `faces_detected: int`, `plates_detected: int`.
-  - Tạo endpoint `POST /api/v1/incidents/analyze-image`:
+  - Tạo endpoint `POST /api/v1/incidents/analyze-image` và cập nhật `process_incident_ai_triage`:
     - Ghi chú rõ trong docstring của endpoint và `anonymizer.py` rằng thuật toán làm mờ OpenCV Haar Cascade theo Nghị định 13 chỉ mang tính hỗ trợ tự động (best-effort) và **không bắt hết mọi trường hợp** (góc nghiêng, che khuất, ánh sáng yếu).
-    - Dùng `tempfile.TemporaryDirectory()` lưu tạm ảnh đầu vào, chạy `anonymize_image(temp_orig, temp_anon)` trước khi truyền `temp_anon` vào `classify_incident_image(...)`, xóa sạch file tạm ngay trong khối `finally`.
+    - **Làm mờ Nghị định 13 trước khi gọi DeepSeek** ở cả `analyze-image` và `process_incident_ai_triage`. Dùng `tempfile.TemporaryDirectory()` lưu tạm ảnh đầu vào, chạy `anonymize_image(temp_orig, temp_anon)` trước khi truyền `temp_anon` vào `classify_incident_image(...)`, xóa sạch file tạm ngay trong khối `finally` kể cả khi DeepSeek lỗi/timeout.
+    - Không ghi ảnh hoặc nội dung phân tích vào log.
+    - Khi DeepSeek lỗi/timeout: `analyze-image` trả mã `502 Bad Gateway` với thông điệp ngắn rõ ràng để UI hiển thị trạng thái lỗi.
   - Cập nhật `POST /api/v1/incidents` và schema `IncidentOut` / `IncidentDetailOut`:
     - Nhận thêm `category_code: str | None = Form(None)` và `priority: str | None = Form(None)`.
     - Lưu `priority` do người dân chọn vào `incident.priority` như mức đề xuất (và lưu vào `ai_classification_raw["citizen_suggested_priority"]`).
-    - Thêm cờ `is_priority_suggested: bool = True` trên `IncidentOut` / `IncidentDetailOut`: trả `True` khi điều phối viên chưa duyệt triage (phiếu chưa có lịch sử `TRIAGED` bởi cán bộ điều phối / đang ở `SUBMITTED` hoặc mới chỉ qua AI tự động), và chuyển thành `False` sau khi Điều phối viên duyệt tại `PATCH /{id_or_code}/triage`.
-- **Tests:** Thêm test cho `POST /api/v1/incidents/analyze-image` (xác minh làm mờ trước khi gọi DeepSeek, không lưu ảnh, và chặn `429` khi vượt quá giới hạn tần suất theo IP) và test `POST /api/v1/incidents` với `category_code`, `priority` đề xuất cùng cờ `is_priority_suggested`.
+    - Thêm cờ `is_priority_suggested: bool = True` trên `IncidentOut` / `IncidentDetailOut`: trả `True` khi điều phối viên chưa quyết định, và chuyển về `False` khi `/triage` **hoặc** `/assign` được gọi.
+- **Tests:** Thêm test cho `POST /api/v1/incidents/analyze-image` (xác minh thứ tự gọi `anonymize_image` trước `classify_incident_image` ở cả `analyze-image` và `process_incident_ai_triage`, xóa file tạm trong `finally` kể cả khi lỗi, trả `502` khi DeepSeek lỗi, và chặn `429` theo `user_id` hoặc IP có kiểm tra `TRUSTED_PROXIES`) và test `is_priority_suggested` về `False` khi gọi `/triage` hoặc `/assign`.
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 7:** `feat(ai): add rate-limited pre-submit image analysis and suggested priority flag`
 
 ### [ ] Bước 8: Cập nhật Tài liệu `docs/ui-api-mapping.md` và `docs/PROJECT_CONTEXT_HANDOFF.md` (Mục 3.4)
 - Cập nhật `docs/ui-api-mapping.md` và mục `3.4` của `docs/PROJECT_CONTEXT_HANDOFF.md` cho khớp hoàn toàn với vòng đời 9 trạng thái, quy tắc đóng phiếu/khiếu nại, cách tính SLA từ `created_at` và **ghi chú rõ rằng khi mở lại phiếu (`REOPENED`) hệ thống đặt lại hạn `sla_due_at` mới tính từ thời điểm mở lại**.
 - **Commit 8:** `docs: update ui-api-mapping and project context handoff for new lifecycle and SLA`
-- *(Báo cáo hoàn tất sau Commit 8).*
+
+### [ ] Bước 9 (Bổ sung a, b, c): Xuất `docs/openapi.json`, Script `scripts/seed_demo.py` đi qua máy trạng thái & Test E2E trên DB thật
+- **9a. Xuất `docs/openapi.json`:** Tạo script `backend/scripts/export_openapi.py` xuất schema OpenAPI ra `docs/openapi.json` và thêm test tự động kiểm tra các endpoint/schema mới trong `docs/openapi.json`.
+- **9b. Script `scripts/seed_demo.py` (và `backend/scripts/seed_demo.py`):** Tạo 4 vai trò (`CITIZEN`, `DISPATCHER`, `TECHNICIAN` có `department_id`, `ADMIN`) và các phiếu đi qua đúng các bước của máy trạng thái (gọi qua tầng API/handler thay vì ghi thẳng trạng thái đích vào DB), bao phủ đủ 9 trạng thái (`SUBMITTED`, `TRIAGED`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, `CONFIRMED`, `CLOSED`, `REJECTED`, `REOPENED`), bao gồm phiếu demo xuyên suốt `DN-202610-0129` (Ngập úng `FLOODING`, mức Cao `HIGH`). Chạy lại được nhiều lần sau khi xóa dữ liệu.
+- **9c. Test End-to-End trên DB thật (`backend/tests/test_e2e_lifecycle_db.py`):** Đánh dấu tự động `skip` khi không kết nối được PostgreSQL; kiểm tra trọn vẹn chu trình: công dân gửi $\rightarrow$ điều phối triage và giao $\rightarrow$ kỹ thuật viên nhận và nộp ảnh $\rightarrow$ điều phối nghiệm thu $\rightarrow$ công dân khiếu nại $\rightarrow$ kỹ thuật viên làm lại & nộp ảnh $\rightarrow$ điều phối nghiệm thu lại $\rightarrow$ công dân xác nhận đóng.
+- **Commit 9:** `feat(demo): export openapi.json, add state-machine seed_demo script and live DB e2e test`

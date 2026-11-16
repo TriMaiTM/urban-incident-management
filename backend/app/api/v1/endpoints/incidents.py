@@ -4,7 +4,10 @@ from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
 import secrets
+import shutil
 import string
+import tempfile
+import time
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -15,6 +18,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -40,6 +44,7 @@ from app.models.user import User
 from app.models.zone import SystemZone
 from app.schemas.incident import (
     IncidentAnalyticsSummaryOut,
+    IncidentAnalyzeImageOut,
     IncidentAssignIn,
     IncidentDetailOut,
     IncidentFeedbackCreateIn,
@@ -70,6 +75,57 @@ SLA_HOURS_BY_PRIORITY: dict[str, int] = {
     "NORMAL": 24,
     "LOW": 48,
 }
+
+# In-memory sliding-window rate limit buckets for pre-submit AI image analysis.
+# Note: Stored in process memory; applies to a single worker process only.
+_ANALYZE_IMAGE_BUCKETS: dict[str, list[float]] = {}
+
+
+def _resolve_analyze_image_rate_key(request: Request, current_user: User | None) -> str:
+    """Resolve rate-limit key for analyze-image.
+
+    - Authenticated users are keyed by `user:{current_user.id}`.
+    - Anonymous guests are keyed by `ip:{client_ip}`. `X-Forwarded-For` is trusted
+      ONLY when the direct connection peer (`request.client.host`) belongs to
+      `settings.trusted_proxies_set` (`TRUSTED_PROXIES`); otherwise `request.client.host` is used.
+    - Note: Rate-limit counters live in process memory and apply to a single worker process only.
+    """
+    if current_user is not None and getattr(current_user, "id", None) is not None:
+        return f"user:{current_user.id}"
+
+    direct_host = request.client.host if request.client and request.client.host else "unknown"
+    trusted_proxies = settings.trusted_proxies_set
+    if direct_host in trusted_proxies:
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff and xff.strip():
+            forwarded_ip = xff.split(",")[0].strip()
+            if forwarded_ip:
+                return f"ip:{forwarded_ip}"
+
+    return f"ip:{direct_host}"
+
+
+def _enforce_analyze_image_rate_limit(request: Request, current_user: User | None) -> None:
+    """Enforce per-minute sliding-window rate limit for pre-submit AI image analysis.
+
+    Note: Rate-limit state is stored in process memory (`_ANALYZE_IMAGE_BUCKETS`) and
+    is accurate for a single worker process only.
+    """
+    limit = max(1, int(settings.ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE))
+    now_mono = time.monotonic()
+    window_start = now_mono - 60.0
+    key = _resolve_analyze_image_rate_key(request, current_user)
+
+    history = [ts for ts in _ANALYZE_IMAGE_BUCKETS.get(key, []) if ts > window_start]
+    if len(history) >= limit:
+        _ANALYZE_IMAGE_BUCKETS[key] = history
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Vượt quá giới hạn tần suất phân tích ảnh AI ({limit} lần/phút). Vui lòng thử lại sau.",
+        )
+
+    history.append(now_mono)
+    _ANALYZE_IMAGE_BUCKETS[key] = history
 
 
 def calculate_sla_due_at(priority: str | None, base_time: datetime | None = None) -> datetime:
@@ -211,7 +267,12 @@ async def process_incident_ai_triage(
     description: str,
     db_session: AsyncSession | None = None,
 ) -> None:
-    """Background task to run DeepSeek Vision classification and auto-triage incident."""
+    """Background task to run Decree 13 blurring and DeepSeek Vision classification for auto-triage.
+
+    Note: OpenCV Haar Cascade blurring is best-effort and does not catch every face or license plate.
+    Temporary blurred files are always deleted in `finally`, and neither image data nor analysis
+    content is written to application logs.
+    """
     async def _execute_triage(session: AsyncSession) -> None:
         # 1. Fetch valid categories and departments
         cat_stmt = select(Category)
@@ -226,13 +287,25 @@ async def process_incident_ai_triage(
         department_map = {d.code: d for d in departments}
         allowed_dept_codes = list(department_map.keys())
 
-        # 2. Call DeepSeek Vision classification
-        ai_res = await classify_incident_image(
-            image_path=image_path,
-            description=description,
-            allowed_category_codes=allowed_cat_codes if allowed_cat_codes else None,
-            allowed_department_codes=allowed_dept_codes if allowed_dept_codes else None,
-        )
+        # 2. Enforce Decree 13 blurring into a temporary file BEFORE calling DeepSeek Vision
+        temp_dir = Path(tempfile.mkdtemp(prefix="ai_triage_"))
+        temp_anon_path = temp_dir / f"{incident_id.hex}_triage_anon.jpg"
+        try:
+            classify_path = str(temp_anon_path)
+            try:
+                anonymize_image(image_path, temp_anon_path)
+            except FileNotFoundError:
+                classify_path = str(image_path)
+
+            ai_res = await classify_incident_image(
+                image_path=classify_path,
+                description=description,
+                allowed_category_codes=allowed_cat_codes if allowed_cat_codes else None,
+                allowed_department_codes=allowed_dept_codes if allowed_dept_codes else None,
+            )
+        finally:
+            temp_anon_path.unlink(missing_ok=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
         # 3. Load incident
         inc_stmt = select(Incident).where(Incident.id == incident_id)
@@ -242,14 +315,38 @@ async def process_incident_ai_triage(
             logger.warning("Incident %s not found for AI background triage", incident_id)
             return
 
-        # 4. Map category, department, and SLA
-        matched_cat = category_map.get(ai_res["category_code"])
+        # 4. Map category, department, priority suggestion, and SLA
+        existing_raw = (
+            dict(incident.ai_classification_raw)
+            if isinstance(incident.ai_classification_raw, dict)
+            else {}
+        )
+        citizen_prio = existing_raw.get("citizen_suggested_priority")
+        citizen_cat_code = existing_raw.get("citizen_suggested_category_code")
+
+        matched_cat = category_map.get(str(citizen_cat_code)) if citizen_cat_code else None
+        if not matched_cat:
+            matched_cat = category_map.get(ai_res["category_code"])
         matched_dept = department_map.get(ai_res["suggested_department_code"])
 
-        incident.category_id = matched_cat.id if matched_cat else None
-        incident.priority = ai_res["priority"]
-        incident.assigned_department_id = matched_dept.id if matched_dept else None
-        incident.ai_classification_raw = dict(ai_res)
+        if incident.category_id is None and matched_cat is not None:
+            incident.category_id = matched_cat.id
+        if isinstance(citizen_prio, str) and citizen_prio in SLA_HOURS_BY_PRIORITY:
+            incident.priority = citizen_prio
+        else:
+            incident.priority = ai_res["priority"]
+        if incident.assigned_department_id is None and matched_dept is not None:
+            incident.assigned_department_id = matched_dept.id
+
+        merged_raw: dict[str, object] = dict(ai_res)
+        if citizen_prio is not None:
+            merged_raw["citizen_suggested_priority"] = citizen_prio
+        if citizen_cat_code is not None:
+            merged_raw["citizen_suggested_category_code"] = citizen_cat_code
+        merged_raw["is_priority_suggested"] = (
+            False if existing_raw.get("is_priority_suggested") is False else True
+        )
+        incident.ai_classification_raw = merged_raw
         incident.ai_confidence = ai_res["confidence"]
         incident.sla_due_at = calculate_sla_due_at(
             incident.priority,
@@ -265,7 +362,7 @@ async def process_incident_ai_triage(
             actor_id=None,
             from_status=old_status,
             to_status="TRIAGED",
-            note=f"Hệ thống tự động phân loại bằng AI (Danh mục: {ai_res['category_code']}, Ưu tiên: {ai_res['priority']})",
+            note=f"Hệ thống tự động phân loại bằng AI (Danh mục: {ai_res['category_code']}, Ưu tiên: {incident.priority})",
         )
         session.add(history)
         await session.commit()
@@ -278,8 +375,125 @@ async def process_incident_ai_triage(
             try:
                 await _execute_triage(session)
             except Exception as exc:
-                logger.exception("AI triage background task failed for incident %s: %s", incident_id, exc)
+                logger.warning(
+                    "AI triage background task failed for incident %s (%s)",
+                    incident_id,
+                    type(exc).__name__,
+                )
                 await session.rollback()
+
+
+@router.post(
+    "/analyze-image",
+    response_model=IncidentAnalyzeImageOut,
+    status_code=status.HTTP_200_OK,
+    summary="Phân tích ảnh hiện trường bằng AI trước khi gửi (làm mờ Nghị định 13, không lưu ảnh)",
+)
+async def analyze_incident_image(
+    request: Request,
+    image: UploadFile = File(..., description="Ảnh chụp hiện trường cần phân tích AI"),
+    description: str = Form("", description="Mô tả sơ bộ hiện trường (tùy chọn)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> IncidentAnalyzeImageOut:
+    """
+    Phân tích ảnh hiện trường trước khi người dân bấm gửi phản ánh:
+    - Giới hạn tần suất (Rate Limit): cấu hình qua `ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE` (mặc định 10 lần/phút).
+      Khóa theo `user_id` nếu đã đăng nhập; nếu là khách thì khóa theo IP (`X-Forwarded-For` chỉ được tin cậy
+      khi nguồn kết nối thuộc `TRUSTED_PROXIES`, mặc định dùng `request.client.host`).
+      Lưu ý: Hạn mức được lưu trong bộ nhớ tiến trình (in-memory), chỉ đúng cho một tiến trình đơn lẻ.
+    - Làm mờ khuôn mặt và biển số xe theo Nghị định 13/2023/NĐ-CP bằng OpenCV Haar Cascade trong thư mục tạm
+      TRƯỚC khi gửi ảnh sang DeepSeek Vision, và xóa ngay tệp tạm trong khối `finally` (không lưu ảnh lên đĩa/DB).
+      Lưu ý: Thuật toán làm mờ tự động chỉ mang tính hỗ trợ (best-effort) và không bắt hết mọi trường hợp
+      (góc nghiêng, che khuất, ánh sáng yếu).
+    - Không ghi dữ liệu ảnh hoặc nội dung phân tích vào log. Khi DeepSeek lỗi hoặc timeout, trả mã 502 Bad Gateway
+      với thông điệp ngắn rõ ràng để giao diện hiển thị trạng thái lỗi.
+    """
+    _enforce_analyze_image_rate_limit(request, current_user)
+
+    image_content = await image.read()
+    if not image_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tệp hình ảnh rỗng. Vui lòng tải lên ảnh chụp hiện trường hợp lệ.",
+        )
+
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(image_content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Dung lượng tệp vượt quá giới hạn cho phép ({settings.MAX_UPLOAD_SIZE_MB}MB).",
+        )
+
+    raw_ext = Path(image.filename or "").suffix.lower()
+    file_ext = raw_ext if raw_ext in [".jpg", ".jpeg", ".png", ".webp"] else ".jpg"
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="analyze_img_"))
+    temp_orig = temp_dir / f"orig{file_ext}"
+    temp_anon = temp_dir / "anon.jpg"
+
+    try:
+        with open(temp_orig, "wb") as f:
+            f.write(image_content)
+
+        try:
+            anon_res = anonymize_image(temp_orig, temp_anon)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Không thể xử lý hình ảnh tải lên. Vui lòng chọn tệp ảnh hợp lệ.",
+            )
+
+        cat_res = await db.execute(select(Category))
+        categories = [c for c in cat_res.scalars().all() if getattr(c, "code", None)]
+        allowed_cat_codes = [c.code for c in categories] if categories else None
+
+        dept_res = await db.execute(select(Department))
+        departments = [d for d in dept_res.scalars().all() if getattr(d, "code", None)]
+        allowed_dept_codes = [d.code for d in departments] if departments else None
+
+        try:
+            ai_res = await classify_incident_image(
+                image_path=str(temp_anon),
+                description=description or "",
+                allowed_category_codes=allowed_cat_codes,
+                allowed_department_codes=allowed_dept_codes,
+                raise_on_error=True,
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Dịch vụ phân tích ảnh AI tạm thời gián đoạn. Vui lòng tự chọn phân loại hoặc thử lại.",
+            )
+
+        if (
+            ai_res.get("confidence") == 0.5
+            and "hệ thống AI không phản hồi" in str(ai_res.get("summary_vi", ""))
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Dịch vụ phân tích ảnh AI tạm thời gián đoạn. Vui lòng tự chọn phân loại hoặc thử lại.",
+            )
+    finally:
+        temp_orig.unlink(missing_ok=True)
+        temp_anon.unlink(missing_ok=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    prio = str(ai_res.get("priority", "NORMAL")).upper()
+    sla_hours = SLA_HOURS_BY_PRIORITY.get(prio, 24)
+
+    return IncidentAnalyzeImageOut(
+        category_code=str(ai_res["category_code"]),
+        priority=prio,
+        suggested_department_code=str(ai_res["suggested_department_code"]),
+        summary_vi=str(ai_res["summary_vi"]),
+        hazard_warning=str(ai_res["hazard_warning"]) if ai_res.get("hazard_warning") else None,
+        confidence=float(ai_res["confidence"]),
+        sla_hours=sla_hours,
+        is_blurred=bool(anon_res.get("is_blurred", False)),
+        faces_detected=int(anon_res.get("faces_detected", 0)),
+        plates_detected=int(anon_res.get("plates_detected", 0)),
+    )
 
 
 @router.post(
@@ -304,6 +518,8 @@ async def create_incident(
     district: str | None = Form(None, max_length=100, description="Quận/Huyện"),
     ward: str | None = Form(None, max_length=100, description="Phường/Xã"),
     citizen_contact: str | None = Form(None, max_length=255, description="Số điện thoại hoặc phương thức liên hệ"),
+    category_code: str | None = Form(None, max_length=50, description="Mã danh mục sự cố do người dân xác nhận"),
+    priority: str | None = Form(None, max_length=50, description="Mức độ ưu tiên đề xuất: LOW, NORMAL, HIGH, EMERGENCY"),
     image: UploadFile = File(..., description="Ảnh chụp hiện trường sự cố"),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
@@ -369,7 +585,26 @@ async def create_incident(
             detail=f"Không thể xử lý hình ảnh tải lên: {exc}",
         )
 
-    # 3. Sinh ticket_code độc nhất: DN-YYYYMM-XXXX
+    # 3. Kiểm tra priority và category_code đề xuất (nếu người dân xác nhận)
+    chosen_priority = "NORMAL"
+    clean_priority: str | None = None
+    if priority and priority.strip():
+        clean_priority = priority.strip().upper()
+        if clean_priority not in SLA_HOURS_BY_PRIORITY:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Mức độ ưu tiên '{priority}' không hợp lệ. Phải thuộc {set(SLA_HOURS_BY_PRIORITY.keys())}.",
+            )
+        chosen_priority = clean_priority
+
+    clean_category_code: str | None = None
+    matched_category: Category | None = None
+    if category_code and category_code.strip():
+        clean_category_code = category_code.strip().upper()
+        cat_res = await db.execute(select(Category).where(Category.code == clean_category_code).limit(1))
+        matched_category = cat_res.scalar_one_or_none()
+
+    # 4. Sinh ticket_code độc nhất: DN-YYYYMM-XXXX
     ticket_code = generate_ticket_code()
     for _ in range(5):
         exists_stmt = select(Incident.id).where(Incident.ticket_code == ticket_code).limit(1)
@@ -377,13 +612,20 @@ async def create_incident(
             break
         ticket_code = generate_ticket_code()
 
-    # 4. Tạo bản ghi Incident
+    # 5. Tạo bản ghi Incident (lưu priority như đề xuất, is_priority_suggested=True)
     now = datetime.now(timezone.utc)
+    initial_ai_raw: dict[str, object] = {"is_priority_suggested": True}
+    if clean_priority is not None:
+        initial_ai_raw["citizen_suggested_priority"] = clean_priority
+    if clean_category_code is not None:
+        initial_ai_raw["citizen_suggested_category_code"] = clean_category_code
+
     incident = Incident(
         ticket_code=ticket_code,
         title=title,
         description=description,
-        priority="NORMAL",
+        category_id=matched_category.id if matched_category else None,
+        priority=chosen_priority,
         status="SUBMITTED",
         channel="WEB",
         citizen_id=current_user.id if current_user else None,
@@ -392,14 +634,17 @@ async def create_incident(
         address_text=address_text,
         district=district,
         ward=ward,
+        ai_classification_raw=initial_ai_raw,
         duplicate_count=0,
-        sla_due_at=calculate_sla_due_at("NORMAL", now),
+        sla_due_at=calculate_sla_due_at(chosen_priority, now),
         created_at=now,
     )
+    if matched_category is not None:
+        incident.category = matched_category
     db.add(incident)
     await db.flush()
 
-    # 5. Tạo bản ghi IncidentMedia
+    # 6. Tạo bản ghi IncidentMedia
     media_orig = IncidentMedia(
         incident_id=incident.id,
         media_type="BEFORE_ORIGINAL",
@@ -413,7 +658,7 @@ async def create_incident(
     db.add(media_orig)
     db.add(media_anon)
 
-    # 6. Tạo bản ghi IncidentHistory
+    # 7. Tạo bản ghi IncidentHistory
     history = IncidentHistory(
         incident_id=incident.id,
         actor_id=current_user.id if current_user else None,
@@ -425,7 +670,7 @@ async def create_incident(
 
     await db.commit()
 
-    # 7. Tải đầy đủ quan hệ để serialize IncidentDetailOut
+    # 8. Tải đầy đủ quan hệ để serialize IncidentDetailOut
     reload_stmt = (
         select(Incident)
         .where(Incident.id == incident.id)
@@ -437,14 +682,18 @@ async def create_incident(
         )
     )
     loaded_incident = (await db.execute(reload_stmt)).scalar_one()
+    if matched_category is not None and getattr(loaded_incident, "category", None) is None:
+        loaded_incident.category = matched_category
+    elif clean_category_code is not None and getattr(loaded_incident, "category", None) is None:
+        setattr(loaded_incident, "category_code", clean_category_code)
     setattr(loaded_incident, "latitude", latitude)
     setattr(loaded_incident, "longitude", longitude)
 
-    # 8. Đưa tác vụ AI DeepSeek Vision vào BackgroundTasks
+    # 9. Đưa tác vụ AI DeepSeek Vision vào BackgroundTasks (truyền ảnh đã làm mờ anon_path)
     background_tasks.add_task(
         process_incident_ai_triage,
         loaded_incident.id,
-        str(orig_path),
+        str(anon_path),
         description,
     )
 
@@ -633,6 +882,9 @@ async def triage_incident(
     incident.assigned_department_id = payload.assigned_department_id
     incident.assigned_department = department
     incident.status = "TRIAGED"
+    triage_raw = dict(incident.ai_classification_raw) if isinstance(incident.ai_classification_raw, dict) else {}
+    triage_raw["is_priority_suggested"] = False
+    incident.ai_classification_raw = triage_raw
 
     history_note = (
         payload.note
@@ -760,6 +1012,9 @@ async def assign_incident(
 
     old_status = incident.status
     incident.status = "ASSIGNED"
+    assign_raw = dict(incident.ai_classification_raw) if isinstance(incident.ai_classification_raw, dict) else {}
+    assign_raw["is_priority_suggested"] = False
+    incident.ai_classification_raw = assign_raw
 
     now = datetime.now(timezone.utc)
     history_note = payload.note or "Phân công đơn vị/kỹ thuật viên phụ trách xử lý hiện trường"

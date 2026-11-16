@@ -63,6 +63,23 @@ def _extract_rejection_reason_from_history(history_list: object) -> str | None:
     return None
 
 
+def _resolve_is_priority_suggested(status_val: object, ai_raw: object, history_list: object) -> bool:
+    """Return False once dispatcher has triaged or assigned the incident, otherwise True."""
+    if isinstance(ai_raw, dict) and ai_raw.get("is_priority_suggested") is False:
+        return False
+    if status_val in {"ASSIGNED", "IN_PROGRESS", "RESOLVED", "CONFIRMED", "CLOSED", "REOPENED"}:
+        return False
+    if isinstance(history_list, list):
+        for item in history_list:
+            to_st = item.get("to_status") if isinstance(item, dict) else getattr(item, "to_status", None)
+            actor = item.get("actor_id") if isinstance(item, dict) else getattr(item, "actor_id", None)
+            if to_st == "ASSIGNED" or (to_st == "TRIAGED" and actor is not None):
+                return False
+    if isinstance(ai_raw, dict) and "is_priority_suggested" in ai_raw and ai_raw["is_priority_suggested"] is not None:
+        return bool(ai_raw["is_priority_suggested"])
+    return True
+
+
 class CategoryOut(BaseModel):
     """Schema for incident categories."""
 
@@ -171,6 +188,7 @@ class IncidentOut(BaseModel):
     description: str
     status: str
     priority: str
+    is_priority_suggested: bool = True
     channel: str = "WEB"
     address_text: str
     district: str | None = None
@@ -207,6 +225,12 @@ class IncidentOut(BaseModel):
                 data["assigned_technician_name"] = tech.get("full_name") if isinstance(tech, dict) else getattr(tech, "full_name", None)
             if ("rejection_reason" not in data or data["rejection_reason"] is None) and data.get("history"):
                 data["rejection_reason"] = _extract_rejection_reason_from_history(data["history"])
+            if "is_priority_suggested" not in data or data["is_priority_suggested"] is None:
+                data["is_priority_suggested"] = _resolve_is_priority_suggested(
+                    data.get("status"),
+                    data.get("ai_classification_raw"),
+                    data.get("history"),
+                )
             if ("anonymized_image_url" not in data or data["anonymized_image_url"] is None) and data.get("media"):
                 media_list = data["media"]
                 if isinstance(media_list, list):
@@ -287,6 +311,16 @@ class IncidentOut(BaseModel):
             res["rejection_reason"] = getattr(data, "rejection_reason")
         elif hasattr(data, "history") and getattr(data, "history") is not None:
             res["rejection_reason"] = _extract_rejection_reason_from_history(getattr(data, "history"))
+
+        # Priority suggested flag
+        if hasattr(data, "is_priority_suggested") and getattr(data, "is_priority_suggested") is not None:
+            res["is_priority_suggested"] = bool(getattr(data, "is_priority_suggested"))
+        else:
+            res["is_priority_suggested"] = _resolve_is_priority_suggested(
+                res.get("status"),
+                res.get("ai_classification_raw"),
+                getattr(data, "history", None),
+            )
 
         # Anonymized image url
         if hasattr(data, "anonymized_image_url") and getattr(data, "anonymized_image_url") is not None:
@@ -561,4 +595,22 @@ class IncidentAnalyticsSummaryOut(BaseModel):
     completion_rate_by_district: dict[str, float] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentAnalyzeImageOut(BaseModel):
+    """Schema for pre-submit AI image analysis after Decree 13 anonymization."""
+
+    category_code: str
+    priority: str
+    suggested_department_code: str
+    summary_vi: str
+    hazard_warning: str | None = None
+    confidence: float
+    sla_hours: int
+    is_blurred: bool
+    faces_detected: int = 0
+    plates_detected: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
 

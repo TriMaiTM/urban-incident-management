@@ -2310,6 +2310,72 @@ async def test_step6_analytics_resolution_time_satisfaction_and_district_complet
     assert data["completion_rate_by_district"]["Thanh Khê"] == 0.0
 
 
+@pytest.mark.asyncio
+async def test_step7_is_priority_suggested_becomes_false_on_triage_or_assign(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify is_priority_suggested is True initially and becomes False when either /triage or /assign is called."""
+    dispatcher = _make_mock_user(role="DISPATCHER", email="disp_s7@danang.gov.vn")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_s7@danang.gov.vn")
+    cat = Category(id=uuid4(), code="FLOODING", name="Ngập úng", default_sla_hours=12)
+    dept = Department(id=uuid4(), code="CTN_DN", name="Cty Thoát nước", level="UTILITY_COMPANY")
+
+    # Case 1: Incident in SUBMITTED with suggested priority -> /triage sets is_priority_suggested = False
+    inc1 = _make_mock_incident(ticket_code="DN-202611-PR1", status="SUBMITTED", priority="HIGH")
+    inc1.ai_classification_raw = {"citizen_suggested_priority": "HIGH", "is_priority_suggested": True}
+
+    # Case 2: Incident auto-triaged by AI (actor_id=None, status=TRIAGED, is_priority_suggested=True) -> /assign sets is_priority_suggested = False
+    inc2 = _make_mock_incident(ticket_code="DN-202611-PR2", status="TRIAGED", priority="EMERGENCY")
+    inc2.ai_classification_raw = {"priority": "EMERGENCY", "is_priority_suggested": True}
+    inc2.history = [
+        IncidentHistory(
+            id=uuid4(),
+            incident_id=inc2.id,
+            actor_id=None,
+            from_status="SUBMITTED",
+            to_status="TRIAGED",
+            note="AI tự động phân loại",
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+
+    mock_session.seed(dispatcher, technician, cat, dept, inc1, inc2)
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    # Before triage/assign, both have is_priority_suggested == True
+    r_get1 = await client.get(f"/api/v1/incidents/{inc1.ticket_code}")
+    assert r_get1.status_code == 200
+    assert r_get1.json()["is_priority_suggested"] is True
+
+    r_get2 = await client.get(f"/api/v1/incidents/{inc2.ticket_code}")
+    assert r_get2.status_code == 200
+    assert r_get2.json()["is_priority_suggested"] is True
+
+    # Calling /triage on inc1 flips is_priority_suggested -> False
+    r_triage = await client.patch(
+        f"/api/v1/incidents/{inc1.ticket_code}/triage",
+        json={
+            "category_id": str(cat.id),
+            "priority": "HIGH",
+            "assigned_department_id": str(dept.id),
+        },
+    )
+    assert r_triage.status_code == 200
+    assert r_triage.json()["is_priority_suggested"] is False
+
+    # Calling /assign directly on inc2 flips is_priority_suggested -> False
+    r_assign = await client.patch(
+        f"/api/v1/incidents/{inc2.ticket_code}/assign",
+        json={
+            "assigned_department_id": str(dept.id),
+            "assigned_technician_id": str(technician.id),
+        },
+    )
+    assert r_assign.status_code == 200
+    assert r_assign.json()["is_priority_suggested"] is False
+
+
+
 
 
 
