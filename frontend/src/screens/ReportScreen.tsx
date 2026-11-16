@@ -23,6 +23,7 @@ import {
   Timeline,
 } from '../components/data'
 import { CitizenTabBar, TopPillNav } from '../components/nav'
+import { findDistrictAtLngLat, xyToLngLat } from '../components/GoongBentoMap'
 import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident, useTicketVersion } from '../data/tickets'
 import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate } from '../lib/backend-api'
 
@@ -48,13 +49,20 @@ const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t) 
   x: t.x, y: t.y, level: t.priority as Level, title: t.title, address: `${t.district}, Đà Nẵng`, time: agoText(t.submittedAt), kind: t.kind, code: t.id,
 }))
 
+const DISTRICT_STREETS: Record<string, string> = {
+  'Hải Châu': 'Lê Duẩn, Hải Châu',
+  'Thanh Khê': 'Điện Biên Phủ, Thanh Khê',
+  'Sơn Trà': 'Ngô Quyền, Sơn Trà',
+  'Cẩm Lệ': 'Nguyễn Hữu Thọ, Cẩm Lệ',
+  'Ngũ Hành Sơn': 'Trường Sa, Ngũ Hành Sơn',
+  'Liên Chiểu': 'Tôn Đức Thắng, Liên Chiểu',
+  'Hòa Vang': 'Quốc lộ 14B, Hòa Vang',
+}
 function addressAt({ x, y }: Pt) {
-  if (x > 80) return null
-  if (x < 12) return 'Hòa Vang'
-  const top = y < 50
-  if (x < 35) return top ? 'Tôn Đức Thắng, Liên Chiểu' : 'Nguyễn Hữu Thọ, Cẩm Lệ'
-  if (x < 60) return top ? 'Điện Biên Phủ, Thanh Khê' : 'Lê Duẩn, Hải Châu'
-  return top ? 'Ngô Quyền, Sơn Trà' : 'Trường Sa, Ngũ Hành Sơn'
+  const [lng, lat] = xyToLngLat(x, y)
+  const dist = findDistrictAtLngLat(lng, lat)
+  if (!dist || !dist.on) return null
+  return DISTRICT_STREETS[dist.name] ?? `${dist.name}, Đà Nẵng`
 }
 function nearest(p: Pt, list: ExistingPin[]) {
   let best = { i: -1, m: Infinity }
@@ -232,8 +240,7 @@ export default function ReportScreen() {
   const submit = async () => {
     setSending(true)
     if (selectedFile && pin) {
-      const lon = +(108.15 + (pin.x / 100) * 0.1).toFixed(6)
-      const lat = +(16.10 - (pin.y / 100) * 0.08).toFixed(6)
+      const [lon, lat] = xyToLngLat(pin.x, pin.y)
       const catCode = type === 'Ngập úng' ? 'FLOODING' : type === 'Cây đổ' ? 'FALLEN_TREE' : type === 'Đèn' ? 'STREETLIGHT' : type === 'Rác' ? 'WASTE' : 'ROAD_DAMAGE'
       const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
       try {
