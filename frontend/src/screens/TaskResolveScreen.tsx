@@ -27,6 +27,7 @@ export default function TaskResolveScreen({ id }: { id: string }) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [proofFile, setProofFile] = useState<File | null>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const back = () => { window.location.href = `/technician/tasks/${id}` }
@@ -55,10 +56,23 @@ export default function TaskResolveScreen({ id }: { id: string }) {
   const pick = (m: number) => { setMeters(m); setPhoto('scanning') }
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
-    if (f) pick((f.size % 85) + 5)
+    if (f) {
+      setProofFile(f)
+      pick(Math.min(35, (f.size % 30) + 5))
+    }
     e.target.value = ''
   }
-  const submit = () => { setSending(true); setTimeout(() => { setSending(false); setSent(true); setStatus(task.id, 'RESOLVED') }, 1200) }
+  const submit = () => {
+    setSending(true)
+    setTimeout(() => {
+      setSending(false)
+      setSent(true)
+      setStatus(task.id, 'RESOLVED', {
+        note: `${measure}. Vật tư: ${material}. ${note}`,
+        proofFile: proofFile ?? undefined,
+      })
+    }, 1000)
+  }
 
   const gpsChip = photoReady && (
     <span className={cn(chipBase, 'animate-rise', gpsOk ? 'bg-done' : 'bg-urgent')}>

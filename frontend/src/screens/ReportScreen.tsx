@@ -25,7 +25,7 @@ import {
 import { CitizenTabBar, TopPillNav } from '../components/nav'
 import { findDistrictAtLngLat, xyToLngLat } from '../components/GoongBentoMap'
 import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident, useTicketVersion } from '../data/tickets'
-import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate } from '../lib/backend-api'
+import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, ensureRoleToken, loadSampleFieldPhotoFile } from '../lib/backend-api'
 
 type Photo = 'empty' | 'scanning' | 'done'
 type Pt = { x: number; y: number }
@@ -195,16 +195,16 @@ export default function ReportScreen() {
 
   const startUpload = (file?: File) => {
     if (photo === 'scanning') return
-    setSelectedFile(file ?? null)
     setPhoto('scanning')
     setPin(null)
     setDupHandled(false)
-    if (file) {
-      apiAnalyzeImage(file, note).then((ai) => {
+    const runAnalyze = (f: File) => {
+      setSelectedFile(f)
+      apiAnalyzeImage(f, note).then((ai) => {
         const c = ai.category_code.toUpperCase()
         if (c.includes('FLOOD')) setType('Ngập úng')
         else if (c.includes('TREE')) setType('Cây đổ')
-        else if (c.includes('WASTE') || c.includes('TRASH')) setType('Rác')
+        else if (c.includes('WASTE') || c.includes('TRASH') || c.includes('GARBAGE')) setType('Rác')
         else if (c.includes('LIGHT')) setType('Đèn')
         else setType('Đường')
         const p = ai.priority.toUpperCase()
@@ -213,6 +213,11 @@ export default function ReportScreen() {
         else if (p === 'LOW') setLevelLabel('Thấp')
         else setLevelLabel('Trung bình')
       }).catch(() => {})
+    }
+    if (file) {
+      runAnalyze(file)
+    } else {
+      loadSampleFieldPhotoFile().then(runAnalyze).catch(() => {})
     }
   }
   useEffect(() => {
@@ -239,28 +244,43 @@ export default function ReportScreen() {
 
   const submit = async () => {
     setSending(true)
-    if (selectedFile && pin) {
+    if (pin) {
       const [lon, lat] = xyToLngLat(pin.x, pin.y)
-      const catCode = type === 'Ngập úng' ? 'FLOODING' : type === 'Cây đổ' ? 'FALLEN_TREE' : type === 'Đèn' ? 'STREETLIGHT' : type === 'Rác' ? 'WASTE' : 'ROAD_DAMAGE'
+      const catCode =
+        type === 'Ngập úng'
+          ? 'FLOODING'
+          : type === 'Cây đổ'
+            ? 'FALLEN_TREE'
+            : type === 'Đèn'
+              ? 'STREETLIGHT'
+              : type === 'Rác'
+                ? 'GARBAGE'
+                : type === 'Khác'
+                  ? 'OTHER'
+                  : 'ROAD_DAMAGE'
       const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
+      const distName = addr?.split(',')[1]?.trim() || addr || 'Hải Châu'
       try {
+        await ensureRoleToken('CITIZEN')
+        const fileToUpload = selectedFile ?? (await loadSampleFieldPhotoFile())
         const created = await apiCreateIncident({
-          title: `${type} ${addr ?? 'Đà Nẵng'}`,
+          title: note.trim() ? `${type}: ${note.trim().slice(0, 48)}` : `${type} tại ${addr ?? 'Đà Nẵng'}`,
           description: note.trim() || `${type} tại ${addr ?? 'Đà Nẵng'}`,
           latitude: lat,
           longitude: lon,
           address_text: addr ?? 'Đà Nẵng',
+          district: distName,
           category_code: catCode,
           priority: prio,
           citizen_contact: phone,
-          image: selectedFile,
+          image: fileToUpload,
         })
         upsertBackendIncident(created)
         setSending(false)
         setResult({ code: created.ticket_code, merged: false })
         return
       } catch {
-        // Fallback to demo ticket
+        // Fallback to demo ticket if backend is unreachable
       }
     }
     setTimeout(() => {
@@ -346,11 +366,17 @@ export default function ReportScreen() {
       onPick={(x, y) => { setPin({ x, y }); setDupHandled(false) }}
     />
   )
+  const allTickets = useMemo(getTickets, [version])
+  const stat = useMemo(() => ({
+    total: allTickets.length,
+    working: allTickets.filter((t) => ['ASSIGNED', 'IN_PROGRESS', 'REOPENED'].includes(t.status)).length,
+    done: allTickets.filter((t) => ['RESOLVED', 'CONFIRMED', 'CLOSED'].includes(t.status)).length,
+  }), [allTickets])
   const metrics = (
     <div className="grid grid-cols-3 gap-2 md:gap-4">
-      <MetricBentoCard compact title="Tiếp nhận" value={128} icon={Plus} chart="bars" series={[3, 5, 4, 7, 6, 9, 12]} />
-      <MetricBentoCard compact title="Đang xử lý" value={46} icon={Wrench} tone="high" chart="spark" series={[4, 6, 5, 8, 7, 9, 10]} />
-      <MetricBentoCard compact title="Đã hoàn tất" value={82} icon={CheckCircle2} tone="done" chart="bars" series={[2, 3, 5, 4, 6, 7, 9]} />
+      <MetricBentoCard compact title="Tiếp nhận" value={stat.total} icon={Plus} chart="bars" series={[3, 5, 4, 7, 6, 9, 12]} />
+      <MetricBentoCard compact title="Đang xử lý" value={stat.working} icon={Wrench} tone="high" chart="spark" series={[4, 6, 5, 8, 7, 9, 10]} />
+      <MetricBentoCard compact title="Đã hoàn tất" value={stat.done} icon={CheckCircle2} tone="done" chart="bars" series={[2, 3, 5, 4, 6, 7, 9]} />
     </div>
   )
 
