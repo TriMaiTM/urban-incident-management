@@ -13,15 +13,27 @@ Tài liệu này đối chiếu chi tiết giữa **34 màn hình trong `ui-prot
 | **Auth** | `POST /api/v1/auth/register` | JSON `UserRegisterIn` (`email?`, `phone?`, `full_name`, `password`) | `TokenOut` (`access_token`, `token_type`, `expires_in_seconds`, `user: UserOut`) | Công khai |
 | **Auth** | `POST /api/v1/auth/login` | JSON `UserLoginIn` (`username`, `password`) | `TokenOut` | Công khai |
 | **Auth** | `POST /api/v1/auth/google` | JSON `GoogleLoginIn` (`id_token`) | `TokenOut` | Công khai |
-| **Auth** | `GET /api/v1/auth/me` | Header `Authorization: Bearer <token>` | `UserOut` (`id`, `email`, `phone`, `full_name`, `auth_provider`, `role`, `department_id`, `avatar_url`, `created_at`) | Đã đăng nhập |
+| **Auth** | `GET /api/v1/auth/me` | Header `Authorization: Bearer <token>` | `UserOut` (`id`, `email`, `phone`, `full_name`, `auth_provider`, `role`, `department_id`, `avatar_url`, `is_locked`, `created_at`) | Đã đăng nhập |
+| **Auth** | `PATCH /api/v1/auth/me` | JSON `UserProfileUpdateIn` (`full_name?`, `phone?`, `avatar_url?`) | `UserOut` | Đã đăng nhập |
+| **Auth** | `POST /api/v1/auth/change-password` | JSON `PasswordChangeIn` (`current_password`, `new_password`) | `{"message"}` | Đã đăng nhập |
+| **Users** | `GET /api/v1/users` | Query: `page=1`, `page_size=20`, `role?`, `department_id?`, `is_locked?`, `q?` | `UserListOut` (`total`, `items: list[UserOut]`, `page`, `page_size`) | `ADMIN` |
+| **Users** | `POST /api/v1/users` | JSON `AdminUserCreateIn` (`email?`, `phone?`, `full_name`, `password`, `role`, `department_id?`) | `UserOut` | `ADMIN` |
+| **Users** | `PATCH /api/v1/users/{user_id}` | JSON `AdminUserUpdateIn` (`full_name?`, `phone?`, `role?`, `department_id?`, `is_locked?`) | `UserOut` | `ADMIN` |
+| **Zones** | `GET /api/v1/zones` | Không có | `list[ZoneOut]` (tất cả vùng kèm `open_incident_count`, `is_active`, `geojson_geometry`) | Công khai |
 | **Zones** | `GET /api/v1/zones/active` | Không có | `list[ZoneOut]` (`id`, `name`, `is_active`, `bounding_box`, `description`, `geojson_geometry`) | Công khai |
+| **Zones** | `PATCH /api/v1/zones/{zone_id}` | JSON `ZoneUpdateIn` (`name?`, `description?`, `is_active?`) | `ZoneOut` | `ADMIN` |
 | **Zones** | `POST /api/v1/zones/validate-location` | JSON `LocationValidateIn` (`latitude`, `longitude`) | `LocationValidateOut` (`is_inside`, `zone_id`, `zone_name`, `message`) | Công khai |
-| **Categories** | `GET /api/v1/categories` | Không có | `list[CategoryOut]` (`id`, `code`, `name`, `default_sla_hours`, `default_department_id`) | Công khai |
+| **Categories** | `GET /api/v1/categories` | Không có | `list[CategoryOut]` (`id`, `code`, `name`, `default_sla_hours`, `default_department_id`, `is_active`) | Công khai |
+| **Categories** | `PATCH /api/v1/categories/{category_id}` | JSON `CategoryUpdateIn` (`name?`, `default_sla_hours?`, `default_department_id?`, `is_active?`) | `CategoryOut` | `ADMIN` |
 | **Departments** | `GET /api/v1/departments` | Không có | `list[DepartmentOut]` (`id`, `code`, `name`, `level`, `contact_email`, `contact_phone`) | Công khai |
+| **Departments** | `POST /api/v1/departments` | JSON `DepartmentCreateIn` (`code`, `name`, `level`, `contact_email?`, `contact_phone?`) | `DepartmentOut` | `ADMIN` |
+| **Departments** | `PATCH /api/v1/departments/{department_id}` | JSON `DepartmentUpdateIn` (`name?`, `level?`, `contact_email?`, `contact_phone?`) | `DepartmentOut` | `ADMIN` |
+| **Audit Logs** | `GET /api/v1/audit-logs` | Query: `page=1`, `page_size=20`, `ticket_code?`, `actor_id?`, `to_status?`, `from_date?`, `to_date?` | `AuditLogListOut` (`total`, `items: list[AuditLogItemOut]`, `page`, `page_size`) | `ADMIN`, `DISPATCHER` |
 | **Incidents** | `POST /api/v1/incidents/analyze-image` | `multipart/form-data` (`image: UploadFile`, `description?: str`) | `IncidentAnalyzeImageOut` (`category_code`, `priority`, `suggested_department_code`, `summary_vi`, `hazard_warning`, `confidence`, `sla_hours`, `is_blurred`, `faces_detected`, `plates_detected`) | Công khai (Rate limit theo `user_id` hoặc IP có kiểm tra `TRUSTED_PROXIES`, mặc định 10 lần/phút) |
 | **Incidents** | `POST /api/v1/incidents` | `multipart/form-data` (`title`, `description`, `latitude`, `longitude`, `address_text`, `district?`, `ward?`, `citizen_contact?`, `category_code?`, `priority?`, `image: UploadFile`) | `IncidentDetailOut` (kèm `is_priority_suggested: bool`) | Công khai (hoặc kèm Bearer Token tùy chọn) |
 | **Incidents** | `GET /api/v1/incidents/nearby` | Query: `latitude`, `longitude`, `radius=50.0`, `limit=10` | `IncidentNearbyOut` (`count`, `items: list[IncidentNearbyItem]` có `category_code`) | Công khai |
 | **Incidents** | `POST /api/v1/incidents/{id_or_code}/vote-duplicate` | Path: `id_or_code` (`UUID` hoặc `ticket_code`) | `IncidentVoteDuplicateOut` (`incident_id`, `ticket_code`, `duplicate_count`, `message`) | Công khai |
+| **Incidents** | `POST /api/v1/incidents/{id_or_code}/merge-duplicate` | Path: `id_or_code`<br>JSON `IncidentMergeDuplicateIn` (`duplicate_incident_id_or_code`, `note?`) | `IncidentMergeDuplicateOut` (`primary_incident_id`, `primary_ticket_code`, `duplicate_incident_id`, `duplicate_ticket_code`, `duplicate_count`, `message`) | `ADMIN`, `DISPATCHER` |
 | **Incidents** | `PATCH /api/v1/incidents/{id_or_code}/triage` | Path: `id_or_code`<br>JSON `IncidentTriageIn` (`category_id: UUID`, `priority: str`, `assigned_department_id: UUID`, `note?: str`) | `IncidentDetailOut` (`is_priority_suggested=False`) | `ADMIN`, `DISPATCHER` (từ `SUBMITTED`, `TRIAGED`) |
 | **Incidents** | `PATCH /api/v1/incidents/{id_or_code}/assign` | Path: `id_or_code`<br>JSON `IncidentAssignIn` (`assigned_department_id?: UUID`, `assigned_technician_id?: UUID`, `note?: str`) | `IncidentDetailOut` (`is_priority_suggested=False`) | `ADMIN`, `DISPATCHER` (từ `TRIAGED`, `ASSIGNED`, `REOPENED`) |
 | **Incidents** | `PATCH /api/v1/incidents/{id_or_code}/status` | Path: `id_or_code`<br>`multipart/form-data` (`to_status`, `note?`, `proof_latitude?`, `proof_longitude?`, `proof_image?: UploadFile`) | `IncidentDetailOut` | `TECHNICIAN` (`IN_PROGRESS`, `RESOLVED`); `ADMIN`, `DISPATCHER` (`CONFIRMED`, `REOPENED`, `REJECTED`, `CLOSED` khi `citizen_id` rỗng) |
@@ -33,6 +45,7 @@ Tài liệu này đối chiếu chi tiết giữa **34 màn hình trong `ui-prot
 | **Webhooks** | `GET /api/v1/webhooks/facebook` | Query: `hub.mode`, `hub.verify_token`, `hub.challenge` | Plain text challenge | Meta Platform |
 | **Webhooks** | `POST /api/v1/webhooks/facebook` | JSON `FacebookWebhookPayload` | Plain text `"EVENT_RECEIVED"` | Meta Platform |
 | **Open311** | `GET /open311/v2/services.json` | Không có | `list[Open311ServiceOut]` | Công khai |
+| **Open311** | `GET /open311/v2/requests.json` | Query: `service_code?`, `status?` (`open\|closed`), `start_date?`, `end_date?`, `limit=20` | `list[Open311RequestItemOut]` | Công khai |
 | **Open311** | `POST /open311/v2/requests.json` | JSON `Open311CreateRequestIn` (`service_code`, `lat`, `long`, `address_string?`, `email?`, `phone?`, `first_name?`, `last_name?`, `description`, `media_url?`) | `list[Open311CreateRequestResponseItem]` | Công khai |
 | **Open311** | `GET /open311/v2/requests/{service_request_id}.json` | Path: `service_request_id: str` | `list[Open311RequestItemOut]` | Công khai |
 

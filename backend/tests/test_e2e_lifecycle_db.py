@@ -57,6 +57,19 @@ def test_export_openapi_json_and_verify_new_schemas():
     assert "/api/v1/incidents/{id_or_code}/status" in paths
     assert "/api/v1/incidents/{id_or_code}/feedback" in paths
     assert "/api/v1/incidents/{id_or_code}/vote-duplicate" in paths
+    assert "/api/v1/incidents/{id_or_code}/merge-duplicate" in paths
+    assert "/api/v1/users" in paths
+    assert "/api/v1/users/{user_id}" in paths
+    assert "/api/v1/zones" in paths
+    assert "/api/v1/zones/{zone_id}" in paths
+    assert "/api/v1/categories/{category_id}" in paths
+    assert "/api/v1/departments" in paths
+    assert "/api/v1/departments/{department_id}" in paths
+    assert "/api/v1/audit-logs" in paths
+    assert "/api/v1/auth/change-password" in paths
+    assert "patch" in paths["/api/v1/auth/me"]
+    assert "get" in paths["/open311/v2/requests.json"]
+    assert "post" in paths["/open311/v2/requests.json"]
 
     schemas = spec["components"]["schemas"]
     assert "IncidentAnalyzeImageOut" in schemas

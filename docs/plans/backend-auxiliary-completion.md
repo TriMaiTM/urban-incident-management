@@ -139,7 +139,7 @@
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 4:** `feat(ops): add system audit logs, dispatcher duplicate merge, and Open311 requests list`
 
-### [ ] Bước 5: Cập nhật `docs/openapi.json` và `docs/ui-api-mapping.md`
+### [x] Bước 5: Cập nhật `docs/openapi.json`, `docs/ui-api-mapping.md` và `docs/checkpoint.md`
 - Chạy `py backend/scripts/export_openapi.py` để cập nhật `docs/openapi.json` và bổ sung kiểm tra schema mới trong `test_e2e_lifecycle_db.py`.
 - Cập nhật bảng trạng thái trong `docs/ui-api-mapping.md` cho các màn hình 5, 9, 14, 25, 26, 27, 28.
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
