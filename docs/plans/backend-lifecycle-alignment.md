@@ -218,7 +218,7 @@ Trước khi bắt đầu Bước 1, tạo nhánh làm việc mới `feat/backen
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 7:** `feat(ai): add rate-limited pre-submit image analysis and suggested priority flag`
 
-### [ ] Bước 8: Cập nhật Tài liệu `docs/ui-api-mapping.md` và `docs/PROJECT_CONTEXT_HANDOFF.md` (Mục 3.4)
+### [x] Bước 8: Cập nhật Tài liệu `docs/ui-api-mapping.md` và `docs/PROJECT_CONTEXT_HANDOFF.md` (Mục 3.4)
 - Cập nhật `docs/ui-api-mapping.md` và mục `3.4` của `docs/PROJECT_CONTEXT_HANDOFF.md` cho khớp hoàn toàn với vòng đời 9 trạng thái, quy tắc đóng phiếu/khiếu nại, cách tính SLA từ `created_at` và **ghi chú rõ rằng khi mở lại phiếu (`REOPENED`) hệ thống đặt lại hạn `sla_due_at` mới tính từ thời điểm mở lại**.
 - **Commit 8:** `docs: update ui-api-mapping and project context handoff for new lifecycle and SLA`
 
