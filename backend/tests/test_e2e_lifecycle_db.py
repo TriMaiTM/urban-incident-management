@@ -57,6 +57,19 @@ def test_export_openapi_json_and_verify_new_schemas():
     assert "/api/v1/incidents/{id_or_code}/status" in paths
     assert "/api/v1/incidents/{id_or_code}/feedback" in paths
     assert "/api/v1/incidents/{id_or_code}/vote-duplicate" in paths
+    assert "/api/v1/incidents/{id_or_code}/merge-duplicate" in paths
+    assert "/api/v1/users" in paths
+    assert "/api/v1/users/{user_id}" in paths
+    assert "/api/v1/zones" in paths
+    assert "/api/v1/zones/{zone_id}" in paths
+    assert "/api/v1/categories/{category_id}" in paths
+    assert "/api/v1/departments" in paths
+    assert "/api/v1/departments/{department_id}" in paths
+    assert "/api/v1/audit-logs" in paths
+    assert "/api/v1/auth/change-password" in paths
+    assert "patch" in paths["/api/v1/auth/me"]
+    assert "get" in paths["/open311/v2/requests.json"]
+    assert "post" in paths["/open311/v2/requests.json"]
 
     schemas = spec["components"]["schemas"]
     assert "IncidentAnalyzeImageOut" in schemas
@@ -358,5 +371,58 @@ async def test_seed_demo_rerunnable_and_covers_all_9_statuses(client: httpx.Asyn
         assert hero["priority"] == "HIGH"
         assert hero["status"] == "CONFIRMED"
         assert hero["is_priority_suggested"] is False
+
+        # Verify 7 District GIS Zones and per-district toggle on live PostGIS DB
+        zones_res = await client.get("/api/v1/zones")
+        assert zones_res.status_code == 200
+        zones_list = zones_res.json()
+        zone_ids = {z["id"] for z in zones_list}
+        assert {"HC", "TK", "ST", "CL", "NHS", "LC", "HV"}.issubset(zone_ids)
+
+        # Validate point in Hoa Vang (108.0500, 16.0200) -> inside HV while active
+        val_hv_ok = await client.post(
+            "/api/v1/zones/validate-location",
+            json={"latitude": 16.0200, "longitude": 108.0500},
+        )
+        assert val_hv_ok.status_code == 200
+        assert val_hv_ok.json()["is_inside"] is True
+        assert val_hv_ok.json()["zone_id"] == "HV"
+
+        # Admin disables HV -> point in Hoa Vang rejected while Hai Chau remains active
+        admin_login = await client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin@danang.gov.vn", "password": "Password123@"},
+        )
+        admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+
+        off_res = await client.patch(
+            "/api/v1/zones/HV",
+            headers=admin_headers,
+            json={"is_active": False},
+        )
+        assert off_res.status_code == 200
+        assert off_res.json()["is_active"] is False
+
+        val_hv_off = await client.post(
+            "/api/v1/zones/validate-location",
+            json={"latitude": 16.0200, "longitude": 108.0500},
+        )
+        assert val_hv_off.status_code == 200
+        assert val_hv_off.json()["is_inside"] is False
+
+        val_hc_still_ok = await client.post(
+            "/api/v1/zones/validate-location",
+            json={"latitude": 16.0606, "longitude": 108.2162},
+        )
+        assert val_hc_still_ok.status_code == 200
+        assert val_hc_still_ok.json()["is_inside"] is True
+        assert val_hc_still_ok.json()["zone_id"] == "HC"
+
+        # Restore HV active
+        await client.patch(
+            "/api/v1/zones/HV",
+            headers=admin_headers,
+            json={"is_active": True},
+        )
     finally:
         await engine.dispose()

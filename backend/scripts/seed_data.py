@@ -13,7 +13,7 @@ if sys.platform == "win32":
 # Add backend directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from geoalchemy2.shape import from_shape
 from shapely.geometry import shape
 
@@ -27,44 +27,52 @@ from app.models.zone import SystemZone
 async def seed_all_data():
     print("Starting data seeding for Danang Core Urban Incident Platform...\n")
     async with AsyncSessionLocal() as session:
-        # 1. Seed System Zone (Danang Core)
-        geojson_path = os.path.join(os.path.dirname(__file__), "..", "data", "danang_core_boundary.geojson")
-        with open(geojson_path, "r", encoding="utf-8") as f:
+        # 1. Seed 7 District System Zones of Da Nang (HC, TK, ST, CL, NHS, LC, HV)
+        districts_geojson_path = os.path.join(
+            os.path.dirname(__file__), "..", "data", "danang_districts_boundary.geojson"
+        )
+        with open(districts_geojson_path, "r", encoding="utf-8") as f:
             geojson_data = json.load(f)
 
-        feature = geojson_data["features"][0]
-        props = feature["properties"]
-        geom_shape = shape(feature["geometry"])
-        wkb_geom = from_shape(geom_shape, srid=4326)
+        # Remove legacy single umbrella DANANG_CORE record if present so per-district toggle works
+        await session.execute(delete(SystemZone).where(SystemZone.id == "DANANG_CORE"))
 
-        existing_zone = await session.execute(
-            select(SystemZone).where(SystemZone.id == props["zone_id"])
-        )
-        zone_obj = existing_zone.scalar_one_or_none()
+        for feature in geojson_data["features"]:
+            props = feature["properties"]
+            geom_shape = shape(feature["geometry"])
+            wkb_geom = from_shape(geom_shape, srid=4326)
 
-        bounding_box = {
-            "min_lon": props["min_lon"],
-            "min_lat": props["min_lat"],
-            "max_lon": props["max_lon"],
-            "max_lat": props["max_lat"]
-        }
-
-        if not zone_obj:
-            zone_obj = SystemZone(
-                id=props["zone_id"],
-                name=props["name"],
-                boundary=wkb_geom,
-                is_active=True,
-                bounding_box=bounding_box,
-                description=props["description"]
+            existing_zone = await session.execute(
+                select(SystemZone).where(SystemZone.id == props["zone_id"])
             )
-            session.add(zone_obj)
-            print(f"1. [CREATED] SystemZone: {props['name']} ({props['zone_id']})")
-        else:
-            zone_obj.boundary = wkb_geom
-            zone_obj.bounding_box = bounding_box
-            zone_obj.is_active = True
-            print(f"1. [UPDATED] SystemZone: {props['name']} ({props['zone_id']})")
+            zone_obj = existing_zone.scalar_one_or_none()
+
+            bounding_box = {
+                "min_lon": props["min_lon"],
+                "min_lat": props["min_lat"],
+                "max_lon": props["max_lon"],
+                "max_lat": props["max_lat"],
+            }
+            default_active = bool(props.get("is_active", True))
+
+            if not zone_obj:
+                zone_obj = SystemZone(
+                    id=props["zone_id"],
+                    name=props["name"],
+                    boundary=wkb_geom,
+                    is_active=default_active,
+                    bounding_box=bounding_box,
+                    description=props["description"],
+                )
+                session.add(zone_obj)
+                print(f"1. [CREATED] District SystemZone: {props['name']} ({props['zone_id']})")
+            else:
+                zone_obj.name = props["name"]
+                zone_obj.boundary = wkb_geom
+                zone_obj.bounding_box = bounding_box
+                zone_obj.description = props["description"]
+                zone_obj.is_active = default_active
+                print(f"1. [UPDATED] District SystemZone: {props['name']} ({props['zone_id']})")
 
         # 2. Seed Departments
         dept_data = [

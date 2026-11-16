@@ -17,7 +17,7 @@
    - Vượt qua 100% các bài kiểm tra ranh giới trong `backend/tests/test_zones.py` (Cầu Rồng, Cầu Sông Hàn, Ngũ Hành Sơn, Hòa Khánh đều nằm bên trong; Quảng Nam, Huế, Biển Đông nằm bên ngoài).
    - Đồng bộ giữa `backend/data/danang_core_boundary.geojson`, `frontend/src/data/danang_core_boundary.json` và `frontend/src/lib/api.ts`.
 2. **Tích hợp Goong Maps vào Frontend:**
-   - Cấu hình `NEXT_PUBLIC_GOONG_MAPTILES_KEY=QkzX9ARUi7eycq2Q3KdJqJF4EFooRHCfDJfubhXJ` trong `frontend/.env.local`.
+   - Cấu hình `NEXT_PUBLIC_GOONG_MAPTILES_KEY=<REDACTED_GOONG_MAPTILES_KEY>` trong `frontend/.env.local`.
    - Trong `frontend/src/components/map/map-view.tsx`:
      - Ưu tiên tải Goong Map Vector Style: `https://tiles.goong.io/assets/goong_map_web.json?api_key=${GOONG_MAPTILES_KEY}`.
      - Tận dụng lớp khối nhà 3D (`fill-extrusion`, source-layer `VN_Building`) và các lớp đường kiệt/hẻm, số nhà, địa danh POI bản địa của Goong.
@@ -58,7 +58,7 @@
   - Thẩm định độc lập qua Reviewer subagent `0a7d9dee-45a4-4628-afac-5f0451b1ce56`: STATUS: PASS.
 
 ### Bước 2: Tích hợp Goong Map Vector Style & Khối nhà 3D vào `map-view.tsx` - [x] ĐÃ HOÀN THÀNH
-- Thêm `NEXT_PUBLIC_GOONG_MAPTILES_KEY=QkzX9ARUi7eycq2Q3KdJqJF4EFooRHCfDJfubhXJ` vào `frontend/.env.local`.
+- Thêm `NEXT_PUBLIC_GOONG_MAPTILES_KEY=<REDACTED_GOONG_MAPTILES_KEY>` vào `frontend/.env.local`.
 - Cập nhật `frontend/src/components/map/map-view.tsx`:
   - Khai báo hằng số `GOONG_MAPTILES_KEY = process.env.NEXT_PUBLIC_GOONG_MAPTILES_KEY?.trim() || ""`.
   - Trong `getInitialMapStyle()`: Nếu có `GOONG_MAPTILES_KEY`, trả về URL style vector `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(GOONG_MAPTILES_KEY)}`.
@@ -90,4 +90,4 @@
 ---
 
 ## 5. Câu hỏi Mở
-- Người dùng đã cung cấp key Goong MapTiles: `QkzX9ARUi7eycq2Q3KdJqJF4EFooRHCfDJfubhXJ`. Bạn có muốn tôi tiến hành thực hiện kế hoạch trên ngay bây giờ không?
+- Người dùng đã cung cấp key Goong MapTiles (`<REDACTED_GOONG_MAPTILES_KEY>`). Bạn có muốn tôi tiến hành thực hiện kế hoạch trên ngay bây giờ không?

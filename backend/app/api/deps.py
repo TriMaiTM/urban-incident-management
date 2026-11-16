@@ -48,6 +48,12 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa bởi quản trị viên.",
+        )
+
     return user
 
 
@@ -69,12 +75,19 @@ async def get_current_user_optional(
         return None
 
     user = await db.get(User, user_id)
+    if user and getattr(user, "is_locked", False):
+        return None
     return user
 
 
 def require_roles(allowed_roles: List[str]) -> Callable:
     """Dependency factory kiểm tra vai trò người dùng theo cơ chế RBAC."""
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if getattr(current_user, "is_locked", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản của bạn đã bị khóa bởi quản trị viên.",
+            )
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

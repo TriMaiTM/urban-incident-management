@@ -176,6 +176,429 @@
             "HTTPBearer": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "Authentication & Profile"
+        ],
+        "summary": "Cập nhật hồ sơ cá nhân của người dùng đang đăng nhập",
+        "description": "Cập nhật họ tên, số điện thoại hoặc ảnh đại diện của tài khoản hiện tại.",
+        "operationId": "update_my_profile_api_v1_auth_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserProfileUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "tags": [
+          "Authentication & Profile"
+        ],
+        "summary": "Đổi mật khẩu tài khoản hiện tại",
+        "description": "Xác minh mật khẩu hiện tại và cập nhật mật khẩu mới cho người dùng đang đăng nhập.",
+        "operationId": "change_my_password_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Change My Password Api V1 Auth Change Password Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "Admin User Management & RBAC"
+        ],
+        "summary": "Tra cứu danh sách người dùng và phân quyền RBAC (Chỉ ADMIN)",
+        "description": "Liệt kê người dùng toàn hệ thống phục vụ màn hình Quản trị Người dùng & RBAC.",
+        "operationId": "list_users_api_v1_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Số trang",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Số trang"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Số bản ghi mỗi trang",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "Số bản ghi mỗi trang"
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo vai trò: CITIZEN, DISPATCHER, TECHNICIAN, ADMIN",
+              "title": "Role"
+            },
+            "description": "Lọc theo vai trò: CITIZEN, DISPATCHER, TECHNICIAN, ADMIN"
+          },
+          {
+            "name": "department_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo đơn vị công tác",
+              "title": "Department Id"
+            },
+            "description": "Lọc theo đơn vị công tác"
+          },
+          {
+            "name": "is_locked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo trạng thái khóa tài khoản",
+              "title": "Is Locked"
+            },
+            "description": "Lọc theo trạng thái khóa tài khoản"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tìm kiếm theo họ tên, email hoặc số điện thoại",
+              "title": "Q"
+            },
+            "description": "Tìm kiếm theo họ tên, email hoặc số điện thoại"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin User Management & RBAC"
+        ],
+        "summary": "Tạo tài khoản cán bộ hoặc người dùng mới (Chỉ ADMIN)",
+        "description": "Quản trị viên tạo mới tài khoản người dùng / cán bộ điều phối / kỹ thuật viên.",
+        "operationId": "create_user_by_admin_api_v1_users_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "patch": {
+        "tags": [
+          "Admin User Management & RBAC"
+        ],
+        "summary": "Cập nhật vai trò, đơn vị hoặc khóa/mở khóa tài khoản (Chỉ ADMIN)",
+        "description": "Quản trị viên cập nhật thông tin, đổi vai trò RBAC hoặc khóa/mở khóa tài khoản người dùng.",
+        "operationId": "update_user_by_admin_api_v1_users__user_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/zones": {
+      "get": {
+        "tags": [
+          "Geographical Zones & Geofencing"
+        ],
+        "summary": "Lấy toàn bộ danh sách phân vùng GIS (kèm trạng thái bật/tắt)",
+        "description": "Trả về toàn bộ các phân vùng (cả đang hoạt động và đang tạm dừng) kèm số phiếu đang mở của từng vùng.",
+        "operationId": "list_all_zones_api_v1_zones_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ZoneOut"
+                  },
+                  "type": "array",
+                  "title": "Response List All Zones Api V1 Zones Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/zones/{zone_id}": {
+      "patch": {
+        "tags": [
+          "Geographical Zones & Geofencing"
+        ],
+        "summary": "Bật/Tắt tiếp nhận sự cố hoặc cập nhật phân vùng GIS (Chỉ ADMIN)",
+        "description": "Quản trị viên bật/tắt trạng thái is_active hoặc cập nhật thông tin phân vùng GIS.",
+        "operationId": "update_zone_api_v1_zones__zone_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "zone_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Zone Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/zones/active": {
@@ -272,6 +695,65 @@
         }
       }
     },
+    "/api/v1/categories/{category_id}": {
+      "patch": {
+        "tags": [
+          "Incident Categories"
+        ],
+        "summary": "Cập nhật cấu hình danh mục sự cố, SLA mặc định hoặc bật/tắt (Chỉ ADMIN)",
+        "description": "Quản trị viên cập nhật tên, thời hạn SLA mặc định, đơn vị mặc định hoặc trạng thái bật/tắt của danh mục.",
+        "operationId": "update_category_api_v1_categories__category_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Category Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/departments": {
       "get": {
         "tags": [
@@ -291,6 +773,110 @@
                   },
                   "type": "array",
                   "title": "Response Get Departments Api V1 Departments Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Departments & Agencies"
+        ],
+        "summary": "Thêm mới đơn vị xử lý sự cố đô thị (Chỉ ADMIN)",
+        "description": "Quản trị viên thêm mới đơn vị hoặc đội quản lý đô thị.",
+        "operationId": "create_department_api_v1_departments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DepartmentCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepartmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/departments/{department_id}": {
+      "patch": {
+        "tags": [
+          "Departments & Agencies"
+        ],
+        "summary": "Cập nhật thông tin đơn vị xử lý (Chỉ ADMIN)",
+        "description": "Quản trị viên cập nhật tên, cấp đơn vị hoặc thông tin liên hệ của đơn vị xử lý.",
+        "operationId": "update_department_api_v1_departments__department_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "department_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Department Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DepartmentUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepartmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -716,6 +1302,64 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IncidentVoteDuplicateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}/merge-duplicate": {
+      "post": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Gộp một phiếu sự cố trùng lặp vào phiếu chính (ADMIN, DISPATCHER)",
+        "description": "Điều phối viên IOC gộp một phiếu trùng lặp (duplicate_incident_id_or_code) vào phiếu gốc (id_or_code):\n- Tăng `duplicate_count` của phiếu gốc thêm 1.\n- Gán `is_duplicate_of_id = primary.id` và chuyển trạng thái phiếu trùng sang `REJECTED` kèm lịch sử.",
+        "operationId": "merge_duplicate_incident_api_v1_incidents__id_or_code__merge_duplicate_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentMergeDuplicateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentMergeDuplicateOut"
                 }
               }
             }
@@ -1173,6 +1817,165 @@
         }
       }
     },
+    "/api/v1/audit-logs": {
+      "get": {
+        "tags": [
+          "System Audit Logs"
+        ],
+        "summary": "Tra cứu nhật ký kiểm toán biến động trạng thái toàn hệ thống (ADMIN, DISPATCHER)",
+        "description": "Truy vấn phân trang toàn bộ lịch sử biến động trạng thái sự cố kèm thông tin người thực hiện.",
+        "operationId": "list_audit_logs_api_v1_audit_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Số trang",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Số trang"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Số bản ghi mỗi trang",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "Số bản ghi mỗi trang"
+          },
+          {
+            "name": "ticket_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo mã phiếu DN-YYYYMM-XXXX",
+              "title": "Ticket Code"
+            },
+            "description": "Lọc theo mã phiếu DN-YYYYMM-XXXX"
+          },
+          {
+            "name": "actor_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo ID người thực hiện",
+              "title": "Actor Id"
+            },
+            "description": "Lọc theo ID người thực hiện"
+          },
+          {
+            "name": "to_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo trạng thái đích",
+              "title": "To Status"
+            },
+            "description": "Lọc theo trạng thái đích"
+          },
+          {
+            "name": "from_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Từ thời điểm",
+              "title": "From Date"
+            },
+            "description": "Từ thời điểm"
+          },
+          {
+            "name": "to_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Đến thời điểm",
+              "title": "To Date"
+            },
+            "description": "Đến thời điểm"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/facebook": {
       "get": {
         "tags": [
@@ -1340,14 +2143,14 @@
         "description": "Tiếp nhận tạo mới yêu cầu phản ánh hiện trường theo chuẩn Open311 GeoReport v2:\n- Thẩm định mã dịch vụ service_code hợp lệ trong hệ thống.\n- Thẩm định hàng rào địa lý Đà Nẵng (PostGIS ST_Contains với ST_MakePoint(long, lat)).\n- Sinh mã tra cứu service_request_id chuẩn DN-YYYYMM-XXXX.\n- Ghi nhận Incident, IncidentHistory, và IncidentMedia (nếu có media_url).",
         "operationId": "create_request_open311_v2_requests_json_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/Open311CreateRequestIn"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -1355,11 +2158,135 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Open311CreateRequestResponseItem"
                   },
-                  "type": "array",
                   "title": "Response Create Request Open311 V2 Requests Json Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Open311 GeoReport v2"
+        ],
+        "summary": "Tra cứu danh sách yêu cầu dịch vụ theo chuẩn Open311 GeoReport v2",
+        "description": "Liệt kê danh sách yêu cầu dịch vụ theo chuẩn Open311 GeoReport v2 (hỗ trợ lọc service_code, status, limit).",
+        "operationId": "list_requests_open311_v2_requests_json_get",
+        "parameters": [
+          {
+            "name": "service_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo mã dịch vụ công (예: FLOODING, ROAD_DAMAGE)",
+              "title": "Service Code"
+            },
+            "description": "Lọc theo mã dịch vụ công (예: FLOODING, ROAD_DAMAGE)"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo trạng thái Open311: open hoặc closed",
+              "title": "Status"
+            },
+            "description": "Lọc theo trạng thái Open311: open hoặc closed"
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Từ thời điểm",
+              "title": "Start Date"
+            },
+            "description": "Từ thời điểm"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Đến thời điểm",
+              "title": "End Date"
+            },
+            "description": "Đến thời điểm"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Số lượng yêu cầu tối đa",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Số lượng yêu cầu tối đa"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Open311RequestItemOut"
+                  },
+                  "title": "Response List Requests Open311 V2 Requests Json Get"
                 }
               }
             }
@@ -1427,6 +2354,279 @@
   },
   "components": {
     "schemas": {
+      "AdminUserCreateIn": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email",
+            "description": "Email người dùng"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 15,
+                "minLength": 9
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone",
+            "description": "Số điện thoại người dùng"
+          },
+          "full_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 2,
+            "title": "Full Name",
+            "description": "Họ và tên"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 6,
+            "title": "Password",
+            "description": "Mật khẩu khởi tạo"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "CITIZEN",
+              "DISPATCHER",
+              "TECHNICIAN",
+              "ADMIN"
+            ],
+            "title": "Role",
+            "description": "Vai trò hệ thống",
+            "default": "CITIZEN"
+          },
+          "department_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Id",
+            "description": "ID đơn vị phụ trách (với cán bộ)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_name",
+          "password"
+        ],
+        "title": "AdminUserCreateIn"
+      },
+      "AdminUserUpdateIn": {
+        "properties": {
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 15,
+                "minLength": 9
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "CITIZEN",
+                  "DISPATCHER",
+                  "TECHNICIAN",
+                  "ADMIN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "department_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Id"
+          },
+          "is_locked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Locked"
+          }
+        },
+        "type": "object",
+        "title": "AdminUserUpdateIn"
+      },
+      "AuditLogItemOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "ticket_code": {
+            "type": "string",
+            "title": "Ticket Code"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "to_status": {
+            "type": "string",
+            "title": "To Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "incident_id",
+          "ticket_code",
+          "to_status",
+          "created_at"
+        ],
+        "title": "AuditLogItemOut",
+        "description": "System-wide audit log entry for incident state transitions."
+      },
+      "AuditLogListOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditLogItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 20
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "items"
+        ],
+        "title": "AuditLogListOut",
+        "description": "Paginated response for system-wide audit logs."
+      },
       "Body_analyze_incident_image_api_v1_incidents_analyze_image_post": {
         "properties": {
           "image": {
@@ -1664,6 +2864,11 @@
               }
             ],
             "title": "Default Department Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
           }
         },
         "type": "object",
@@ -1675,6 +2880,116 @@
         ],
         "title": "CategoryOut",
         "description": "Schema for incident categories."
+      },
+      "CategoryUpdateIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "default_sla_hours": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 720.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Sla Hours"
+          },
+          "default_department_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Department Id"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "CategoryUpdateIn",
+        "description": "Schema for admin updating category configuration and SLA."
+      },
+      "DepartmentCreateIn": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "level": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Level",
+            "default": "UTILITY_COMPANY"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "DepartmentCreateIn",
+        "description": "Schema for admin creating a new department/unit."
       },
       "DepartmentOut": {
         "properties": {
@@ -1727,6 +3042,63 @@
         ],
         "title": "DepartmentOut",
         "description": "Schema for managing departments and agencies in Da Nang."
+      },
+      "DepartmentUpdateIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          }
+        },
+        "type": "object",
+        "title": "DepartmentUpdateIn",
+        "description": "Schema for admin updating an existing department/unit."
       },
       "FacebookAttachment": {
         "properties": {
@@ -2895,6 +4267,77 @@
         "title": "IncidentMediaOut",
         "description": "Schema for media attachments (original, anonymized, and resolution proof)."
       },
+      "IncidentMergeDuplicateIn": {
+        "properties": {
+          "duplicate_incident_id_or_code": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 3,
+            "title": "Duplicate Incident Id Or Code",
+            "description": "UUID hoặc mã phiếu DN-YYYYMM-XXXX của phiếu trùng lặp cần gộp"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Ghi chú gộp phiếu trùng lặp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "duplicate_incident_id_or_code"
+        ],
+        "title": "IncidentMergeDuplicateIn",
+        "description": "Request schema for dispatcher merging a duplicate incident into a primary incident."
+      },
+      "IncidentMergeDuplicateOut": {
+        "properties": {
+          "primary_incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Primary Incident Id"
+          },
+          "primary_ticket_code": {
+            "type": "string",
+            "title": "Primary Ticket Code"
+          },
+          "duplicate_incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Duplicate Incident Id"
+          },
+          "duplicate_ticket_code": {
+            "type": "string",
+            "title": "Duplicate Ticket Code"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "primary_incident_id",
+          "primary_ticket_code",
+          "duplicate_incident_id",
+          "duplicate_ticket_code",
+          "duplicate_count",
+          "message"
+        ],
+        "title": "IncidentMergeDuplicateOut",
+        "description": "Response schema after dispatcher merges a duplicate incident."
+      },
       "IncidentNearbyItem": {
         "properties": {
           "id": {
@@ -3672,6 +5115,29 @@
         "title": "Open311ServiceOut",
         "description": "Open311 Service Definition (GET /services.json)."
       },
+      "PasswordChangeIn": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Current Password",
+            "description": "Mật khẩu hiện tại"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 6,
+            "title": "New Password",
+            "description": "Mật khẩu mới (tối thiểu 6 ký tự)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChangeIn"
+      },
       "TokenOut": {
         "properties": {
           "access_token": {
@@ -3698,6 +5164,37 @@
           "user"
         ],
         "title": "TokenOut"
+      },
+      "UserListOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 20
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "items"
+        ],
+        "title": "UserListOut"
       },
       "UserLoginIn": {
         "properties": {
@@ -3784,6 +5281,11 @@
             ],
             "title": "Avatar Url"
           },
+          "is_locked": {
+            "type": "boolean",
+            "title": "Is Locked",
+            "default": false
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3799,6 +5301,53 @@
           "created_at"
         ],
         "title": "UserOut"
+      },
+      "UserProfileUpdateIn": {
+        "properties": {
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name",
+            "description": "Họ và tên mới"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 15,
+                "minLength": 9
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone",
+            "description": "Số điện thoại mới"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url",
+            "description": "Đường dẫn ảnh đại diện mới"
+          }
+        },
+        "type": "object",
+        "title": "UserProfileUpdateIn"
       },
       "UserRegisterIn": {
         "properties": {
@@ -3905,6 +5454,11 @@
             "type": "boolean",
             "title": "Is Active"
           },
+          "open_incident_count": {
+            "type": "integer",
+            "title": "Open Incident Count",
+            "default": 0
+          },
           "bounding_box": {
             "anyOf": [
               {
@@ -3948,6 +5502,47 @@
           "is_active"
         ],
         "title": "ZoneOut"
+      },
+      "ZoneUpdateIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "ZoneUpdateIn"
       }
     },
     "securitySchemes": {
