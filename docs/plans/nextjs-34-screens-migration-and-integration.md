@@ -89,7 +89,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`)
 - **Commit 1:** `feat(frontend): migrate 34 Bento V2 screens and component library to Next.js App Router`
 
-### [ ] Bước 2: Xây Dựng Tầng API Client (`backend-api.ts`) & Đồng Bộ Store `tickets.ts` Với Backend
+### [x] Bước 2: Xây Dựng Tầng API Client (`backend-api.ts`) & Đồng Bộ Store `tickets.ts` Với Backend
 - Tạo `frontend/src/lib/backend-api.ts` định nghĩa đầy đủ các hàm gọi FastAPI (`auth`, `incidents`, `analyze-image`, `nearby`, `vote-duplicate`, `merge-duplicate`, `triage`, `assign`, `status`, `feedback`, `analytics`, `users`, `zones`, `categories`, `departments`, `audit-logs`, `open311`).
 - Nâng cấp `frontend/src/data/tickets.ts`:
   - Tự động đồng bộ danh sách phiếu từ `GET /api/v1/incidents` vào store khi khởi chạy và sau mỗi thao tác cập nhật.

@@ -7,11 +7,50 @@
  * - Thay đổi trạng thái được lưu vào localStorage để các màn thấy cùng một phiếu.
  */
 import { useEffect, useState } from 'react'
+import {
+  type ApiIncidentDetailOut,
+  type ApiIncidentOut,
+  apiListIncidents,
+  apiSubmitIncidentFeedback,
+  apiUpdateIncidentStatus,
+  getAuthToken,
+} from '../lib/backend-api'
 
 export type Priority = 'urgent' | 'high' | 'normal' | 'low'
 export type Status = 'SUBMITTED' | 'TRIAGED' | 'ASSIGNED' | 'REJECTED' | 'IN_PROGRESS' | 'RESOLVED' | 'CONFIRMED' | 'CLOSED' | 'REOPENED'
 export type Kind = 'road' | 'flood' | 'tree' | 'trash' | 'light'
 export type Gps = { lat: number; lng: number }
+
+export const CATEGORY_TO_KIND: Record<string, Kind> = {
+  ROAD_DAMAGE: 'road',
+  FLOODING: 'flood',
+  FALLEN_TREE: 'tree',
+  GARBAGE: 'trash',
+  STREETLIGHT: 'light',
+  OTHER: 'road',
+}
+
+export const KIND_TO_CATEGORY: Record<Kind, string> = {
+  road: 'ROAD_DAMAGE',
+  flood: 'FLOODING',
+  tree: 'FALLEN_TREE',
+  trash: 'GARBAGE',
+  light: 'STREETLIGHT',
+}
+
+export const API_PRIO_TO_UI: Record<string, Priority> = {
+  EMERGENCY: 'urgent',
+  HIGH: 'high',
+  NORMAL: 'normal',
+  LOW: 'low',
+}
+
+export const UI_PRIO_TO_API: Record<Priority, 'EMERGENCY' | 'HIGH' | 'NORMAL' | 'LOW'> = {
+  urgent: 'EMERGENCY',
+  high: 'HIGH',
+  normal: 'NORMAL',
+  low: 'LOW',
+}
 
 /** Nhãn hiển thị: dùng đúng một nhãn trên mọi màn. */
 export const statusLabel: Record<Status, string> = {
@@ -105,32 +144,216 @@ const base: Ticket[] = specs.map((s) => {
   }
 })
 
-/* ---------- Lưu thay đổi trạng thái ---------- */
-type Override = { status: Status; at: Ticket['at']; submittedAt?: number }
+/* ---------- Lưu thay đổi trạng thái & Đồng bộ Backend ---------- */
+type Override = { status: Status; at: Ticket['at']; submittedAt?: number; supporters?: number; reason?: string; rated?: number; note?: string; ktv?: string; unit?: string }
 const KEY = 'urbana.tickets'
 const EVT = 'urbana-tickets'
-const load = (): Record<string, Override> => { try { return JSON.parse(localStorage.getItem(KEY) ?? '{}') } catch { return {} } }
+const liveTicketsById = new Map<string, Ticket>()
+let initialSyncStarted = false
+
+export function toXY(lat: number, lng: number): { x: number; y: number } {
+  const x = Math.max(6, Math.min(94, +(((lng - 108.1) / 0.2) * 100).toFixed(1)))
+  const y = Math.max(8, Math.min(92, +(((16.15 - lat) / 0.15) * 100).toFixed(1)))
+  return { x, y }
+}
+
+const DEPT_CODE_TO_UNIT: Record<string, string> = {
+  CTN_DN: 'Công ty Thoát nước',
+  SGTVT_DN: 'Đội Cầu đường',
+  CCX_DN: 'Công viên Cây xanh',
+  CMT_DN: 'Môi trường đô thị',
+  CCS_DN: 'Chiếu sáng đô thị',
+  UBND_HC: 'UBND Quận Hải Châu',
+  UBND_TK: 'UBND Quận Thanh Khê',
+}
+
+export function mapApiIncidentToTicket(inc: ApiIncidentOut | ApiIncidentDetailOut): Ticket {
+  const kind: Kind = CATEGORY_TO_KIND[inc.category_code ?? 'ROAD_DAMAGE'] ?? 'road'
+  const priority: Priority = API_PRIO_TO_UI[inc.priority] ?? 'normal'
+  const submittedAt = new Date(inc.created_at).getTime() || Date.now()
+  const gps: Gps = { lat: inc.latitude, lng: inc.longitude }
+  const { x, y } = toXY(inc.latitude, inc.longitude)
+  const resolvedMs = inc.resolved_at ? new Date(inc.resolved_at).getTime() : undefined
+
+  const at: Ticket['at'] = { SUBMITTED: submittedAt }
+  if (inc.status !== 'SUBMITTED') at.TRIAGED = submittedAt + MIN
+  if (['ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'CLOSED', 'REOPENED'].includes(inc.status)) {
+    at.ASSIGNED = submittedAt + 5 * MIN
+  }
+  if (['IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'CLOSED', 'REOPENED'].includes(inc.status)) {
+    at.IN_PROGRESS = submittedAt + 15 * MIN
+  }
+  if (resolvedMs) {
+    at.RESOLVED = resolvedMs
+  }
+  if (['CONFIRMED', 'CLOSED'].includes(inc.status)) {
+    at.CONFIRMED = (resolvedMs ?? submittedAt) + 5 * MIN
+  }
+  if (inc.status === 'CLOSED') {
+    at.CLOSED = (at.CONFIRMED ?? submittedAt) + 5 * MIN
+  }
+
+  let ktv: string | undefined
+  let gpsAfter: Gps | undefined
+  let rated: number | undefined
+  let note: string | undefined
+
+  if ('history' in inc && Array.isArray(inc.history)) {
+    for (const h of inc.history) {
+      const hSt = h.to_status as Status
+      const tMs = new Date(h.created_at).getTime()
+      if (tMs) at[hSt] = tMs
+      if (h.to_status === 'RESOLVED' && h.note) note = h.note
+    }
+  }
+  if ('assigned_technician_name' in inc && inc.assigned_technician_name) {
+    ktv = inc.assigned_technician_name
+  }
+  if ('media' in inc && Array.isArray(inc.media)) {
+    const proof = inc.media.find((m) => m.media_type === 'AFTER_PROOF')
+    if (proof && proof.latitude !== null && proof.longitude !== null) {
+      gpsAfter = { lat: proof.latitude, lng: proof.longitude }
+    }
+  }
+  if (!gpsAfter && ['RESOLVED', 'CONFIRMED', 'CLOSED'].includes(inc.status)) {
+    gpsAfter = shiftEast(gps, 12)
+  }
+  if ('feedback' in inc && inc.feedback?.rating) {
+    rated = inc.feedback.rating
+  }
+
+  const unit =
+    (inc.assigned_department_code ? DEPT_CODE_TO_UNIT[inc.assigned_department_code] : undefined) ??
+    U[kind]
+
+  return {
+    id: inc.ticket_code,
+    title: inc.title,
+    address: inc.address_text,
+    district: inc.district || 'Hải Châu',
+    kind,
+    priority,
+    submittedAt,
+    status: inc.status,
+    unit,
+    ktv,
+    x,
+    y,
+    gps,
+    gpsAfter,
+    hash: hashOf([inc.ticket_code, kind, gps.lat, gps.lng, 12].join('|')),
+    supporters: inc.duplicate_count ?? 0,
+    reason: inc.rejection_reason ?? undefined,
+    rated,
+    note,
+    at,
+  }
+}
+
+export function upsertBackendIncident(inc: ApiIncidentOut | ApiIncidentDetailOut): Ticket {
+  const mapped = mapApiIncidentToTicket(inc)
+  liveTicketsById.set(mapped.id, mapped)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(EVT))
+  }
+  return mapped
+}
+
+export async function syncTicketsFromBackend(): Promise<void> {
+  if (typeof window === 'undefined') return
+  try {
+    const res = await apiListIncidents({ page: 1, page_size: 100 })
+    for (const item of res.items) {
+      const mapped = mapApiIncidentToTicket(item)
+      liveTicketsById.set(mapped.id, mapped)
+    }
+    window.dispatchEvent(new Event(EVT))
+  } catch {
+    // Graceful fallback to local base tickets when backend is offline
+  }
+}
+
+const load = (): Record<string, Override> => {
+  if (typeof window === 'undefined') return {}
+  try {
+    return JSON.parse(localStorage.getItem(KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
 export function getTickets(): Ticket[] {
   const o = load()
-  return base.map((t) => {
+  const mergedMap = new Map<string, Ticket>()
+  for (const t of base) {
+    mergedMap.set(t.id, t)
+  }
+  for (const [id, liveTicket] of liveTicketsById.entries()) {
+    const existing = mergedMap.get(id)
+    mergedMap.set(id, existing ? { ...existing, ...liveTicket, at: { ...existing.at, ...liveTicket.at } } : liveTicket)
+  }
+
+  return Array.from(mergedMap.values()).map((t) => {
     const x = o[t.id]
-    const m = x ? { ...t, status: x.status, submittedAt: x.submittedAt ?? t.submittedAt, at: { ...t.at, ...x.at } } : t
-    // CLOSED: công dân xác nhận, hoặc tự đóng sau 3 ngày kể từ lúc CONFIRMED.
-    if (m.status === 'CONFIRMED' && m.at.CONFIRMED && Date.now() - m.at.CONFIRMED > 3 * 86_400_000) return { ...m, status: 'CLOSED' as Status, at: { ...m.at, CLOSED: m.at.CONFIRMED + 3 * 86_400_000 } }
-    return m
+    if (!x) return t
+    // Không có tự đóng theo thời gian (lifecycle.md)
+    return {
+      ...t,
+      status: x.status,
+      submittedAt: x.submittedAt ?? t.submittedAt,
+      supporters: x.supporters ?? t.supporters,
+      reason: x.reason ?? t.reason,
+      rated: x.rated ?? t.rated,
+      note: x.note ?? t.note,
+      ktv: x.ktv ?? t.ktv,
+      unit: x.unit ?? t.unit,
+      at: { ...t.at, ...x.at },
+    }
   })
 }
+
 export const getTicket = (id: string) => getTickets().find((t) => t.id === id)
-export function setStatus(id: string, status: Status) {
+
+export function setStatus(id: string, status: Status, extra?: Partial<Override>) {
+  if (typeof window === 'undefined') return
   const o = load()
   const cur = getTicket(id)
   if (!cur) return
-  o[id] = { ...(o[id] ?? { at: {} }), status, at: { ...(o[id]?.at ?? {}), [status]: Date.now() } }
+  o[id] = {
+    ...(o[id] ?? { at: {} }),
+    ...extra,
+    status,
+    at: { ...(o[id]?.at ?? {}), [status]: Date.now() },
+  }
   localStorage.setItem(KEY, JSON.stringify(o))
   window.dispatchEvent(new Event(EVT))
+
+  // Synchronize status mutation to Backend API if token is available
+  if (getAuthToken()) {
+    if (status === 'CLOSED') {
+      apiSubmitIncidentFeedback(id, {
+        action: 'CONFIRM',
+        rating: extra?.rated,
+        comment: extra?.note || 'Công dân xác nhận hài lòng đóng phiếu',
+      }).catch(() => {})
+    } else if (status === 'REOPENED' && cur.status === 'CONFIRMED') {
+      apiSubmitIncidentFeedback(id, {
+        action: 'DISPUTE',
+        rating: extra?.rated,
+        comment: extra?.reason || extra?.note || 'Công dân khiếu nại yêu cầu xử lý lại',
+      }).catch(() => {})
+    } else if (['IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'REOPENED', 'REJECTED'].includes(status)) {
+      apiUpdateIncidentStatus(id, {
+        to_status: status,
+        note: extra?.reason || extra?.note || `Cập nhật trạng thái sang ${status}`,
+      }).catch(() => {})
+    }
+  }
 }
+
 /** Công dân gửi phản ánh ở màn 2: phiếu demo bắt đầu tính SLA từ lúc này, rồi AI tự phân loại. */
 export function submitDemoTicket() {
+  if (typeof window === 'undefined') return
   const o = load()
   const now = Date.now()
   o[DEMO_ID] = { status: 'SUBMITTED', submittedAt: now, at: { SUBMITTED: now } }
@@ -138,14 +361,29 @@ export function submitDemoTicket() {
   window.dispatchEvent(new Event(EVT))
   setTimeout(() => setStatus(DEMO_ID, 'TRIAGED'), 1500)
 }
-export function resetTickets() { localStorage.removeItem(KEY); window.dispatchEvent(new Event(EVT)) }
-/** Hook: render lại khi trạng thái phiếu đổi (kể cả từ tab khác). */
+
+export function resetTickets() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(KEY)
+  window.dispatchEvent(new Event(EVT))
+  void syncTicketsFromBackend()
+}
+
+/** Hook: render lại khi trạng thái phiếu đổi (kể cả từ tab khác) và tự đồng bộ từ Backend. */
 export function useTicketVersion() {
   const [v, setV] = useState(0)
   useEffect(() => {
     const f = () => setV((n) => n + 1)
-    window.addEventListener(EVT, f); window.addEventListener('storage', f)
-    return () => { window.removeEventListener(EVT, f); window.removeEventListener('storage', f) }
+    window.addEventListener(EVT, f)
+    window.addEventListener('storage', f)
+    if (!initialSyncStarted) {
+      initialSyncStarted = true
+      void syncTicketsFromBackend()
+    }
+    return () => {
+      window.removeEventListener(EVT, f)
+      window.removeEventListener('storage', f)
+    }
   }, [])
   return v
 }
