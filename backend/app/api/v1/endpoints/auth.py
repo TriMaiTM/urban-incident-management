@@ -9,7 +9,15 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.user import User
-from app.schemas.auth import GoogleLoginIn, TokenOut, UserLoginIn, UserOut, UserRegisterIn
+from app.schemas.auth import (
+    GoogleLoginIn,
+    PasswordChangeIn,
+    TokenOut,
+    UserLoginIn,
+    UserOut,
+    UserProfileUpdateIn,
+    UserRegisterIn,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication & Profile"])
 
@@ -98,6 +106,12 @@ async def login(
             detail="Thông tin đăng nhập không chính xác (sai email/số điện thoại hoặc mật khẩu)."
         )
 
+    if getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa bởi quản trị viên."
+        )
+
     token = create_access_token(subject=user.id, role=user.role)
     expires_in_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
@@ -176,6 +190,11 @@ async def login_with_google(
         await db.commit()
         await db.refresh(user)
     else:
+        if getattr(user, "is_locked", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản của bạn đã bị khóa bởi quản trị viên."
+            )
         # Cập nhật avatar mới nếu có
         if google_picture and not user.avatar_url:
             user.avatar_url = google_picture
@@ -205,3 +224,62 @@ async def get_my_profile(
     Trả về thông tin hồ sơ và vai trò của người dùng đang đăng nhập dựa trên JWT Bearer token.
     """
     return UserOut.model_validate(current_user)
+
+
+@router.patch(
+    "/me",
+    response_model=UserOut,
+    summary="Cập nhật hồ sơ cá nhân của người dùng đang đăng nhập"
+)
+async def update_my_profile(
+    body: UserProfileUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserOut:
+    """Cập nhật họ tên, số điện thoại hoặc ảnh đại diện của tài khoản hiện tại."""
+    if body.phone is not None and body.phone.strip() != (current_user.phone or ""):
+        clean_phone = body.phone.strip()
+        existing_phone = await db.execute(
+            select(User).where(User.phone == clean_phone, User.id != current_user.id)
+        )
+        if existing_phone.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Số điện thoại '{clean_phone}' đã được sử dụng bởi tài khoản khác.",
+            )
+        current_user.phone = clean_phone
+
+    if body.full_name is not None and body.full_name.strip():
+        current_user.full_name = body.full_name.strip()
+
+    if body.avatar_url is not None:
+        current_user.avatar_url = body.avatar_url.strip() or None
+
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    return UserOut.model_validate(current_user)
+
+
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_200_OK,
+    summary="Đổi mật khẩu tài khoản hiện tại"
+)
+async def change_my_password(
+    body: PasswordChangeIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Xác minh mật khẩu hiện tại và cập nhật mật khẩu mới cho người dùng đang đăng nhập."""
+    if not current_user.password_hash or not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mật khẩu hiện tại không chính xác.",
+        )
+
+    current_user.password_hash = get_password_hash(body.new_password)
+    db.add(current_user)
+    await db.commit()
+    return {"message": "Đổi mật khẩu thành công."}
+

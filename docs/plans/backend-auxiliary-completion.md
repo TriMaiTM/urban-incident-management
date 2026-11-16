@@ -113,7 +113,7 @@
 - Cập nhật mục 5 của `docs/PROJECT_CONTEXT_HANDOFF.md` theo đúng bảng màu trong `docs/design-direction.md` (`#111111` đen chủ đạo, `#E5251B` đỏ nhấn, `#16A34A` hoàn tất) và số lượng bài kiểm thử mới.
 - **Commit 1:** `docs: remove obsolete v1 plans and align project handoff docs`
 
-### [ ] Bước 2: Hồ sơ cá nhân (`/auth/me`, `/auth/change-password`) & Quản trị Người dùng (`/api/v1/users` + `is_locked`)
+### [x] Bước 2: Hồ sơ cá nhân (`/auth/me`, `/auth/change-password`) & Quản trị Người dùng (`/api/v1/users` + `is_locked`)
 - Thêm `is_locked` vào model `User` và `SCHEMA_ALTER_STATEMENTS` trong `backend/scripts/init_db.py`.
 - Kiểm tra `user.is_locked` trong `/auth/login`, `/auth/google` và `get_current_user` (trả `403` nếu tài khoản bị khóa).
 - Thêm `PATCH /api/v1/auth/me` và `POST /api/v1/auth/change-password` trong `backend/app/api/v1/endpoints/auth.py`.
