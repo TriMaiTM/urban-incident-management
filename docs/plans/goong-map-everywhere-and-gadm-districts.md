@@ -82,7 +82,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`)
 - **Commit 2:** `feat(frontend): embed interactive Goong Map across MapBentoViewport screens`
 
-### [ ] Bước 3: Tích Hợp Goong Map & Đa Giác Quận/Huyện Thực Vào `ZonesScreen` (`/admin/zones`) và `FieldUnitsScreen` (`/dispatcher/field-units`)
+### [x] Bước 3: Tích Hợp Goong Map & Đa Giác Quận/Huyện Thực Vào `ZonesScreen` (`/admin/zones`) và `FieldUnitsScreen` (`/dispatcher/field-units`)
 - Cập nhật `frontend/src/screens/ZonesScreen.tsx`:
   - Xóa `zoneSeed` 5 đỉnh hardcode cũ và xóa nền ảnh tĩnh `MapCanvas`.
   - Hiển thị trực tiếp 7 đa giác Quận/Huyện GADM trên nền Goong Map tương tác; khi click vào đa giác quận hoặc gạt nút bật/tắt, cập nhật tức thì màu sắc đa giác trên Goong Map và gọi `PATCH /api/v1/zones/{id}`.
