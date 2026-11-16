@@ -1,16 +1,16 @@
 # Vòng đời phiếu
 
-Trạng thái, nhãn hiển thị (dùng đúng một nhãn trên mọi màn), người chuyển, màn và nút:
-- SUBMITTED "Đã tiếp nhận": công dân gửi ở màn 2.
-- TRIAGED "Đã phân loại": hệ thống (AI) tự chuyển sau khi gửi.
-- ASSIGNED "Đã giao": điều phối, màn 14 nút "Duyệt & Giao việc".
-- REJECTED "Từ chối": điều phối, màn 14 nút "Từ chối tiếp nhận". Công dân thấy ở màn 10 tab "Bị từ chối".
-- IN_PROGRESS "Đang xử lý": kỹ thuật viên, màn 20 nút "Bắt đầu xử lý".
-- RESOLVED "Đã xử lý": kỹ thuật viên, màn 21 nút "Gửi biên bản".
-- CONFIRMED "Đã xác nhận": điều phối, màn 15 nút "Duyệt nghiệm thu".
-- CLOSED "Đã đóng": công dân bấm "Xác nhận hài lòng" ở màn 12, hoặc tự đóng sau 3 ngày.
-- REOPENED "Mở lại": điều phối bấm "Yêu cầu làm lại" ở màn 15, hoặc công dân chấm 1-2 sao ở màn 12.
+SUBMITTED "Đã tiếp nhận": công dân gửi ở màn 2.
+TRIAGED "Đã phân loại": hệ thống tự chuyển sau khi gửi (AI phân loại).
+ASSIGNED "Đã giao": điều phối, màn 14 nút "Duyệt & Giao việc".
+REJECTED "Từ chối": điều phối, màn 14 nút "Từ chối tiếp nhận", bắt buộc nhập lý do.
+IN_PROGRESS "Đang xử lý": kỹ thuật viên, màn 20 nút "Bắt đầu xử lý".
+RESOLVED "Đã xử lý": kỹ thuật viên, màn 21 nút "Gửi biên bản".
+CONFIRMED "Đã xác nhận": điều phối, màn 15 nút "Duyệt nghiệm thu".
+CLOSED "Đã đóng": công dân, màn 12 nút "Xác nhận hài lòng". Số sao 1-5 là tùy chọn, chỉ để lưu điểm.
+REOPENED "Mở lại": điều phối ở màn 15 nút "Yêu cầu làm lại" (từ RESOLVED), hoặc công dân ở màn 12 nút "Gửi khiếu nại" (từ CONFIRMED, bắt buộc nhập lý do). Kỹ thuật viên bấm "Bắt đầu xử lý" thì REOPENED chuyển lại IN_PROGRESS.
 
-SLA tính từ lúc gửi: Khẩn cấp 4 giờ, Cao 12 giờ, Trung bình 24 giờ, Thấp 48 giờ. Gọi mức NORMAL là "Trung bình" ở mọi nơi.
-Công dân thấy timeline rút gọn 5 mốc (Tiếp nhận, Phân loại, Giao việc, Đang xử lý, Đã khắc phục). "Đã khắc phục" là nhãn công dân cho RESOLVED và CONFIRMED.
-Số "Đã hoàn tất" ở trang chủ và dashboard đếm phiếu CLOSED.
+Công dân chỉ đánh giá và khiếu nại khi phiếu đang ở CONFIRMED.
+SLA: Khẩn cấp 4 giờ, Cao 12 giờ, Trung bình 24 giờ, Thấp 48 giờ, tính từ lúc tạo phiếu theo mức ưu tiên hiện tại. Mở lại thì tính hạn mới từ lúc mở lại.
+Công dân thấy timeline rút gọn 5 mốc: Tiếp nhận, Phân loại, Giao việc, Đang xử lý, Đã khắc phục. "Đã khắc phục" gộp RESOLVED và CONFIRMED.
+Số "Đã hoàn tất" ở trang chủ và dashboard đếm phiếu CLOSED. Mức NORMAL luôn gọi là "Trung bình".
