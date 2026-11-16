@@ -20,7 +20,11 @@ from geoalchemy2.functions import ST_Contains, ST_MakePoint, ST_SetSRID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.endpoints.incidents import _get_upload_dirs, process_incident_ai_triage
+from app.api.v1.endpoints.incidents import (
+    _get_upload_dirs,
+    calculate_sla_due_at,
+    process_incident_ai_triage,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.incident import Incident, IncidentHistory, IncidentMedia
@@ -263,6 +267,7 @@ async def handle_facebook_webhook(
                         address_text=f"Đà Nẵng (GPS: {session.lat:.5f}, {session.long:.5f})",
                         location=ST_SetSRID(ST_MakePoint(session.long, session.lat), 4326),
                         duplicate_count=0,
+                        sla_due_at=calculate_sla_due_at("NORMAL", now),
                         created_at=now,
                     )
 

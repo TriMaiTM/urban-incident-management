@@ -1,6 +1,7 @@
 """Pydantic schemas for Incident Ingestion, AI Triage, Detail, Nearby, and Management."""
 
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -36,6 +37,62 @@ def _extract_lat_lon(loc: object) -> tuple[float, float] | None:
     return None
 
 
+def abbreviate_person_name(full_name: str | None) -> str | None:
+    """Abbreviate a person's full name to surname + initials of middle/given names (e.g. 'Trần Văn Kỹ' -> 'Trần V. K.')."""
+    if not full_name:
+        return None
+    parts = [p for p in full_name.strip().split() if p]
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    initials = " ".join(f"{p[0].upper()}." for p in parts[1:])
+    return f"{parts[0]} {initials}"
+
+
+def _extract_rejection_reason_from_history(history_list: object) -> str | None:
+    """Extract the note from the latest REJECTED transition in incident history."""
+    if not isinstance(history_list, list):
+        return None
+    for item in reversed(history_list):
+        to_st = item.get("to_status") if isinstance(item, dict) else getattr(item, "to_status", None)
+        if to_st == "REJECTED":
+            note = item.get("note") if isinstance(item, dict) else getattr(item, "note", None)
+            if note and str(note).strip():
+                return str(note).strip()
+    return None
+
+
+def _safe_get_rel(obj: object, name: str) -> object:
+    """Safely read an attribute or ORM relationship without triggering SQLAlchemy lazy-load (MissingGreenlet)."""
+    try:
+        from sqlalchemy.orm.base import instance_state
+
+        state = instance_state(obj)  # type: ignore[arg-type]
+        if state is not None and name in state.mapper.relationships and name not in state.dict:
+            return None
+    except Exception:
+        pass
+    return getattr(obj, name, None)
+
+
+def _resolve_is_priority_suggested(status_val: object, ai_raw: object, history_list: object) -> bool:
+    """Return False once dispatcher has triaged or assigned the incident, otherwise True."""
+    if isinstance(ai_raw, dict) and ai_raw.get("is_priority_suggested") is False:
+        return False
+    if status_val in {"ASSIGNED", "IN_PROGRESS", "RESOLVED", "CONFIRMED", "CLOSED", "REOPENED"}:
+        return False
+    if isinstance(history_list, list):
+        for item in history_list:
+            to_st = item.get("to_status") if isinstance(item, dict) else getattr(item, "to_status", None)
+            actor = item.get("actor_id") if isinstance(item, dict) else getattr(item, "actor_id", None)
+            if to_st == "ASSIGNED" or (to_st == "TRIAGED" and actor is not None):
+                return False
+    if isinstance(ai_raw, dict) and "is_priority_suggested" in ai_raw and ai_raw["is_priority_suggested"] is not None:
+        return bool(ai_raw["is_priority_suggested"])
+    return True
+
+
 class CategoryOut(BaseModel):
     """Schema for incident categories."""
 
@@ -68,6 +125,8 @@ class IncidentMediaOut(BaseModel):
     incident_id: UUID
     media_type: str
     file_url: str
+    latitude: float | None = None
+    longitude: float | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -93,7 +152,7 @@ class IncidentFeedbackOut(BaseModel):
     id: UUID
     incident_id: UUID
     citizen_id: UUID
-    rating: int
+    rating: int | None = None
     comment: str | None = None
     created_at: datetime
 
@@ -101,10 +160,20 @@ class IncidentFeedbackOut(BaseModel):
 
 
 class IncidentFeedbackCreateIn(BaseModel):
-    """Schema for citizen post-resolution feedback submission."""
+    """Schema for citizen post-verification confirmation or dispute submission."""
 
-    rating: int = Field(..., ge=1, le=5, description="Điểm đánh giá từ 1 đến 5 sao")
-    comment: str | None = Field(None, max_length=1000, description="Ý kiến nhận xét của công dân")
+    action: Literal["CONFIRM", "DISPUTE"] = Field(
+        "CONFIRM",
+        description="Hành động của công dân: CONFIRM (xác nhận hài lòng đóng phiếu) hoặc DISPUTE (khiếu nại mở lại)",
+    )
+    rating: int | None = Field(None, ge=1, le=5, description="Điểm đánh giá tùy chọn từ 1 đến 5 sao")
+    comment: str | None = Field(None, max_length=1000, description="Ý kiến nhận xét hoặc lý do khiếu nại")
+
+    @model_validator(mode="after")
+    def validate_dispute_comment(self) -> "IncidentFeedbackCreateIn":
+        if self.action == "DISPUTE" and (not self.comment or not self.comment.strip()):
+            raise ValueError("Bắt buộc phải cung cấp lý do khi gửi khiếu nại (comment).")
+        return self
 
 
 class IncidentCreateForm(BaseModel):
@@ -132,6 +201,7 @@ class IncidentOut(BaseModel):
     description: str
     status: str
     priority: str
+    is_priority_suggested: bool = True
     channel: str = "WEB"
     address_text: str
     district: str | None = None
@@ -142,6 +212,7 @@ class IncidentOut(BaseModel):
     category_code: str | None = None
     assigned_department_code: str | None = None
     duplicate_count: int = 0
+    rejection_reason: str | None = None
     sla_due_at: datetime | None = None
     resolved_at: datetime | None = None
     created_at: datetime
@@ -162,6 +233,17 @@ class IncidentOut(BaseModel):
             if ("assigned_department_code" not in data or data["assigned_department_code"] is None) and data.get("assigned_department"):
                 dept = data["assigned_department"]
                 data["assigned_department_code"] = dept.get("code") if isinstance(dept, dict) else getattr(dept, "code", None)
+            if ("assigned_technician_name" not in data or data["assigned_technician_name"] is None) and data.get("assigned_technician"):
+                tech = data["assigned_technician"]
+                data["assigned_technician_name"] = tech.get("full_name") if isinstance(tech, dict) else getattr(tech, "full_name", None)
+            if ("rejection_reason" not in data or data["rejection_reason"] is None) and data.get("history"):
+                data["rejection_reason"] = _extract_rejection_reason_from_history(data["history"])
+            if "is_priority_suggested" not in data or data["is_priority_suggested"] is None:
+                data["is_priority_suggested"] = _resolve_is_priority_suggested(
+                    data.get("status"),
+                    data.get("ai_classification_raw"),
+                    data.get("history"),
+                )
             if ("anonymized_image_url" not in data or data["anonymized_image_url"] is None) and data.get("media"):
                 media_list = data["media"]
                 if isinstance(media_list, list):
@@ -222,37 +304,59 @@ class IncidentOut(BaseModel):
         # Category code
         if hasattr(data, "category_code") and getattr(data, "category_code") is not None:
             res["category_code"] = getattr(data, "category_code")
-        elif hasattr(data, "category") and getattr(data, "category") is not None:
-            res["category_code"] = getattr(data.category, "code", None)
+        else:
+            cat_rel = _safe_get_rel(data, "category")
+            if cat_rel is not None:
+                res["category_code"] = getattr(cat_rel, "code", None)
 
         # Assigned department code
         if hasattr(data, "assigned_department_code") and getattr(data, "assigned_department_code") is not None:
             res["assigned_department_code"] = getattr(data, "assigned_department_code")
-        elif hasattr(data, "assigned_department") and getattr(data, "assigned_department") is not None:
-            res["assigned_department_code"] = getattr(data.assigned_department, "code", None)
+        else:
+            dept_rel = _safe_get_rel(data, "assigned_department")
+            if dept_rel is not None:
+                res["assigned_department_code"] = getattr(dept_rel, "code", None)
+
+        # Assigned technician name
+        if hasattr(data, "assigned_technician_name") and getattr(data, "assigned_technician_name") is not None:
+            res["assigned_technician_name"] = getattr(data, "assigned_technician_name")
+        else:
+            tech_rel = _safe_get_rel(data, "assigned_technician")
+            if tech_rel is not None:
+                res["assigned_technician_name"] = getattr(tech_rel, "full_name", None)
+
+        # Rejection reason
+        hist_rel = _safe_get_rel(data, "history")
+        if hasattr(data, "rejection_reason") and getattr(data, "rejection_reason") is not None:
+            res["rejection_reason"] = getattr(data, "rejection_reason")
+        elif hist_rel is not None:
+            res["rejection_reason"] = _extract_rejection_reason_from_history(hist_rel)
+
+        # Priority suggested flag
+        if hasattr(data, "is_priority_suggested") and getattr(data, "is_priority_suggested") is not None:
+            res["is_priority_suggested"] = bool(getattr(data, "is_priority_suggested"))
+        else:
+            res["is_priority_suggested"] = _resolve_is_priority_suggested(
+                res.get("status"),
+                res.get("ai_classification_raw"),
+                hist_rel,
+            )
 
         # Anonymized image url
+        media_rel = _safe_get_rel(data, "media")
         if hasattr(data, "anonymized_image_url") and getattr(data, "anonymized_image_url") is not None:
             res["anonymized_image_url"] = getattr(data, "anonymized_image_url")
-        elif hasattr(data, "media") and getattr(data, "media") is not None:
-            media_list = getattr(data, "media")
-            if isinstance(media_list, list):
-                for m in media_list:
-                    if getattr(m, "media_type", None) == "BEFORE_ANONYMIZED":
-                        res["anonymized_image_url"] = getattr(m, "file_url", None)
-                        break
+        elif isinstance(media_rel, list):
+            for m in media_rel:
+                if getattr(m, "media_type", None) == "BEFORE_ANONYMIZED":
+                    res["anonymized_image_url"] = getattr(m, "file_url", None)
+                    break
 
-        # Detail fields (guard against None attributes)
-        if hasattr(data, "category") and getattr(data, "category") is not None:
-            res["category"] = getattr(data, "category")
-        if hasattr(data, "assigned_department") and getattr(data, "assigned_department") is not None:
-            res["assigned_department"] = getattr(data, "assigned_department")
-        if hasattr(data, "media") and getattr(data, "media") is not None:
-            res["media"] = getattr(data, "media")
-        if hasattr(data, "history") and getattr(data, "history") is not None:
-            res["history"] = getattr(data, "history")
-        if hasattr(data, "feedback") and getattr(data, "feedback") is not None:
-            res["feedback"] = getattr(data, "feedback")
+        # Detail fields (guard against None / unloaded ORM relationships)
+        for rel_name in ("category", "assigned_department", "media", "history", "feedback"):
+            rel_val = _safe_get_rel(data, rel_name)
+            if rel_val is not None:
+                res[rel_name] = rel_val
 
         return res
 
@@ -263,6 +367,7 @@ class IncidentDetailOut(IncidentOut):
     citizen_id: UUID | None = None
     citizen_contact: str | None = None
     assigned_technician_id: UUID | None = None
+    assigned_technician_name: str | None = None
     is_duplicate_of_id: UUID | None = None
     category: CategoryOut | None = None
     assigned_department: DepartmentOut | None = None
@@ -283,6 +388,7 @@ class IncidentNearbyItem(BaseModel):
     title: str
     status: str
     priority: str
+    category_code: str | None = None
     distance_meters: float
     latitude: float
     longitude: float
@@ -343,7 +449,10 @@ class IncidentAssignIn(BaseModel):
 class IncidentStatusUpdateIn(BaseModel):
     """Schema for status transition updates."""
 
-    status: str = Field(..., description="Trạng thái mục tiêu: IN_PROGRESS, RESOLVED, REJECTED, CLOSED")
+    status: str = Field(
+        ...,
+        description="Trạng thái mục tiêu: IN_PROGRESS, RESOLVED, CONFIRMED, REOPENED, REJECTED, CLOSED",
+    )
     note: str | None = None
 
 
@@ -359,6 +468,7 @@ class IncidentMapProperties(BaseModel):
     category_name: str | None = None
     district: str | None = None
     address_text: str
+    duplicate_count: int = 0
     sla_due_at: datetime | None = None
     is_overdue: bool = False
     anonymized_image_url: str | None = None
@@ -371,6 +481,8 @@ class IncidentMapProperties(BaseModel):
     def extract_from_orm_or_dict(cls, data: object) -> object:
         if isinstance(data, dict):
             res = dict(data)
+            if "duplicate_count" not in res or res["duplicate_count"] is None:
+                res["duplicate_count"] = 0
             if ("category_code" not in res or res["category_code"] is None) and res.get("category"):
                 cat = res["category"]
                 res["category_code"] = cat.get("code") if isinstance(cat, dict) else getattr(cat, "code", None)
@@ -411,11 +523,15 @@ class IncidentMapProperties(BaseModel):
             "priority",
             "district",
             "address_text",
+            "duplicate_count",
             "sla_due_at",
             "created_at",
         ]:
             if hasattr(data, attr):
                 res_obj[attr] = getattr(data, attr)
+
+        if "duplicate_count" not in res_obj or res_obj["duplicate_count"] is None:
+            res_obj["duplicate_count"] = 0
 
         if hasattr(data, "is_overdue") and getattr(data, "is_overdue") is not None:
             res_obj["is_overdue"] = getattr(data, "is_overdue")
@@ -486,6 +602,28 @@ class IncidentAnalyticsSummaryOut(BaseModel):
     by_priority: dict[str, int]
     by_district: dict[str, int]
     sla_compliance: dict[str, object]
+    avg_resolution_time_minutes: float = 0.0
+    avg_satisfaction_rating: float = 0.0
+    satisfaction_score: float = 0.0
+    completion_rate_by_district: dict[str, float] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentAnalyzeImageOut(BaseModel):
+    """Schema for pre-submit AI image analysis after Decree 13 anonymization."""
+
+    category_code: str
+    priority: str
+    suggested_department_code: str
+    summary_vi: str
+    hazard_warning: str | None = None
+    confidence: float
+    sla_hours: int
+    is_blurred: bool
+    faces_detected: int = 0
+    plates_detected: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
 

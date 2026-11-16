@@ -62,6 +62,16 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_SIZE_MB: int = 15
 
+    # Rate Limiting & Proxy Trust
+    ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE: int = 10
+    TRUSTED_PROXIES: Union[List[str], str] = ""
+
+    @property
+    def trusted_proxies_set(self) -> set[str]:
+        if isinstance(self.TRUSTED_PROXIES, list):
+            return {ip.strip() for ip in self.TRUSTED_PROXIES if ip and ip.strip()}
+        return {ip.strip() for ip in self.TRUSTED_PROXIES.split(",") if ip.strip()}
+
     # CORS
     CORS_ORIGINS: Union[List[str], str] = "http://localhost:3000,http://127.0.0.1:3000"
 

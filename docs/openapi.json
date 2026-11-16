@@ -1,0 +1,3960 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Danang Urban Incident Management Platform",
+    "description": "Backend API for Danang Urban Infrastructure Incident Management Platform",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "Authentication & Profile"
+        ],
+        "summary": "Đăng ký tài khoản công dân mới",
+        "description": "Đăng ký tài khoản mới bằng Email hoặc Số điện thoại + Mật khẩu.\nMặc định vai trò của người dùng tạo mới là CITIZEN.",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRegisterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication & Profile"
+        ],
+        "summary": "Đăng nhập bằng Email/SĐT và Mật khẩu",
+        "description": "Đăng nhập bằng Email hoặc Số điện thoại kết hợp với Mật khẩu.\nTrả về JWT Bearer token và thông tin vai trò của người dùng.",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserLoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/google": {
+      "post": {
+        "tags": [
+          "Authentication & Profile"
+        ],
+        "summary": "Đăng nhập một chạm bằng Google OAuth 2.0",
+        "description": "Xác thực Google ID Token nhận từ frontend Google Sign-In SDK.\nTự động tạo tài khoản mới nếu email chưa từng đăng ký.",
+        "operationId": "login_with_google_api_v1_auth_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleLoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "Authentication & Profile"
+        ],
+        "summary": "Lấy thông tin tài khoản hiện tại",
+        "description": "Trả về thông tin hồ sơ và vai trò của người dùng đang đăng nhập dựa trên JWT Bearer token.",
+        "operationId": "get_my_profile_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/zones/active": {
+      "get": {
+        "tags": [
+          "Geographical Zones & Geofencing"
+        ],
+        "summary": "Lấy danh sách các phân vùng đang kích hoạt",
+        "description": "Trả về danh sách các vùng tiếp nhận sự cố đang hoạt động (kèm GeoJSON ranh giới và bounding box).",
+        "operationId": "get_active_zones_api_v1_zones_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ZoneOut"
+                  },
+                  "type": "array",
+                  "title": "Response Get Active Zones Api V1 Zones Active Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/zones/validate-location": {
+      "post": {
+        "tags": [
+          "Geographical Zones & Geofencing"
+        ],
+        "summary": "Thẩm định tọa độ vị trí theo hàng rào địa lý",
+        "description": "Kiểm tra tọa độ (lat, lon) gửi lên có nằm trong ranh giới của phân vùng đang kích hoạt (Đà Nẵng) hay không.\nSử dụng hàm PostGIS ST_Contains trên không gian WGS84 (SRID 4326).",
+        "operationId": "validate_location_api_v1_zones_validate_location_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationValidateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationValidateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/categories": {
+      "get": {
+        "tags": [
+          "Incident Categories"
+        ],
+        "summary": "Lấy danh sách toàn bộ danh mục sự cố đô thị",
+        "description": "Truy vấn toàn bộ danh mục sự cố đô thị từ CSDL (sắp xếp theo mã code).\nTrả về danh sách CategoryOut bao gồm SLA mặc định và cơ quan xử lý mặc định.",
+        "operationId": "get_categories_api_v1_categories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryOut"
+                  },
+                  "type": "array",
+                  "title": "Response Get Categories Api V1 Categories Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/departments": {
+      "get": {
+        "tags": [
+          "Departments & Agencies"
+        ],
+        "summary": "Lấy danh sách các đơn vị tiếp nhận xử lý",
+        "description": "Truy vấn toàn bộ đơn vị tiếp nhận xử lý tại Đà Nẵng từ CSDL.\nSắp xếp theo cấp bậc đơn vị (level) và tên đơn vị (name).",
+        "operationId": "get_departments_api_v1_departments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DepartmentOut"
+                  },
+                  "type": "array",
+                  "title": "Response Get Departments Api V1 Departments Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/analyze-image": {
+      "post": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Phân tích ảnh hiện trường bằng AI trước khi gửi (làm mờ Nghị định 13, không lưu ảnh)",
+        "description": "Phân tích ảnh hiện trường trước khi người dân bấm gửi phản ánh:\n- Giới hạn tần suất (Rate Limit): cấu hình qua `ANALYZE_IMAGE_RATE_LIMIT_PER_MINUTE` (mặc định 10 lần/phút).\n  Khóa theo `user_id` nếu đã đăng nhập; nếu là khách thì khóa theo IP (`X-Forwarded-For` chỉ được tin cậy\n  khi nguồn kết nối thuộc `TRUSTED_PROXIES`, mặc định dùng `request.client.host`).\n  Lưu ý: Hạn mức được lưu trong bộ nhớ tiến trình (in-memory), chỉ đúng cho một tiến trình đơn lẻ.\n- Làm mờ khuôn mặt và biển số xe theo Nghị định 13/2023/NĐ-CP bằng OpenCV Haar Cascade trong thư mục tạm\n  TRƯỚC khi gửi ảnh sang DeepSeek Vision, và xóa ngay tệp tạm trong khối `finally` (không lưu ảnh lên đĩa/DB).\n  Lưu ý: Thuật toán làm mờ tự động chỉ mang tính hỗ trợ (best-effort) và không bắt hết mọi trường hợp\n  (góc nghiêng, che khuất, ánh sáng yếu).\n- Không ghi dữ liệu ảnh hoặc nội dung phân tích vào log. Khi DeepSeek lỗi hoặc timeout, trả mã 502 Bad Gateway\n  với thông điệp ngắn rõ ràng để giao diện hiển thị trạng thái lỗi.",
+        "operationId": "analyze_incident_image_api_v1_incidents_analyze_image_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_analyze_incident_image_api_v1_incidents_analyze_image_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentAnalyzeImageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/incidents": {
+      "post": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Tiếp nhận phản ánh sự cố hiện trường từ người dân",
+        "description": "Tiếp nhận phản ánh sự cố từ người dân:\n- Thẩm định hàng rào địa lý Đà Nẵng (PostGIS ST_Contains).\n- Lưu ảnh gốc bảo mật và tự động làm mờ khuôn mặt/biển số xe theo Nghị định 13/2023/NĐ-CP.\n- Sinh mã phiếu tra cứu công khai (DN-YYYYMM-XXXX).\n- Lưu sự cố và kích hoạt tác vụ AI DeepSeek Vision ngầm trong BackgroundTasks.",
+        "operationId": "create_incident_api_v1_incidents_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_incident_api_v1_incidents_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Tra cứu danh sách sự cố phân trang và lọc",
+        "description": "Tra cứu danh sách sự cố có phân trang, hỗ trợ lọc theo nhiều trạng thái, mức độ ưu tiên,\ntừ khóa (mã phiếu, tên đường, tiêu đề), kỹ thuật viên phụ trách, phiếu của tôi, quận/huyện và danh mục.",
+        "operationId": "list_incidents_api_v1_incidents_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Số trang (bắt đầu từ 1)",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Số trang (bắt đầu từ 1)"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Số lượng mục trên mỗi trang",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "Số lượng mục trên mỗi trang"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo một hoặc nhiều trạng thái sự cố",
+              "title": "Status"
+            },
+            "description": "Lọc theo một hoặc nhiều trạng thái sự cố"
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo một hoặc nhiều mức độ ưu tiên",
+              "title": "Priority"
+            },
+            "description": "Lọc theo một hoặc nhiều mức độ ưu tiên"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Từ khóa tìm kiếm theo mã phiếu, tên đường hoặc tiêu đề",
+              "title": "Q"
+            },
+            "description": "Từ khóa tìm kiếm theo mã phiếu, tên đường hoặc tiêu đề"
+          },
+          {
+            "name": "assigned_technician_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo ID kỹ thuật viên phụ trách",
+              "title": "Assigned Technician Id"
+            },
+            "description": "Lọc theo ID kỹ thuật viên phụ trách"
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Chỉ lấy các phiếu phản ánh của công dân đang đăng nhập",
+              "default": false,
+              "title": "Mine"
+            },
+            "description": "Chỉ lấy các phiếu phản ánh của công dân đang đăng nhập"
+          },
+          {
+            "name": "district",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo quận/huyện",
+              "title": "District"
+            },
+            "description": "Lọc theo quận/huyện"
+          },
+          {
+            "name": "category_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo mã danh mục sự cố",
+              "title": "Category Code"
+            },
+            "description": "Lọc theo mã danh mục sự cố"
+          },
+          {
+            "name": "category_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo ID danh mục sự cố",
+              "title": "Category Id"
+            },
+            "description": "Lọc theo ID danh mục sự cố"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/nearby": {
+      "get": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Tìm kiếm các sự cố lân cận để phát hiện và gộp trùng lặp",
+        "description": "Quét tìm các sự cố chưa đóng trong bán kính radius (mặc định 50m) bằng PostGIS ST_DWithin trên Geography.\nLoại trừ các trạng thái: RESOLVED, CONFIRMED, CLOSED, REJECTED.\nSắp xếp theo khoảng cách tăng dần.",
+        "operationId": "get_nearby_incidents_api_v1_incidents_nearby_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90.0,
+              "minimum": -90.0,
+              "description": "Vĩ độ WGS84 điểm phản ánh",
+              "title": "Latitude"
+            },
+            "description": "Vĩ độ WGS84 điểm phản ánh"
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180.0,
+              "minimum": -180.0,
+              "description": "Kinh độ WGS84 điểm phản ánh",
+              "title": "Longitude"
+            },
+            "description": "Kinh độ WGS84 điểm phản ánh"
+          },
+          {
+            "name": "radius",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 10000.0,
+              "minimum": 0.0,
+              "description": "Bán kính quét theo mét (mặc định 50m)",
+              "default": 50.0,
+              "title": "Radius"
+            },
+            "description": "Bán kính quét theo mét (mặc định 50m)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "Số lượng sự cố tối đa",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "Số lượng sự cố tối đa"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentNearbyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}/vote-duplicate": {
+      "post": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Xác nhận sự cố trùng lặp và tăng bộ đếm trùng lặp",
+        "description": "Người dân xác nhận sự cố gặp phải trùng với sự cố đã có tại hiện trường,\nhệ thống tăng duplicate_count thêm 1 đơn vị. Hỗ trợ truyền UUID hoặc ticket_code.",
+        "operationId": "vote_duplicate_api_v1_incidents__id_or_code__vote_duplicate_post",
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentVoteDuplicateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}/triage": {
+      "patch": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Duyệt phân loại sự cố và ấn định hạn xử lý SLA",
+        "description": "Điều phối viên (IOC Dispatcher) duyệt phân loại sự cố:\n- Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).\n- Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.\n- Kiểm tra danh mục (Category) và phòng ban/đơn vị (Department) hợp lệ.\n- Thẩm định mức độ ưu tiên (LOW, NORMAL, HIGH, EMERGENCY).\n- Tính hạn SLA: lấy default_sla_hours từ Category (nếu EMERGENCY: giảm 50%, tối thiểu 1 giờ).\n- Chuyển trạng thái sang TRIAGED và cập nhật category_id, priority, assigned_department_id.\n- Ghi lịch sử biến động trạng thái vào IncidentHistory.",
+        "operationId": "triage_incident_api_v1_incidents__id_or_code__triage_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTriageIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}/assign": {
+      "patch": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Phân công đơn vị hoặc cán bộ kỹ thuật xử lý sự cố hiện trường",
+        "description": "Phân công sự cố cho đơn vị hoặc kỹ thuật viên hiện trường:\n- Kiểm tra quyền truy cập (ADMIN hoặc DISPATCHER).\n- Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.\n- Nếu gán assigned_department_id: kiểm tra Department tồn tại.\n- Nếu gán assigned_technician_id: kiểm tra User tồn tại và có vai trò TECHNICIAN, DISPATCHER hoặc ADMIN.\n- Chuyển trạng thái sự cố sang ASSIGNED.\n- Ghi lịch sử biến động trạng thái vào IncidentHistory.",
+        "operationId": "assign_incident_api_v1_incidents__id_or_code__assign_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentAssignIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}/status": {
+      "patch": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Cập nhật tiến độ xử lý và minh chứng hoàn thành sự cố hiện trường",
+        "description": "Cập nhật trạng thái sự cố hiện trường theo quy trình (State Machine):\n- RBAC: Yêu cầu vai trò ADMIN, DISPATCHER hoặc TECHNICIAN.\n- Validate to_status thuộc {'IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'REOPENED', 'REJECTED', 'CLOSED'}.\n- Chặn cập nhật đối với sự cố đã ở trạng thái kết thúc ('CLOSED', 'REJECTED').\n- Chuyển sang 'IN_PROGRESS': chỉ cho phép khi trạng thái hiện tại là 'ASSIGNED' hoặc 'REOPENED'.\n- Chuyển sang 'RESOLVED': chỉ cho phép khi trạng thái hiện tại là 'IN_PROGRESS', bắt buộc có ảnh\n  minh chứng sau sửa chữa (AFTER_PROOF). Làm mờ khuôn mặt/biển số xe (Nghị định 13) và lưu công khai.\n- Chuyển sang 'CONFIRMED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' (duyệt nghiệm thu).\n- Chuyển sang 'REOPENED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'RESOLVED' (yêu cầu làm lại),\n  đặt lại resolved_at = None.\n- Chuyển sang 'REJECTED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'SUBMITTED', 'TRIAGED', 'ASSIGNED',\n  bắt buộc phải có ghi chú giải trình lý do.\n- Chuyển sang 'CLOSED': chỉ DISPATCHER hoặc ADMIN có quyền, chỉ cho phép từ 'CONFIRMED' với phiếu ẩn danh (citizen_id is None).\n- Ghi nhận biến động trạng thái vào IncidentHistory.",
+        "operationId": "update_incident_status_api_v1_incidents__id_or_code__status_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_update_incident_status_api_v1_incidents__id_or_code__status_patch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}/feedback": {
+      "post": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Đánh giá mức độ hài lòng hoặc khiếu nại mở lại sự cố sau khắc phục",
+        "description": "Công dân xác nhận hoàn tất (CONFIRM) hoặc khiếu nại mở lại (DISPUTE) sự cố:\n- Bắt buộc người dùng đã đăng nhập (current_user) và phải là chủ phiếu (incident.citizen_id == current_user.id).\n- Tải sự cố theo UUID hoặc ticket_code với đầy đủ quan hệ selectinload.\n- Sự cố bắt buộc đang ở trạng thái CONFIRMED. Nếu không: 400 Bad Request.\n- Kiểm tra sự cố chưa có feedback trước đó (incident.feedback is not None): Nếu có: 400 Bad Request.\n- Tạo bản ghi IncidentFeedback (rating từ 1 đến 5 sao là tùy chọn).\n- Nếu action == \"CONFIRM\":\n    - Chuyển status sang CLOSED (không phụ thuộc số sao).\n    - Ghi nhận IncidentHistory.\n- Nếu action == \"DISPUTE\":\n    - Bắt buộc có comment (lý do khiếu nại).\n    - Chuyển status sang REOPENED, đặt lại resolved_at = None.\n    - Ghi nhận IncidentHistory.\n- db.commit() và trả về IncidentFeedbackOut.",
+        "operationId": "submit_incident_feedback_api_v1_incidents__id_or_code__feedback_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentFeedbackCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentFeedbackOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/map": {
+      "get": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Bản đồ không gian sự cố đô thị chuẩn GeoJSON (RFC 7946)",
+        "description": "Truy xuất danh sách sự cố phục vụ hiển thị trên bản đồ số GIS theo định dạng GeoJSON FeatureCollection.\nTọa độ hình học tuân thủ RFC 7946: Point [longitude, latitude].\nMặc định loại trừ các sự cố đã đóng (CLOSED) hoặc bị từ chối (REJECTED).",
+        "operationId": "get_incidents_map_api_v1_incidents_map_get",
+        "parameters": [
+          {
+            "name": "district",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo quận/huyện tại Đà Nẵng",
+              "title": "District"
+            },
+            "description": "Lọc theo quận/huyện tại Đà Nẵng"
+          },
+          {
+            "name": "category_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo mã danh mục sự cố",
+              "title": "Category Code"
+            },
+            "description": "Lọc theo mã danh mục sự cố"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lọc theo trạng thái cụ thể",
+              "title": "Status"
+            },
+            "description": "Lọc theo trạng thái cụ thể"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentMapFeatureCollectionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/analytics/summary": {
+      "get": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Thống kê tổng quan điều hành IOC và chỉ số KPI/SLA sự cố",
+        "description": "Tổng hợp dữ liệu điều hành trung tâm chỉ huy IOC:\n- Tổng số sự cố.\n- Phân bổ theo 8 trạng thái quy trình xử lý.\n- Phân bổ theo 4 mức ưu tiên xử lý.\n- Phân bổ theo quận/huyện tại TP Đà Nẵng.\n- Tỷ lệ tuân thủ cam kết chất lượng dịch vụ (SLA).",
+        "operationId": "get_incidents_analytics_summary_api_v1_incidents_analytics_summary_get",
+        "parameters": [
+          {
+            "name": "from_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Từ ngày (mặc định không giới hạn)",
+              "title": "From Date"
+            },
+            "description": "Từ ngày (mặc định không giới hạn)"
+          },
+          {
+            "name": "to_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Đến ngày (mặc định không giới hạn)",
+              "title": "To Date"
+            },
+            "description": "Đến ngày (mặc định không giới hạn)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentAnalyticsSummaryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id_or_code}": {
+      "get": {
+        "tags": [
+          "Incidents & Field Reports"
+        ],
+        "summary": "Tra cứu chi tiết sự cố theo mã phiếu hoặc UUID",
+        "description": "Tra cứu chi tiết sự cố theo mã phiếu tra cứu công khai (ví dụ DN-202610-A1B2) hoặc UUID.\nChe giấu thông tin liên hệ người dân (PII masking) và ảnh gốc BEFORE_ORIGINAL nếu người gọi không phải ADMIN hoặc DISPATCHER.",
+        "operationId": "get_incident_by_ticket_code_api_v1_incidents__id_or_code__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Or Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/facebook": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Verify Facebook Webhook",
+        "description": "Xác minh Webhook từ Meta Developer Platform.",
+        "operationId": "verify_facebook_webhook_api_v1_webhooks_facebook_get",
+        "parameters": [
+          {
+            "name": "hub.mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Mode"
+            }
+          },
+          {
+            "name": "hub.verify_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Verify Token"
+            }
+          },
+          {
+            "name": "hub.challenge",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Challenge"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Tiếp nhận sự kiện từ Facebook Messenger Webhook",
+        "description": "Xử lý sự kiện tin nhắn, ảnh, và tọa độ từ Facebook Messenger.",
+        "operationId": "handle_facebook_webhook_api_v1_webhooks_facebook_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FacebookWebhookPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ping": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Ping",
+        "operationId": "ping_api_v1_ping_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/open311/v2/services.json": {
+      "get": {
+        "tags": [
+          "Open311 GeoReport v2"
+        ],
+        "summary": "Danh mục Dịch vụ Công tiếp nhận theo chuẩn Open311 GeoReport v2",
+        "description": "Truy vấn danh mục dịch vụ công / loại sự cố đô thị tương thích chuẩn Open311 GeoReport v2.\n\nReturns:\n    list[Open311ServiceOut]: Danh sách các loại dịch vụ công được tiếp nhận.",
+        "operationId": "get_services_open311_v2_services_json_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Open311ServiceOut"
+                  },
+                  "type": "array",
+                  "title": "Response Get Services Open311 V2 Services Json Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/open311/v2/requests.json": {
+      "post": {
+        "tags": [
+          "Open311 GeoReport v2"
+        ],
+        "summary": "Tiếp nhận phản ánh sự cố theo chuẩn Open311 GeoReport v2",
+        "description": "Tiếp nhận tạo mới yêu cầu phản ánh hiện trường theo chuẩn Open311 GeoReport v2:\n- Thẩm định mã dịch vụ service_code hợp lệ trong hệ thống.\n- Thẩm định hàng rào địa lý Đà Nẵng (PostGIS ST_Contains với ST_MakePoint(long, lat)).\n- Sinh mã tra cứu service_request_id chuẩn DN-YYYYMM-XXXX.\n- Ghi nhận Incident, IncidentHistory, và IncidentMedia (nếu có media_url).",
+        "operationId": "create_request_open311_v2_requests_json_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Open311CreateRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Open311CreateRequestResponseItem"
+                  },
+                  "type": "array",
+                  "title": "Response Create Request Open311 V2 Requests Json Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/open311/v2/requests/{service_request_id}.json": {
+      "get": {
+        "tags": [
+          "Open311 GeoReport v2"
+        ],
+        "summary": "Tra cứu chi tiết yêu cầu dịch vụ theo chuẩn Open311 GeoReport v2",
+        "description": "Tra cứu tiến độ và chi tiết sự cố theo chuẩn Open311 GeoReport v2:\n- Tìm kiếm bản ghi Incident theo ticket_code == service_request_id.\n- Nạp quan hệ liên quan bằng selectinload (category, assigned_department, media).\n- Chuẩn hóa trạng thái open / closed theo quy chuẩn Open311.\n- Trích xuất tọa độ lat, long (WGS84) từ PostGIS location.\n- Trích xuất media_url: Ưu tiên AFTER_PROOF, sau đó đến BEFORE_ANONYMIZED.\n  Tuyệt đối lọc bỏ và không hiển thị ảnh gốc BEFORE_ORIGINAL (bảo vệ quyền riêng tư theo Nghị định 13).",
+        "operationId": "get_request_by_id_open311_v2_requests__service_request_id__json_get",
+        "parameters": [
+          {
+            "name": "service_request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Open311RequestItemOut"
+                  },
+                  "title": "Response Get Request By Id Open311 V2 Requests  Service Request Id  Json Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_analyze_incident_image_api_v1_incidents_analyze_image_post": {
+        "properties": {
+          "image": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Image",
+            "description": "Ảnh chụp hiện trường cần phân tích AI"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Mô tả sơ bộ hiện trường (tùy chọn)",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "image"
+        ],
+        "title": "Body_analyze_incident_image_api_v1_incidents_analyze_image_post"
+      },
+      "Body_create_incident_api_v1_incidents_post": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Title",
+            "description": "Tiêu đề phản ánh sự cố"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 5,
+            "title": "Description",
+            "description": "Mô tả chi tiết nội dung sự cố"
+          },
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "description": "Vĩ độ WGS84"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "description": "Kinh độ WGS84"
+          },
+          "address_text": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Address Text",
+            "description": "Địa chỉ hiện trường"
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District",
+            "description": "Quận/Huyện"
+          },
+          "ward": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ward",
+            "description": "Phường/Xã"
+          },
+          "citizen_contact": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citizen Contact",
+            "description": "Số điện thoại hoặc phương thức liên hệ"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code",
+            "description": "Mã danh mục sự cố do người dân xác nhận"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority",
+            "description": "Mức độ ưu tiên đề xuất: LOW, NORMAL, HIGH, EMERGENCY"
+          },
+          "image": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Image",
+            "description": "Ảnh chụp hiện trường sự cố"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "description",
+          "latitude",
+          "longitude",
+          "address_text",
+          "image"
+        ],
+        "title": "Body_create_incident_api_v1_incidents_post"
+      },
+      "Body_update_incident_status_api_v1_incidents__id_or_code__status_patch": {
+        "properties": {
+          "to_status": {
+            "type": "string",
+            "title": "To Status",
+            "description": "Trạng thái: IN_PROGRESS, RESOLVED, REJECTED, CLOSED"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Ghi chú cập nhật tiến độ hoặc lý do từ chối"
+          },
+          "proof_latitude": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 90.0,
+                "minimum": -90.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proof Latitude",
+            "description": "Vĩ độ GPS nơi chụp ảnh minh chứng"
+          },
+          "proof_longitude": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 180.0,
+                "minimum": -180.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proof Longitude",
+            "description": "Kinh độ GPS nơi chụp ảnh minh chứng"
+          },
+          "proof_image": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proof Image",
+            "description": "Ảnh minh chứng sau khắc phục (bắt buộc khi chuyển sang RESOLVED)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "to_status"
+        ],
+        "title": "Body_update_incident_status_api_v1_incidents__id_or_code__status_patch"
+      },
+      "CategoryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "default_sla_hours": {
+            "type": "integer",
+            "title": "Default Sla Hours"
+          },
+          "default_department_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Department Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "default_sla_hours"
+        ],
+        "title": "CategoryOut",
+        "description": "Schema for incident categories."
+      },
+      "DepartmentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "level"
+        ],
+        "title": "DepartmentOut",
+        "description": "Schema for managing departments and agencies in Da Nang."
+      },
+      "FacebookAttachment": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Loại đính kèm: image, location, ..."
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FacebookAttachmentPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Payload đính kèm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "FacebookAttachment",
+        "description": "Attachment object in a Facebook Messenger message."
+      },
+      "FacebookAttachmentPayload": {
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url",
+            "description": "URL ảnh nếu type=image"
+          },
+          "coordinates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FacebookCoordinates"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tọa độ GPS nếu type=location"
+          }
+        },
+        "type": "object",
+        "title": "FacebookAttachmentPayload",
+        "description": "Payload of a Facebook Messenger attachment (image url or location coordinates)."
+      },
+      "FacebookCoordinates": {
+        "properties": {
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "description": "Vĩ độ WGS84"
+          },
+          "long": {
+            "type": "number",
+            "title": "Long",
+            "description": "Kinh độ WGS84"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lat",
+          "long"
+        ],
+        "title": "FacebookCoordinates",
+        "description": "GPS Coordinates within a Facebook Messenger location attachment."
+      },
+      "FacebookEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "ID của trang Facebook"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time"
+          },
+          "messaging": {
+            "items": {
+              "$ref": "#/components/schemas/FacebookMessagingItem"
+            },
+            "type": "array",
+            "title": "Messaging"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "FacebookEntry",
+        "description": "Single entry object in the webhook payload."
+      },
+      "FacebookMessage": {
+        "properties": {
+          "mid": {
+            "type": "string",
+            "title": "Mid",
+            "description": "Mã định danh tin nhắn"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text",
+            "description": "Nội dung văn bản"
+          },
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FacebookAttachment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachments",
+            "description": "Danh sách tập tin/vị trí đính kèm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mid"
+        ],
+        "title": "FacebookMessage",
+        "description": "Inbound message content from Facebook Messenger."
+      },
+      "FacebookMessagingItem": {
+        "properties": {
+          "sender": {
+            "$ref": "#/components/schemas/FacebookParticipant"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/FacebookParticipant"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FacebookMessage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "sender",
+          "recipient"
+        ],
+        "title": "FacebookMessagingItem",
+        "description": "Single messaging event item in an entry."
+      },
+      "FacebookParticipant": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "PSID của người gửi/nhận"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "FacebookParticipant",
+        "description": "Participant (sender or recipient) identified by Page-Scoped ID (PSID)."
+      },
+      "FacebookWebhookPayload": {
+        "properties": {
+          "object": {
+            "type": "string",
+            "title": "Object",
+            "description": "Đối tượng webhook, thường là 'page'"
+          },
+          "entry": {
+            "items": {
+              "$ref": "#/components/schemas/FacebookEntry"
+            },
+            "type": "array",
+            "title": "Entry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object"
+        ],
+        "title": "FacebookWebhookPayload",
+        "description": "Root payload sent by Meta Graph API Webhooks for Facebook Messenger."
+      },
+      "GoogleLoginIn": {
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "title": "Id Token",
+            "description": "Google ID Token nhận từ Google Identity Services"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_token"
+        ],
+        "title": "GoogleLoginIn"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "IncidentAnalyticsSummaryOut": {
+        "properties": {
+          "total_incidents": {
+            "type": "integer",
+            "title": "Total Incidents"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Status"
+          },
+          "by_priority": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Priority"
+          },
+          "by_district": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By District"
+          },
+          "sla_compliance": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Sla Compliance"
+          },
+          "avg_resolution_time_minutes": {
+            "type": "number",
+            "title": "Avg Resolution Time Minutes",
+            "default": 0.0
+          },
+          "avg_satisfaction_rating": {
+            "type": "number",
+            "title": "Avg Satisfaction Rating",
+            "default": 0.0
+          },
+          "satisfaction_score": {
+            "type": "number",
+            "title": "Satisfaction Score",
+            "default": 0.0
+          },
+          "completion_rate_by_district": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Completion Rate By District"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_incidents",
+          "by_status",
+          "by_priority",
+          "by_district",
+          "sla_compliance"
+        ],
+        "title": "IncidentAnalyticsSummaryOut",
+        "description": "Schema for incident operational analytics and SLA metrics."
+      },
+      "IncidentAnalyzeImageOut": {
+        "properties": {
+          "category_code": {
+            "type": "string",
+            "title": "Category Code"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "suggested_department_code": {
+            "type": "string",
+            "title": "Suggested Department Code"
+          },
+          "summary_vi": {
+            "type": "string",
+            "title": "Summary Vi"
+          },
+          "hazard_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hazard Warning"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "sla_hours": {
+            "type": "integer",
+            "title": "Sla Hours"
+          },
+          "is_blurred": {
+            "type": "boolean",
+            "title": "Is Blurred"
+          },
+          "faces_detected": {
+            "type": "integer",
+            "title": "Faces Detected",
+            "default": 0
+          },
+          "plates_detected": {
+            "type": "integer",
+            "title": "Plates Detected",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_code",
+          "priority",
+          "suggested_department_code",
+          "summary_vi",
+          "confidence",
+          "sla_hours",
+          "is_blurred"
+        ],
+        "title": "IncidentAnalyzeImageOut",
+        "description": "Schema for pre-submit AI image analysis after Decree 13 anonymization."
+      },
+      "IncidentAssignIn": {
+        "properties": {
+          "assigned_department_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Department Id"
+          },
+          "assigned_technician_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Technician Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "title": "IncidentAssignIn",
+        "description": "Schema for technician or department assignment."
+      },
+      "IncidentDetailOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "ticket_code": {
+            "type": "string",
+            "title": "Ticket Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "is_priority_suggested": {
+            "type": "boolean",
+            "title": "Is Priority Suggested",
+            "default": true
+          },
+          "channel": {
+            "type": "string",
+            "title": "Channel",
+            "default": "WEB"
+          },
+          "address_text": {
+            "type": "string",
+            "title": "Address Text"
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District"
+          },
+          "ward": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ward"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "anonymized_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anonymized Image Url"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "assigned_department_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Department Code"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count",
+            "default": 0
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "sla_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sla Due At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "citizen_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citizen Id"
+          },
+          "citizen_contact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citizen Contact"
+          },
+          "assigned_technician_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Technician Id"
+          },
+          "assigned_technician_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Technician Name"
+          },
+          "is_duplicate_of_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Duplicate Of Id"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CategoryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assigned_department": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DepartmentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentMediaOut"
+            },
+            "type": "array",
+            "title": "Media"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentHistoryOut"
+            },
+            "type": "array",
+            "title": "History"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IncidentFeedbackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ai_classification_raw": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Classification Raw"
+          },
+          "ai_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticket_code",
+          "title",
+          "description",
+          "status",
+          "priority",
+          "address_text",
+          "latitude",
+          "longitude",
+          "created_at"
+        ],
+        "title": "IncidentDetailOut",
+        "description": "Detailed incident schema including relationships, audit history, feedback, and AI insights."
+      },
+      "IncidentFeedbackCreateIn": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "CONFIRM",
+              "DISPUTE"
+            ],
+            "title": "Action",
+            "description": "Hành động của công dân: CONFIRM (xác nhận hài lòng đóng phiếu) hoặc DISPUTE (khiếu nại mở lại)",
+            "default": "CONFIRM"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating",
+            "description": "Điểm đánh giá tùy chọn từ 1 đến 5 sao"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment",
+            "description": "Ý kiến nhận xét hoặc lý do khiếu nại"
+          }
+        },
+        "type": "object",
+        "title": "IncidentFeedbackCreateIn",
+        "description": "Schema for citizen post-verification confirmation or dispute submission."
+      },
+      "IncidentFeedbackOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "citizen_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Citizen Id"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "incident_id",
+          "citizen_id",
+          "created_at"
+        ],
+        "title": "IncidentFeedbackOut",
+        "description": "Schema for citizen feedback output."
+      },
+      "IncidentHistoryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "to_status": {
+            "type": "string",
+            "title": "To Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "incident_id",
+          "to_status",
+          "created_at"
+        ],
+        "title": "IncidentHistoryOut",
+        "description": "Schema for audit trail and state transitions."
+      },
+      "IncidentListOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 20
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "items"
+        ],
+        "title": "IncidentListOut",
+        "description": "Paginated list response for incidents."
+      },
+      "IncidentMapFeature": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "Feature"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/IncidentMapGeometry"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/IncidentMapProperties"
+          }
+        },
+        "type": "object",
+        "required": [
+          "geometry",
+          "properties"
+        ],
+        "title": "IncidentMapFeature",
+        "description": "GeoJSON Feature schema for incident map representation."
+      },
+      "IncidentMapFeatureCollectionOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "FeatureCollection"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentMapFeature"
+            },
+            "type": "array",
+            "title": "Features"
+          }
+        },
+        "type": "object",
+        "required": [
+          "features"
+        ],
+        "title": "IncidentMapFeatureCollectionOut",
+        "description": "GeoJSON FeatureCollection response schema."
+      },
+      "IncidentMapGeometry": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "Point"
+          },
+          "coordinates": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Coordinates",
+            "description": "[longitude, latitude]"
+          }
+        },
+        "type": "object",
+        "required": [
+          "coordinates"
+        ],
+        "title": "IncidentMapGeometry",
+        "description": "GeoJSON Point geometry schema (RFC 7946). Coordinates format: [longitude, latitude]."
+      },
+      "IncidentMapProperties": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "ticket_code": {
+            "type": "string",
+            "title": "Ticket Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "category_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Name"
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District"
+          },
+          "address_text": {
+            "type": "string",
+            "title": "Address Text"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count",
+            "default": 0
+          },
+          "sla_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sla Due At"
+          },
+          "is_overdue": {
+            "type": "boolean",
+            "title": "Is Overdue",
+            "default": false
+          },
+          "anonymized_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anonymized Image Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticket_code",
+          "title",
+          "status",
+          "priority",
+          "address_text",
+          "created_at"
+        ],
+        "title": "IncidentMapProperties",
+        "description": "Properties for incident GeoJSON feature."
+      },
+      "IncidentMediaOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "file_url": {
+            "type": "string",
+            "title": "File Url"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "incident_id",
+          "media_type",
+          "file_url",
+          "created_at"
+        ],
+        "title": "IncidentMediaOut",
+        "description": "Schema for media attachments (original, anonymized, and resolution proof)."
+      },
+      "IncidentNearbyItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "ticket_code": {
+            "type": "string",
+            "title": "Ticket Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "distance_meters": {
+            "type": "number",
+            "title": "Distance Meters"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticket_code",
+          "title",
+          "status",
+          "priority",
+          "distance_meters",
+          "latitude",
+          "longitude",
+          "created_at"
+        ],
+        "title": "IncidentNearbyItem",
+        "description": "Information for nearby duplicate candidate incidents."
+      },
+      "IncidentNearbyOut": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentNearbyItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "items"
+        ],
+        "title": "IncidentNearbyOut",
+        "description": "Response containing list of nearby incidents within threshold radius."
+      },
+      "IncidentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "ticket_code": {
+            "type": "string",
+            "title": "Ticket Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "is_priority_suggested": {
+            "type": "boolean",
+            "title": "Is Priority Suggested",
+            "default": true
+          },
+          "channel": {
+            "type": "string",
+            "title": "Channel",
+            "default": "WEB"
+          },
+          "address_text": {
+            "type": "string",
+            "title": "Address Text"
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District"
+          },
+          "ward": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ward"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "anonymized_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anonymized Image Url"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "assigned_department_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Department Code"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count",
+            "default": 0
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "sla_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sla Due At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticket_code",
+          "title",
+          "description",
+          "status",
+          "priority",
+          "address_text",
+          "latitude",
+          "longitude",
+          "created_at"
+        ],
+        "title": "IncidentOut",
+        "description": "Summary schema for public and list view of incidents."
+      },
+      "IncidentTriageIn": {
+        "properties": {
+          "category_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Category Id"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority",
+            "description": "Mức độ ưu tiên: LOW, NORMAL, HIGH, EMERGENCY"
+          },
+          "assigned_department_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assigned Department Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_id",
+          "priority",
+          "assigned_department_id"
+        ],
+        "title": "IncidentTriageIn",
+        "description": "Schema for dispatcher triage and classification."
+      },
+      "IncidentVoteDuplicateOut": {
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "ticket_code": {
+            "type": "string",
+            "title": "Ticket Code"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "incident_id",
+          "ticket_code",
+          "duplicate_count",
+          "message"
+        ],
+        "title": "IncidentVoteDuplicateOut",
+        "description": "Response schema after voting duplicate for an incident."
+      },
+      "LocationValidateIn": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "description": "Vĩ độ WGS84"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "description": "Kinh độ WGS84"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "LocationValidateIn"
+      },
+      "LocationValidateOut": {
+        "properties": {
+          "is_inside": {
+            "type": "boolean",
+            "title": "Is Inside",
+            "description": "Tọa độ có nằm trong phân vùng tiếp nhận hay không"
+          },
+          "zone_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone Id",
+            "description": "Mã vùng địa lý nếu hợp lệ"
+          },
+          "zone_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone Name",
+            "description": "Tên vùng địa lý nếu hợp lệ"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Thông báo trạng thái hiển thị cho người dùng"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_inside",
+          "message"
+        ],
+        "title": "LocationValidateOut"
+      },
+      "Open311CreateRequestIn": {
+        "properties": {
+          "service_code": {
+            "type": "string",
+            "title": "Service Code",
+            "description": "Mã loại sự cố / dịch vụ"
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "description": "Vĩ độ (Latitude, WGS84)"
+          },
+          "long": {
+            "type": "number",
+            "title": "Long",
+            "description": "Kinh độ (Longitude, WGS84)"
+          },
+          "address_string": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address String",
+            "description": "Địa chỉ mô tả"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email",
+            "description": "Email người phản ánh"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone",
+            "description": "Số điện thoại người phản ánh"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name",
+            "description": "Tên"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name",
+            "description": "Họ và tên đệm"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Nội dung chi tiết phản ánh"
+          },
+          "media_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Url",
+            "description": "Đường dẫn ảnh hiện trường"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_code",
+          "lat",
+          "long",
+          "description"
+        ],
+        "title": "Open311CreateRequestIn",
+        "description": "Open311 Inbound Incident Report Request (POST /requests.json)."
+      },
+      "Open311CreateRequestResponseItem": {
+        "properties": {
+          "service_request_id": {
+            "type": "string",
+            "title": "Service Request Id",
+            "description": "Mã tiếp nhận sự cố (ticket_code)"
+          },
+          "service_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Notice",
+            "description": "Thông báo bổ sung cho công dân"
+          },
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id",
+            "description": "Mã tài khoản nếu có"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_request_id"
+        ],
+        "title": "Open311CreateRequestResponseItem",
+        "description": "Open311 Service Request Creation Response Item."
+      },
+      "Open311RequestItemOut": {
+        "properties": {
+          "service_request_id": {
+            "type": "string",
+            "title": "Service Request Id",
+            "description": "Mã tiếp nhận sự cố"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Trạng thái chuẩn Open311: open hoặc closed"
+          },
+          "status_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Notes",
+            "description": "Chi tiết trạng thái"
+          },
+          "service_name": {
+            "type": "string",
+            "title": "Service Name",
+            "description": "Tên dịch vụ / loại sự cố"
+          },
+          "service_code": {
+            "type": "string",
+            "title": "Service Code",
+            "description": "Mã dịch vụ"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Mô tả sự cố"
+          },
+          "agency_responsible": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agency Responsible",
+            "description": "Đơn vị chịu trách nhiệm xử lý"
+          },
+          "service_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Notice",
+            "description": "Ghi chú quy trình"
+          },
+          "requested_datetime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested Datetime",
+            "description": "Thời gian tiếp nhận"
+          },
+          "updated_datetime": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Datetime",
+            "description": "Thời gian cập nhật gần nhất"
+          },
+          "expected_datetime": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Datetime",
+            "description": "Hạn xử lý SLA"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address",
+            "description": "Địa chỉ sự cố"
+          },
+          "address_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Id",
+            "description": "Mã địa chỉ"
+          },
+          "zipcode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zipcode",
+            "description": "Mã bưu chính"
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "description": "Vĩ độ WGS84"
+          },
+          "long": {
+            "type": "number",
+            "title": "Long",
+            "description": "Kinh độ WGS84"
+          },
+          "media_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Url",
+            "description": "Ảnh hiện trường đã làm mờ hoặc ảnh minh chứng sau xử lý"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_request_id",
+          "status",
+          "service_name",
+          "service_code",
+          "description",
+          "requested_datetime",
+          "address",
+          "lat",
+          "long"
+        ],
+        "title": "Open311RequestItemOut",
+        "description": "Open311 Service Request Detailed Item (GET /requests/{service_request_id}.json)."
+      },
+      "Open311ServiceOut": {
+        "properties": {
+          "service_code": {
+            "type": "string",
+            "title": "Service Code",
+            "description": "Mã danh mục dịch vụ công"
+          },
+          "service_name": {
+            "type": "string",
+            "title": "Service Name",
+            "description": "Tên dịch vụ công"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Mô tả chi tiết"
+          },
+          "metadata": {
+            "type": "boolean",
+            "title": "Metadata",
+            "description": "Cần thêm metadata tuỳ biến",
+            "default": false
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Loại dịch vụ: realtime / batch / blackbox",
+            "default": "realtime"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords",
+            "description": "Từ khoá tìm kiếm"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "description": "Nhóm dịch vụ",
+            "default": "Hạ tầng đô thị"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_code",
+          "service_name",
+          "description"
+        ],
+        "title": "Open311ServiceOut",
+        "description": "Open311 Service Definition (GET /services.json)."
+      },
+      "TokenOut": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "title": "Expires In Seconds"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in_seconds",
+          "user"
+        ],
+        "title": "TokenOut"
+      },
+      "UserLoginIn": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Email hoặc Số điện thoại đã đăng ký"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password",
+            "description": "Mật khẩu tài khoản"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "UserLoginIn"
+      },
+      "UserOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "auth_provider": {
+            "type": "string",
+            "title": "Auth Provider"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "department_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Id"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "full_name",
+          "auth_provider",
+          "role",
+          "created_at"
+        ],
+        "title": "UserOut"
+      },
+      "UserRegisterIn": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email",
+            "description": "Email người dùng"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 15,
+                "minLength": 9
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone",
+            "description": "Số điện thoại người dùng"
+          },
+          "full_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 2,
+            "title": "Full Name",
+            "description": "Họ và tên"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 6,
+            "title": "Password",
+            "description": "Mật khẩu (tối thiểu 6 ký tự)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_name",
+          "password"
+        ],
+        "title": "UserRegisterIn"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ZoneOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "bounding_box": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bounding Box"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "geojson_geometry": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geojson Geometry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "is_active"
+        ],
+        "title": "ZoneOut"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

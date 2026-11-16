@@ -262,18 +262,22 @@ async def classify_incident_image(
     description: str,
     allowed_category_codes: list[str] | None = None,
     allowed_department_codes: list[str] | None = None,
+    raise_on_error: bool = False,
 ) -> DeepSeekVisionResult:
     """Classify an urban incident image and citizen description.
 
     If DEEPSEEK_API_KEY is not configured, runs in heuristic keyword mode with 0.85 confidence.
     If configured, sends an asynchronous request to DeepSeek Vision API with structured JSON output.
-    Any error or timeout safely falls back to ('OTHER', 'NORMAL', 'UBND_HC').
+    When raise_on_error is False (default), any error or timeout safely falls back to
+    ('OTHER', 'NORMAL', 'UBND_HC'). When raise_on_error is True, raises RuntimeError on upstream failure.
+    Never logs image data or analysis content.
 
     Args:
         image_path: Path to the incident image file.
         description: Text description submitted by citizen.
         allowed_category_codes: Optional list of valid category codes.
         allowed_department_codes: Optional list of valid department codes.
+        raise_on_error: If True, re-raise upstream API/parsing errors instead of returning fallback.
 
     Returns:
         DeepSeekVisionResult with category_code, priority, suggested_department_code,
@@ -429,7 +433,12 @@ async def classify_incident_image(
         )
 
     except Exception as exc:
-        logger.warning("DeepSeek Vision API error: %s. Using safe fallback classification.", exc)
+        logger.warning(
+            "DeepSeek Vision API error (%s). Using safe fallback classification.",
+            type(exc).__name__,
+        )
+        if raise_on_error:
+            raise RuntimeError("DeepSeek Vision API classification failed") from exc
         return DeepSeekVisionResult(
             category_code=fallback_category,
             priority=DEFAULT_FALLBACK_PRIORITY,

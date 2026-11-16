@@ -50,6 +50,9 @@ def anonymize_image(
     """Detect faces and license plates in an image and apply Gaussian blur to anonymize them.
 
     Complies with Decree 13/2023/ND-CP regarding personal data protection.
+    Note: Automated OpenCV Haar Cascade blurring is a best-effort privacy filter and
+    does not guarantee catching every face or license plate in all conditions (e.g.,
+    extreme angles, partial occlusions, motion blur, or low lighting).
     Uses numpy.fromfile and cv2.imdecode / cv2.imencode to properly handle Windows Unicode paths.
 
     Args:

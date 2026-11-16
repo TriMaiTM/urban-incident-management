@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.endpoints.incidents import calculate_sla_due_at
 from app.core.database import get_db
 from app.models.category import Category
 from app.models.incident import Incident, IncidentHistory, IncidentMedia
@@ -38,6 +39,7 @@ OPEN311_STATUS_NOTES: dict[str, str] = {
     "CONFIRMED": "Đã xác nhận hoàn thành (CONFIRMED)",
     "CLOSED": "Đã đóng (CLOSED)",
     "REJECTED": "Từ chối tiếp nhận (REJECTED)",
+    "REOPENED": "Mở lại (REOPENED)",
 }
 
 
@@ -131,8 +133,7 @@ async def create_request(
 
     # 4. Tạo bản ghi Incident
     incident_id = uuid4()
-    sla_hours = category.default_sla_hours or 24
-    sla_due_at = now + timedelta(hours=sla_hours)
+    sla_due_at = calculate_sla_due_at("NORMAL", now)
     contact_parts = [
         p
         for p in [

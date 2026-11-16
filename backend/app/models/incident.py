@@ -20,7 +20,7 @@ class Incident(Base):
         PG_UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True
     )
     priority: Mapped[str] = mapped_column(String(50), default="NORMAL", nullable=False)  # LOW, NORMAL, HIGH, EMERGENCY
-    status: Mapped[str] = mapped_column(String(50), default="SUBMITTED", nullable=False)  # SUBMITTED, TRIAGED, ASSIGNED, IN_PROGRESS, RESOLVED, CONFIRMED, CLOSED, REJECTED
+    status: Mapped[str] = mapped_column(String(50), default="SUBMITTED", nullable=False)  # SUBMITTED, TRIAGED, ASSIGNED, IN_PROGRESS, RESOLVED, CONFIRMED, CLOSED, REJECTED, REOPENED
     channel: Mapped[str] = mapped_column(String(50), default="WEB", nullable=False)  # WEB, MESSENGER, ZALO
 
     citizen_id: Mapped[Optional[UUID]] = mapped_column(
@@ -86,6 +86,8 @@ class IncidentMedia(Base):
     )
     media_type: Mapped[str] = mapped_column(String(50), nullable=False)  # BEFORE_ORIGINAL, BEFORE_ANONYMIZED, AFTER_PROOF
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -124,7 +126,7 @@ class IncidentFeedback(Base):
     citizen_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
-    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1 to 5
+    rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 1 to 5 (optional)
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

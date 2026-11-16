@@ -53,21 +53,29 @@ Xây dựng nền tảng GovTech thông minh phục vụ tiếp nhận, phân lo
 - Đề xuất đơn vị phụ trách trực thuộc: Sở GTVT, Sở Xây dựng, Công ty CP Cầu đường Đà Nẵng, Công ty Thoát nước và Xử lý nước thải, Công ty Công viên Cây xanh...
 
 ### 3.3. Bảo vệ Dữ liệu Cá nhân Hình ảnh Hiện trường (Nghị định 13/2023/NĐ-CP)
-- Pipeline xử lý ảnh OpenCV tự động quét ảnh trước khi lưu trữ công khai:
+- Pipeline xử lý ảnh OpenCV tự động quét ảnh trước khi lưu trữ công khai và trước khi gửi sang DeepSeek Vision:
   - Nhận diện khuôn mặt người đi đường và làm mờ bảo mật.
   - Nhận diện biển số xe cơ giới và làm mờ bảo mật.
-  - Ẩn danh số điện thoại người phản ánh (dạng `0905***123`).
-  - Phân tách rõ ràng luồng `BEFORE_ANONYMIZED` (nội bộ điều phối) và `AFTER_ANONYMIZED` (công khai).
+  - Ẩn danh số điện thoại người phản ánh (dạng `0905***123`), rút gọn tên kỹ thuật viên với khách không đăng nhập (dạng `Trần V. K.`), và chỉ hiển thị lý do từ chối (`rejection_reason`) cho chủ phiếu, `DISPATCHER`, hoặc `ADMIN`.
+  - Phân tách rõ ràng 3 nhãn media trong CSDL: `BEFORE_ORIGINAL` (ảnh gốc nội bộ điều phối), `BEFORE_ANONYMIZED` (ảnh trước khắc phục đã làm mờ công khai), và `AFTER_PROOF` (ảnh minh chứng sau khắc phục đã làm mờ công khai kèm tọa độ GPS hiện trường).
 
 ### 3.4. Máy Trạng thái Sự cố (Incident State Machine) & Cam kết SLA
-- Vòng đời 8 trạng thái nghiêm ngặt:
+- Vòng đời **9 trạng thái** nghiêm ngặt:
   $$\text{SUBMITTED} \rightarrow \text{TRIAGED} \rightarrow \text{ASSIGNED} \rightarrow \text{IN_PROGRESS} \rightarrow \text{RESOLVED} \rightarrow \text{CONFIRMED} \rightarrow \text{CLOSED}$$
-  *(Nhánh hủy: `REJECTED`, Nhánh mở lại: `REOPENED`)*.
-- Thời hạn cam kết giải quyết (SLA Due At):
+  - **Nhánh từ chối (`REJECTED`):** Chỉ `DISPATCHER`/`ADMIN` được chuyển từ `{SUBMITTED, TRIAGED, ASSIGNED}` sang `REJECTED` (bắt buộc kèm lý do `note`).
+  - **Nhánh nghiệm thu & đóng phiếu (`CONFIRMED` $\rightarrow$ `CLOSED`):**
+    - `DISPATCHER`/`ADMIN` duyệt nghiệm thu `RESOLVED -> CONFIRMED` (hoặc yêu cầu làm lại `RESOLVED -> REOPENED`).
+    - Công dân chủ phiếu gọi `POST /api/v1/incidents/{id_or_code}/feedback` với `action="CONFIRM"` (điểm sao `1..5` là tùy chọn) để chuyển `CONFIRMED -> CLOSED` (không phụ thuộc số sao). Với phiếu khách vãng lai (`citizen_id` rỗng), `DISPATCHER`/`ADMIN` được phép đóng `CONFIRMED -> CLOSED` qua `PATCH /status`. Không tự đóng theo thời gian.
+  - **Nhánh khiếu nại & mở lại (`REOPENED`):**
+    - Công dân chủ phiếu gửi `action="DISPUTE"` (bắt buộc có lý do `comment`) từ `CONFIRMED -> REOPENED`, hoặc `DISPATCHER`/`ADMIN` yêu cầu làm lại từ `RESOLVED -> REOPENED`.
+    - Kỹ thuật viên phụ trách (hoặc cùng đơn vị khi chưa gán đích danh) nhận xử lý từ `{ASSIGNED, REOPENED} -> IN_PROGRESS`.
+- Thời hạn cam kết giải quyết (`sla_due_at`):
   - `EMERGENCY`: 4 giờ
   - `HIGH`: 12 giờ
   - `NORMAL`: 24 giờ
   - `LOW`: 48 giờ
+  - Tính từ `created_at` theo mức độ ưu tiên hiện tại; khi đổi `priority` ở bước `/triage` thì tính lại từ `created_at`.
+  - **Lưu ý khi mở lại phiếu (`REOPENED`):** Khi phiếu chuyển sang `REOPENED` (do điều phối viên yêu cầu làm lại hoặc công dân khiếu nại), hệ thống xóa `resolved_at = None` và **đặt lại hạn `sla_due_at` mới tính từ thời điểm mở lại** theo mức độ ưu tiên hiện tại.
 
 ### 3.5. Kết quả Kiểm thử Tự động Backend
 - Vượt qua **197 / 201 unit & integration tests** trong `backend/tests/`.

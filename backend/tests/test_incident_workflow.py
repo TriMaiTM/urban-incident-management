@@ -229,6 +229,21 @@ class MockWorkflowSession:
             col_names = [getattr(c, "name", "") for c in stmt.selected_columns]
 
         stmt_str = str(stmt).lower()
+        if "from incident_feedback" in stmt_str:
+            ratings: list[int] = []
+            seen_ids: set[UUID] = set()
+            for (cls, _), obj in self.entities.items():
+                if cls is IncidentFeedback and getattr(obj, "rating", None) is not None:
+                    seen_ids.add(obj.id)
+                    ratings.append(int(obj.rating))
+            for (cls, _), inc in self.entities.items():
+                if cls is Incident:
+                    fb = getattr(inc, "feedback", None)
+                    if fb is not None and getattr(fb, "rating", None) is not None and fb.id not in seen_ids:
+                        seen_ids.add(fb.id)
+                        ratings.append(int(fb.rating))
+            return MockResult(ratings)
+
         if "from incidents" in stmt_str:
             params = {}
             try:
@@ -268,6 +283,37 @@ class MockWorkflowSession:
                     if getattr(inc, "sla_due_at", None) is not None
                 ]
                 return MockResult(rows)
+
+            if col_names == ["created_at", "resolved_at"]:
+                rows = [
+                    (getattr(inc, "created_at", None), getattr(inc, "resolved_at", None))
+                    for inc in incidents
+                    if getattr(inc, "resolved_at", None) is not None and getattr(inc, "created_at", None) is not None
+                ]
+                return MockResult(rows)
+
+            if col_names == ["district", "status", "count"]:
+                ds_counts: dict[tuple[str, str], int] = {}
+                for inc in incidents:
+                    d = getattr(inc, "district", None)
+                    st = getattr(inc, "status", None)
+                    if d and st:
+                        ds_counts[(d, st)] = ds_counts.get((d, st), 0) + 1
+                return MockResult([(d, st, c) for (d, st), c in ds_counts.items()])
+
+            if col_names == ["rating"]:
+                ratings: list[int] = []
+                seen_ids: set[UUID] = set()
+                for (cls, _), obj in self.entities.items():
+                    if cls is IncidentFeedback and getattr(obj, "rating", None) is not None:
+                        seen_ids.add(obj.id)
+                        ratings.append(int(obj.rating))
+                for inc in incidents:
+                    fb = getattr(inc, "feedback", None)
+                    if fb is not None and getattr(fb, "rating", None) is not None and fb.id not in seen_ids:
+                        seen_ids.add(fb.id)
+                        ratings.append(int(fb.rating))
+                return MockResult(ratings)
 
             # 2. Single incident by ticket_code
             if "incidents.ticket_code =" in stmt_str:
@@ -412,7 +458,7 @@ async def test_triage_incident_dispatcher_success(client: httpx.AsyncClient, moc
 
 @pytest.mark.asyncio
 async def test_triage_incident_emergency_sla_reduction(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """EMERGENCY priority cuts default SLA hours in half."""
+    """Triage recalculates sla_due_at from created_at by priority (EMERGENCY=4h, HIGH=12h, NORMAL=24h, LOW=48h)."""
     dispatcher = _make_mock_user(role="DISPATCHER")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
@@ -434,7 +480,9 @@ async def test_triage_incident_emergency_sla_reduction(client: httpx.AsyncClient
     )
     mock_session.seed(department)
 
+    created_time = datetime.now(timezone.utc) - timedelta(hours=1)
     incident = _make_mock_incident(status="SUBMITTED")
+    incident.created_at = created_time
     mock_session.seed(incident)
 
     payload = {
@@ -443,7 +491,6 @@ async def test_triage_incident_emergency_sla_reduction(client: httpx.AsyncClient
         "assigned_department_id": str(department.id),
     }
 
-    before_patch = datetime.now(timezone.utc)
     response = await client.patch(f"/api/v1/incidents/{incident.id}/triage", json=payload)
 
     assert response.status_code == 200
@@ -451,10 +498,10 @@ async def test_triage_incident_emergency_sla_reduction(client: httpx.AsyncClient
     assert data["status"] == "TRIAGED"
     assert data["priority"] == "EMERGENCY"
 
-    # Emergency reduces 8 hours to 4 hours
+    # EMERGENCY SLA is 4 hours from incident.created_at
     sla_due = datetime.fromisoformat(data["sla_due_at"].replace("Z", "+00:00"))
-    diff_hours = (sla_due - before_patch).total_seconds() / 3600
-    assert 3.8 <= diff_hours <= 4.2
+    diff_hours = (sla_due - created_time).total_seconds() / 3600
+    assert abs(diff_hours - 4.0) < 0.01
 
 
 @pytest.mark.asyncio
@@ -896,16 +943,17 @@ async def test_status_transition_to_rejected_without_note_fails(client: httpx.As
 
 @pytest.mark.asyncio
 async def test_status_transition_to_closed_dispatcher_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Dispatcher successfully closes resolved incident -> status CLOSED."""
+    """Dispatcher successfully closes anonymous CONFIRMED incident (citizen_id is None) -> status CLOSED."""
     dispatcher = _make_mock_user(role="DISPATCHER")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = None
     mock_session.seed(dispatcher, incident)
 
     response = await client.patch(
         f"/api/v1/incidents/{incident.id}/status",
-        data={"to_status": "CLOSED", "note": "Đã hoàn tất quy trình nghiệm thu"},
+        data={"to_status": "CLOSED", "note": "Đã hoàn tất quy trình nghiệm thu phiếu khách vãng lai"},
     )
 
     assert response.status_code == 200, f"Error: {response.text}"
@@ -918,7 +966,7 @@ async def test_status_transition_to_closed_technician_forbidden(client: httpx.As
     technician = _make_mock_user(role="TECHNICIAN")
     app.dependency_overrides[get_current_user] = lambda: technician
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
     mock_session.seed(technician, incident)
 
     response = await client.patch(
@@ -932,7 +980,7 @@ async def test_status_transition_to_closed_technician_forbidden(client: httpx.As
 
 @pytest.mark.asyncio
 async def test_status_transition_to_closed_invalid_source_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Closing an incident that is still IN_PROGRESS (not RESOLVED/CONFIRMED) -> 400 Bad Request."""
+    """Closing an incident that is still IN_PROGRESS (not CONFIRMED) -> 400 Bad Request."""
     dispatcher = _make_mock_user(role="DISPATCHER")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
@@ -945,34 +993,44 @@ async def test_status_transition_to_closed_invalid_source_status_fails(client: h
     )
 
     assert response.status_code == 400
-    assert "Chỉ có thể đóng sự cố khi ở trạng thái 'RESOLVED' hoặc 'CONFIRMED'" in response.json()["detail"]
+    assert "Chỉ có thể đóng sự cố (CLOSED) khi đang ở trạng thái 'CONFIRMED'" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_status_transition_reopen_from_resolved_resets_resolved_at(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Reopening incident from RESOLVED back to IN_PROGRESS resets resolved_at to None."""
+    """Dispatcher reopens incident from RESOLVED -> REOPENED (resets resolved_at), then technician transitions REOPENED -> IN_PROGRESS."""
     dispatcher = _make_mock_user(role="DISPATCHER")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_reopen@danang.gov.vn")
     app.dependency_overrides[get_current_user] = lambda: dispatcher
 
     incident = _make_mock_incident(status="RESOLVED")
     incident.resolved_at = datetime.now(timezone.utc)
-    mock_session.seed(dispatcher, incident)
+    mock_session.seed(dispatcher, technician, incident)
 
     response = await client.patch(
         f"/api/v1/incidents/{incident.id}/status",
-        data={"to_status": "IN_PROGRESS", "note": "Yêu cầu xử lý lại do người dân phản ánh chưa đạt"},
+        data={"to_status": "REOPENED", "note": "Yêu cầu xử lý lại do ảnh minh chứng chưa đạt"},
     )
 
     assert response.status_code == 200, f"Error: {response.text}"
     data = response.json()
-    assert data["status"] == "IN_PROGRESS"
+    assert data["status"] == "REOPENED"
     assert data["resolved_at"] is None
     assert incident.resolved_at is None
+
+    # Technician starts working again: REOPENED -> IN_PROGRESS
+    app.dependency_overrides[get_current_user] = lambda: technician
+    resp_in_prog = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên bắt đầu xử lý lại"},
+    )
+    assert resp_in_prog.status_code == 200
+    assert resp_in_prog.json()["status"] == "IN_PROGRESS"
 
 
 @pytest.mark.asyncio
 async def test_status_transition_invalid_target_status_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Target status not in {'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'CLOSED'} -> 422 Unprocessable Entity."""
+    """Target status not in {'IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'REOPENED', 'REJECTED', 'CLOSED'} -> 422 Unprocessable Entity."""
     technician = _make_mock_user(role="TECHNICIAN")
     app.dependency_overrides[get_current_user] = lambda: technician
 
@@ -999,7 +1057,7 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
 
     response = await client.patch(
         f"/api/v1/incidents/{incident_closed.id}/status",
-        data={"to_status": "IN_PROGRESS"},
+        data={"to_status": "CONFIRMED"},
     )
     assert response.status_code == 400
     assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response.json()["detail"]
@@ -1009,7 +1067,7 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
 
     response_rej = await client.patch(
         f"/api/v1/incidents/{incident_rejected.id}/status",
-        data={"to_status": "IN_PROGRESS"},
+        data={"to_status": "CONFIRMED"},
     )
     assert response_rej.status_code == 400
     assert "Không thể cập nhật trạng thái sự cố đã kết thúc" in response_rej.json()["detail"]
@@ -1021,14 +1079,16 @@ async def test_status_transition_closed_or_rejected_fails(client: httpx.AsyncCli
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Citizen rates 5 stars on RESOLVED incident -> status CONFIRMED, creates feedback record and audit history."""
+    """Citizen confirms completion (action=CONFIRM, rating=5) on CONFIRMED incident -> status CLOSED."""
     citizen = _make_mock_user(role="CITIZEN", email="citizen@danang.gov.vn", full_name="Lê Văn Dân")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = citizen.id
     mock_session.seed(citizen, incident)
 
     payload = {
+        "action": "CONFIRM",
         "rating": 5,
         "comment": "Đội ngũ kỹ thuật xử lý rất nhanh và sạch sẽ, tôi rất hài lòng.",
     }
@@ -1044,7 +1104,7 @@ async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncC
     assert data["citizen_id"] == str(citizen.id)
     assert data["created_at"] is not None
 
-    assert incident.status == "CONFIRMED"
+    assert incident.status == "CLOSED"
     assert mock_session.committed is True
 
     feedbacks = [o for o in mock_session.added if isinstance(o, IncidentFeedback)]
@@ -1052,24 +1112,26 @@ async def test_citizen_feedback_satisfied_confirmed_success(client: httpx.AsyncC
     assert feedbacks[-1].rating == 5
 
     histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
-    conf_hist = [h for h in histories if h.to_status == "CONFIRMED"]
-    assert len(conf_hist) >= 1
-    assert conf_hist[-1].from_status == "RESOLVED"
-    assert conf_hist[-1].actor_id == citizen.id
-    assert "Công dân hài lòng (5 sao)" in (conf_hist[-1].note or "")
+    closed_hist = [h for h in histories if h.to_status == "CLOSED"]
+    assert len(closed_hist) >= 1
+    assert closed_hist[-1].from_status == "CONFIRMED"
+    assert closed_hist[-1].actor_id == citizen.id
+    assert "Công dân xác nhận đóng phiếu (5 sao)" in (closed_hist[-1].note or "")
 
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_disputed_reopens_to_in_progress(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Citizen rates <= 2 stars (dispute) -> reopens to IN_PROGRESS, resets resolved_at to None."""
+    """Citizen disputes on CONFIRMED incident (action=DISPUTE) -> reopens to REOPENED, resets resolved_at to None."""
     citizen = _make_mock_user(role="CITIZEN", email="citizen@danang.gov.vn")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
-    incident = _make_mock_incident(status="RESOLVED")
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = citizen.id
     incident.resolved_at = datetime.now(timezone.utc)
     mock_session.seed(citizen, incident)
 
     payload = {
+        "action": "DISPUTE",
         "rating": 2,
         "comment": "Chưa hoàn trả mặt đường phẳng, vẫn còn gồ ghề nguy hiểm.",
     }
@@ -1080,37 +1142,38 @@ async def test_citizen_feedback_disputed_reopens_to_in_progress(client: httpx.As
     data = response.json()
 
     assert data["rating"] == 2
-    assert incident.status == "IN_PROGRESS"
+    assert incident.status == "REOPENED"
     assert incident.resolved_at is None
     assert mock_session.committed is True
 
     histories = [o for o in mock_session.added if isinstance(o, IncidentHistory)]
-    reopen_hist = [h for h in histories if h.to_status == "IN_PROGRESS"]
+    reopen_hist = [h for h in histories if h.to_status == "REOPENED"]
     assert len(reopen_hist) >= 1
-    assert reopen_hist[-1].from_status == "RESOLVED"
+    assert reopen_hist[-1].from_status == "CONFIRMED"
     assert reopen_hist[-1].actor_id == citizen.id
-    assert "Công dân không hài lòng (2 sao)" in (reopen_hist[-1].note or "")
+    assert "Công dân khiếu nại mở lại (2 sao)" in (reopen_hist[-1].note or "")
 
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_on_unresolved_incident_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Submitting feedback on incident not in RESOLVED status -> 400 Bad Request."""
+    """Submitting feedback on incident not in CONFIRMED status -> 400 Bad Request."""
     citizen = _make_mock_user(role="CITIZEN")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
-    incident = _make_mock_incident(status="IN_PROGRESS")
+    incident = _make_mock_incident(status="RESOLVED")
+    incident.citizen_id = citizen.id
     mock_session.seed(citizen, incident)
 
-    payload = {"rating": 4, "comment": "Tốt"}
+    payload = {"action": "CONFIRM", "rating": 4, "comment": "Tốt"}
     response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
 
     assert response.status_code == 400
-    assert "Chỉ có thể đánh giá đối với sự cố đã được khắc phục" in response.json()["detail"]
+    assert "Chỉ có thể xác nhận hoặc khiếu nại đối với sự cố đã được điều phối viên duyệt nghiệm thu (trạng thái CONFIRMED)." in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
-    """Submitting feedback when incident already has feedback -> 400 Bad Request."""
+    """Submitting feedback when incident is CONFIRMED updates existing feedback; calling again after CLOSED fails with 400."""
     citizen = _make_mock_user(role="CITIZEN")
     app.dependency_overrides[get_current_user] = lambda: citizen
 
@@ -1118,19 +1181,28 @@ async def test_citizen_feedback_duplicate_submission_fails(client: httpx.AsyncCl
         id=uuid4(),
         incident_id=uuid4(),
         citizen_id=citizen.id,
-        rating=4,
-        comment="Đã đánh giá trước đó",
+        rating=2,
+        comment="Khiếu nại lần 1",
         created_at=datetime.now(timezone.utc),
     )
-    incident = _make_mock_incident(status="RESOLVED", feedback=existing_feedback)
+    incident = _make_mock_incident(status="CONFIRMED", feedback=existing_feedback)
+    incident.citizen_id = citizen.id
     existing_feedback.incident_id = incident.id
     mock_session.seed(citizen, incident, existing_feedback)
 
-    payload = {"rating": 5, "comment": "Thử đánh giá lần 2"}
+    # First call while CONFIRMED updates existing feedback in place and transitions to CLOSED
+    payload = {"action": "CONFIRM", "rating": 5}
     response = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+    assert response.status_code == 201
+    assert response.json()["rating"] == 5
+    # Comment was not sent in payload, so previous comment is preserved
+    assert response.json()["comment"] == "Khiếu nại lần 1"
+    assert incident.status == "CLOSED"
 
-    assert response.status_code == 400
-    assert "Sự cố này đã được gửi đánh giá phản hồi trước đó." in response.json()["detail"]
+    # Calling feedback again now that incident is CLOSED -> 400 Bad Request
+    response_again = await client.post(f"/api/v1/incidents/{incident.id}/feedback", json=payload)
+    assert response_again.status_code == 400
+    assert "trạng thái CONFIRMED" in response_again.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -1396,3 +1468,915 @@ async def test_route_precedence_map_not_shadowed_by_ticket_code(client: httpx.As
     assert resp_ticket.status_code == 200
     ticket_data = resp_ticket.json()
     assert ticket_data["ticket_code"] == "DN-202610-ABCD"
+
+
+@pytest.mark.asyncio
+async def test_workflow_mutations_accept_ticket_code(client: httpx.AsyncClient, mock_session: MockWorkflowSession):
+    """Ensure triage, assign, status, and feedback endpoints accept ticket_code in URL path."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_code@danang.gov.vn")
+    citizen = _make_mock_user(role="CITIZEN", email="cit_code@danang.gov.vn")
+
+    category = Category(
+        id=uuid4(),
+        code="ROAD_DAMAGE",
+        name="Hư hỏng mặt đường",
+        default_sla_hours=24,
+        created_at=datetime.now(timezone.utc),
+    )
+    department = Department(
+        id=uuid4(),
+        code="SGTVT_DN",
+        name="Sở Giao thông Vận tải",
+        level="CITY_DEPT",
+        created_at=datetime.now(timezone.utc),
+    )
+    incident = _make_mock_incident(
+        ticket_code="DN-202611-TK01",
+        status="SUBMITTED",
+        priority="NORMAL",
+    )
+    incident.citizen_id = citizen.id
+    mock_session.seed(dispatcher, technician, citizen, category, department, incident)
+
+    # 1. Triage by ticket_code
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    res_triage = await client.patch(
+        "/api/v1/incidents/DN-202611-TK01/triage",
+        json={
+            "category_id": str(category.id),
+            "priority": "HIGH",
+            "assigned_department_id": str(department.id),
+        },
+    )
+    assert res_triage.status_code == 200
+    assert res_triage.json()["status"] == "TRIAGED"
+
+    # 2. Assign by ticket_code
+    res_assign = await client.patch(
+        "/api/v1/incidents/DN-202611-TK01/assign",
+        json={"assigned_technician_id": str(technician.id)},
+    )
+    assert res_assign.status_code == 200
+    assert res_assign.json()["status"] == "ASSIGNED"
+
+    # 3. Status update by ticket_code
+    app.dependency_overrides[get_current_user] = lambda: technician
+    res_status = await client.patch(
+        "/api/v1/incidents/DN-202611-TK01/status",
+        data={"to_status": "IN_PROGRESS", "note": "Bắt đầu xử lý theo mã phiếu"},
+    )
+    assert res_status.status_code == 200
+    assert res_status.json()["status"] == "IN_PROGRESS"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_confirmed_dispatcher_and_technician_rbac(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Dispatcher transitions RESOLVED -> CONFIRMED; technician is forbidden (403)."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_conf@danang.gov.vn")
+    incident = _make_mock_incident(status="RESOLVED")
+    mock_session.seed(dispatcher, technician, incident)
+
+    # Technician cannot confirm
+    app.dependency_overrides[get_current_user] = lambda: technician
+    resp_tech = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CONFIRMED", "note": "Thử tự duyệt nghiệm thu"},
+    )
+    assert resp_tech.status_code == 403
+
+    # Dispatcher confirms RESOLVED -> CONFIRMED
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    resp_disp = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CONFIRMED", "note": "Đã đối chiếu ảnh minh chứng đạt yêu cầu"},
+    )
+    assert resp_disp.status_code == 200
+    assert resp_disp.json()["status"] == "CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_rejected_only_from_early_states(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """REJECTED is only allowed from SUBMITTED, TRIAGED, ASSIGNED; blocked from IN_PROGRESS/RESOLVED/CONFIRMED."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    inc_in_prog = _make_mock_incident(status="IN_PROGRESS")
+    mock_session.seed(dispatcher, inc_in_prog)
+
+    resp = await client.patch(
+        f"/api/v1/incidents/{inc_in_prog.id}/status",
+        data={"to_status": "REJECTED", "note": "Thử từ chối khi đang xử lý"},
+    )
+    assert resp.status_code == 400
+    assert "Chỉ có thể từ chối sự cố khi đang ở trạng thái 'SUBMITTED', 'TRIAGED' hoặc 'ASSIGNED'" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_status_transition_to_closed_blocked_when_citizen_id_present(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Dispatcher cannot close CONFIRMED incident via PATCH /status if citizen_id is not None."""
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    citizen = _make_mock_user(role="CITIZEN", email="owner@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = citizen.id
+    mock_session.seed(dispatcher, citizen, incident)
+
+    resp = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CLOSED", "note": "Điều phối thử đóng thay công dân"},
+    )
+    assert resp.status_code == 400
+    assert "chỉ có thể đóng bởi chính công dân tạo phiếu" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_confirm_without_rating_and_low_rating_closes(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Citizen CONFIRM closes CONFIRMED incident regardless of whether rating is None or low (e.g. 2 stars)."""
+    citizen = _make_mock_user(role="CITIZEN", email="cit_opt@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: citizen
+
+    inc1 = _make_mock_incident(status="CONFIRMED", ticket_code="DN-202611-CF01")
+    inc1.citizen_id = citizen.id
+    inc2 = _make_mock_incident(status="CONFIRMED", ticket_code="DN-202611-CF02")
+    inc2.citizen_id = citizen.id
+    mock_session.seed(citizen, inc1, inc2)
+
+    # 1. CONFIRM with rating=None
+    resp1 = await client.post(
+        f"/api/v1/incidents/{inc1.id}/feedback",
+        json={"action": "CONFIRM", "comment": "Đã xử lý xong, không chấm sao"},
+    )
+    assert resp1.status_code == 201
+    assert resp1.json()["rating"] is None
+    assert inc1.status == "CLOSED"
+
+    # 2. CONFIRM with rating=2 still closes
+    resp2 = await client.post(
+        f"/api/v1/incidents/{inc2.id}/feedback",
+        json={"action": "CONFIRM", "rating": 2, "comment": "Hơi chậm nhưng đồng ý đóng phiếu"},
+    )
+    assert resp2.status_code == 201
+    assert resp2.json()["rating"] == 2
+    assert inc2.status == "CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_citizen_feedback_non_owner_forbidden(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Only the citizen who owns the ticket (citizen_id == current_user.id) can confirm or dispute."""
+    owner = _make_mock_user(role="CITIZEN", email="owner1@danang.gov.vn")
+    other_citizen = _make_mock_user(role="CITIZEN", email="other2@danang.gov.vn")
+    app.dependency_overrides[get_current_user] = lambda: other_citizen
+
+    incident = _make_mock_incident(status="CONFIRMED")
+    incident.citizen_id = owner.id
+    mock_session.seed(owner, other_citizen, incident)
+
+    resp = await client.post(
+        f"/api/v1/incidents/{incident.id}/feedback",
+        json={"action": "CONFIRM", "rating": 5},
+    )
+    assert resp.status_code == 403
+    assert "Chỉ công dân tạo phiếu phản ánh mới có quyền" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_init_db_apply_schema_migrations_idempotent():
+    """Verify apply_schema_migrations in scripts/init_db.py runs twice consecutively without error."""
+    from scripts.init_db import SCHEMA_ALTER_STATEMENTS, apply_schema_migrations
+
+    executed_sql: list[str] = []
+
+    class DummyConn:
+        async def execute(self, clause):
+            executed_sql.append(str(clause))
+
+    conn = DummyConn()
+    await apply_schema_migrations(conn)
+    await apply_schema_migrations(conn)
+
+    assert len(executed_sql) == 2 * len(SCHEMA_ALTER_STATEMENTS)
+    assert any("ALTER TABLE incident_feedback ALTER COLUMN rating DROP NOT NULL" in s for s in executed_sql)
+
+
+@pytest.mark.asyncio
+async def test_init_db_apply_schema_migrations_live_db_with_data():
+    """Run apply_schema_migrations twice consecutively on the live PostgreSQL DB containing existing rows."""
+    from sqlalchemy import text
+    from app.core.database import engine
+    from scripts.init_db import apply_schema_migrations
+
+    async with engine.begin() as conn:
+        user_cnt = (await conn.execute(text("SELECT count(*) FROM users"))).scalar() or 0
+        inc_cnt = (await conn.execute(text("SELECT count(*) FROM incidents"))).scalar() or 0
+        assert user_cnt > 0 and inc_cnt > 0, "Expected live DB to contain seeded users and incidents"
+
+        # Run apply_schema_migrations twice in a row on the populated DB
+        await apply_schema_migrations(conn)
+        await apply_schema_migrations(conn)
+
+        # Verify column is_nullable is YES in information_schema
+        nullable_res = await conn.execute(
+            text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'incident_feedback' AND column_name = 'rating'"
+            )
+        )
+        assert nullable_res.scalar() == "YES"
+    await engine.dispose()
+
+
+ALL_STATUSES = [
+    "SUBMITTED",
+    "TRIAGED",
+    "ASSIGNED",
+    "IN_PROGRESS",
+    "RESOLVED",
+    "CONFIRMED",
+    "CLOSED",
+    "REJECTED",
+    "REOPENED",
+]
+
+STATE_MACHINE_MATRIX_CASES: list[tuple[str, str, str, bool, int]] = []
+
+# 1. Endpoint TRIAGE (target: TRIAGED — allowed from SUBMITTED, TRIAGED)
+for src in ALL_STATUSES:
+    for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
+        if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
+            STATE_MACHINE_MATRIX_CASES.append(("TRIAGE", src, role, False, 403))
+        elif src in {"SUBMITTED", "TRIAGED"}:
+            STATE_MACHINE_MATRIX_CASES.append(("TRIAGE", src, role, True, 200))
+        else:
+            STATE_MACHINE_MATRIX_CASES.append(("TRIAGE", src, role, False, 400))
+
+# 2. Endpoint ASSIGN (target: ASSIGNED — allowed from TRIAGED, ASSIGNED, REOPENED)
+for src in ALL_STATUSES:
+    for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
+        if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
+            STATE_MACHINE_MATRIX_CASES.append(("ASSIGN", src, role, False, 403))
+        elif src in {"TRIAGED", "ASSIGNED", "REOPENED"}:
+            STATE_MACHINE_MATRIX_CASES.append(("ASSIGN", src, role, True, 200))
+        else:
+            STATE_MACHINE_MATRIX_CASES.append(("ASSIGN", src, role, False, 400))
+
+# 3. Endpoint STATUS -> REJECTED (role 403 checked before source status 400)
+for src in ALL_STATUSES:
+    for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
+        if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_REJECTED", src, role, False, 403))
+        elif src in {"SUBMITTED", "TRIAGED", "ASSIGNED"}:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_REJECTED", src, role, True, 200))
+        else:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_REJECTED", src, role, False, 400))
+
+# 4. Endpoint STATUS -> IN_PROGRESS (role/ownership 403 checked before source status 400)
+for src in ALL_STATUSES:
+    for role in ["ASSIGNED_TECHNICIAN", "OTHER_TECHNICIAN", "DISPATCHER", "ADMIN", "OWNER_CITIZEN"]:
+        if role != "ASSIGNED_TECHNICIAN":
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, False, 403))
+        elif src in {"ASSIGNED", "REOPENED"}:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, True, 200))
+        else:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_IN_PROGRESS", src, role, False, 400))
+
+# 5. Endpoint STATUS -> RESOLVED (role/ownership 403 checked before source status 400)
+for src in ALL_STATUSES:
+    for role in ["ASSIGNED_TECHNICIAN", "OTHER_TECHNICIAN", "DISPATCHER", "ADMIN", "OWNER_CITIZEN"]:
+        if role != "ASSIGNED_TECHNICIAN":
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, False, 403))
+        elif src == "IN_PROGRESS":
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, True, 200))
+        else:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_RESOLVED", src, role, False, 400))
+
+# 6. Endpoint STATUS -> CONFIRMED and STATUS -> REOPENED (role 403 checked before source status 400)
+for target_op in ["STATUS_CONFIRMED", "STATUS_REOPENED"]:
+    for src in ALL_STATUSES:
+        for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
+            if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
+                STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, False, 403))
+            elif src == "RESOLVED":
+                STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, True, 200))
+            else:
+                STATE_MACHINE_MATRIX_CASES.append((target_op, src, role, False, 400))
+
+# 7. Endpoint STATUS -> CLOSED (anonymous ticket: citizen_id=None vs owned ticket: citizen_id!=None)
+for src in ALL_STATUSES:
+    for role in ["DISPATCHER", "ADMIN", "ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"]:
+        if role in {"ASSIGNED_TECHNICIAN", "OWNER_CITIZEN"}:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, False, 403))
+        elif src == "CONFIRMED":
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, True, 200))
+        else:
+            STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_ANON", src, role, False, 400))
+
+# Owned ticket via PATCH /status -> CLOSED must be 400 even for DISPATCHER/ADMIN
+for role in ["DISPATCHER", "ADMIN"]:
+    STATE_MACHINE_MATRIX_CASES.append(("STATUS_CLOSED_OWNED", "CONFIRMED", role, False, 400))
+
+# 8. Endpoint FEEDBACK (CONFIRM -> CLOSED, DISPUTE -> REOPENED)
+for fb_op in ["FEEDBACK_CONFIRM", "FEEDBACK_DISPUTE"]:
+    for src in ALL_STATUSES:
+        for role in ["OWNER_CITIZEN", "OTHER_CITIZEN", "DISPATCHER", "ASSIGNED_TECHNICIAN"]:
+            if role != "OWNER_CITIZEN":
+                STATE_MACHINE_MATRIX_CASES.append((fb_op, src, role, False, 403))
+            elif src == "CONFIRMED":
+                STATE_MACHINE_MATRIX_CASES.append((fb_op, src, role, True, 201))
+            else:
+                STATE_MACHINE_MATRIX_CASES.append((fb_op, src, role, False, 400))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation,source_status,role_key,has_citizen,expected_code",
+    STATE_MACHINE_MATRIX_CASES,
+)
+async def test_state_machine_transition_matrix(
+    client: httpx.AsyncClient,
+    mock_session: MockWorkflowSession,
+    operation: str,
+    source_status: str,
+    role_key: str,
+    has_citizen: bool,
+    expected_code: int,
+):
+    """Exhaustive parametrized state machine matrix across (source_status, target_status, role)."""
+    dispatcher = _make_mock_user(role="DISPATCHER", email="disp_mat@danang.gov.vn")
+    admin = _make_mock_user(role="ADMIN", email="admin_mat@danang.gov.vn")
+    assigned_tech = _make_mock_user(role="TECHNICIAN", email="tech1_mat@danang.gov.vn")
+    other_tech = _make_mock_user(role="TECHNICIAN", email="tech2_mat@danang.gov.vn")
+    owner_citizen = _make_mock_user(role="CITIZEN", email="cit1_mat@danang.gov.vn")
+    other_citizen = _make_mock_user(role="CITIZEN", email="cit2_mat@danang.gov.vn")
+
+    role_map = {
+        "DISPATCHER": dispatcher,
+        "ADMIN": admin,
+        "ASSIGNED_TECHNICIAN": assigned_tech,
+        "OTHER_TECHNICIAN": other_tech,
+        "OWNER_CITIZEN": owner_citizen,
+        "OTHER_CITIZEN": other_citizen,
+    }
+    actor = role_map[role_key]
+    app.dependency_overrides[get_current_user] = lambda: actor
+
+    category = Category(id=uuid4(), code="ROAD_DAMAGE", name="Hư hỏng đường", default_sla_hours=24)
+    department = Department(id=uuid4(), code="SGTVT_DN", name="Sở GTVT", level="CITY_DEPT")
+    proof_media = IncidentMedia(
+        id=uuid4(),
+        incident_id=uuid4(),
+        media_type="AFTER_PROOF",
+        file_url="/uploads/public/existing_proof.jpg",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    incident = _make_mock_incident(status=source_status)
+    incident.assigned_technician_id = assigned_tech.id
+    incident.assigned_technician = assigned_tech
+    if operation == "STATUS_CLOSED_ANON":
+        incident.citizen_id = None
+    else:
+        incident.citizen_id = owner_citizen.id
+
+    if operation == "STATUS_RESOLVED":
+        proof_media.incident_id = incident.id
+        incident.media.append(proof_media)
+
+    mock_session.seed(
+        dispatcher,
+        admin,
+        assigned_tech,
+        other_tech,
+        owner_citizen,
+        other_citizen,
+        category,
+        department,
+        incident,
+    )
+
+    if operation == "TRIAGE":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/triage",
+            json={
+                "category_id": str(category.id),
+                "priority": "NORMAL",
+                "assigned_department_id": str(department.id),
+            },
+        )
+    elif operation == "ASSIGN":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/assign",
+            json={
+                "assigned_department_id": str(department.id),
+                "assigned_technician_id": str(assigned_tech.id),
+            },
+        )
+    elif operation == "STATUS_REJECTED":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/status",
+            data={"to_status": "REJECTED", "note": "Lý do từ chối hợp lệ"},
+        )
+    elif operation == "STATUS_IN_PROGRESS":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/status",
+            data={"to_status": "IN_PROGRESS", "note": "Bắt đầu xử lý"},
+        )
+    elif operation == "STATUS_RESOLVED":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/status",
+            data={"to_status": "RESOLVED", "note": "Đã xử lý xong"},
+        )
+    elif operation == "STATUS_CONFIRMED":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/status",
+            data={"to_status": "CONFIRMED", "note": "Duyệt nghiệm thu"},
+        )
+    elif operation == "STATUS_REOPENED":
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/status",
+            data={"to_status": "REOPENED", "note": "Yêu cầu làm lại"},
+        )
+    elif operation in {"STATUS_CLOSED_ANON", "STATUS_CLOSED_OWNED"}:
+        resp = await client.patch(
+            f"/api/v1/incidents/{incident.id}/status",
+            data={"to_status": "CLOSED", "note": "Đóng phiếu"},
+        )
+    elif operation == "FEEDBACK_CONFIRM":
+        resp = await client.post(
+            f"/api/v1/incidents/{incident.id}/feedback",
+            json={"action": "CONFIRM", "rating": 5, "comment": "Đồng ý đóng"},
+        )
+    elif operation == "FEEDBACK_DISPUTE":
+        resp = await client.post(
+            f"/api/v1/incidents/{incident.id}/feedback",
+            json={"action": "DISPUTE", "comment": "Chưa đạt yêu cầu"},
+        )
+    else:
+        raise ValueError(f"Unknown operation: {operation}")
+
+    assert resp.status_code == expected_code, (
+        f"Failed for op={operation}, src={source_status}, role={role_key}: "
+        f"expected {expected_code}, got {resp.status_code} ({resp.text})"
+    )
+
+
+@pytest.mark.asyncio
+async def test_full_dispute_reopen_reresolve_reconfirm_close_cycle(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Test full cycle: CONFIRMED -> DISPUTE (REOPENED) -> IN_PROGRESS -> RESOLVED -> CONFIRMED -> CONFIRM (CLOSED)."""
+    dispatcher = _make_mock_user(role="DISPATCHER", email="disp_cyc@danang.gov.vn")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_cyc@danang.gov.vn")
+    citizen = _make_mock_user(role="CITIZEN", email="cit_cyc@danang.gov.vn")
+
+    first_resolved_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    incident = _make_mock_incident(status="CONFIRMED", ticket_code="DN-202611-CYC1")
+    incident.citizen_id = citizen.id
+    incident.assigned_technician_id = technician.id
+    incident.assigned_technician = technician
+    incident.resolved_at = first_resolved_at
+
+    mock_session.seed(dispatcher, technician, citizen, incident)
+
+    # 1. Citizen disputes (CONFIRMED -> REOPENED)
+    app.dependency_overrides[get_current_user] = lambda: citizen
+    r1 = await client.post(
+        f"/api/v1/incidents/{incident.id}/feedback",
+        json={"action": "DISPUTE", "rating": 1, "comment": "Vẫn còn ổ gà chưa lấp kỹ"},
+    )
+    assert r1.status_code == 201
+    assert incident.status == "REOPENED"
+    assert incident.resolved_at is None
+
+    # 2. Assigned Technician starts rework (REOPENED -> IN_PROGRESS)
+    app.dependency_overrides[get_current_user] = lambda: technician
+    r2 = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên xử lý lại"},
+    )
+    assert r2.status_code == 200
+    assert incident.status == "IN_PROGRESS"
+
+    # 3. Assigned Technician resolves again (IN_PROGRESS -> RESOLVED)
+    img_bytes = _create_synthetic_image_bytes()
+    r3 = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "RESOLVED", "note": "Đã thảm nhựa lại lần 2"},
+        files={"proof_image": ("repaired_v2.jpg", img_bytes, "image/jpeg")},
+    )
+    assert r3.status_code == 200
+    assert incident.status == "RESOLVED"
+    assert incident.resolved_at is not None
+    second_resolved_at = incident.resolved_at
+    assert second_resolved_at > first_resolved_at
+
+    # 4. Dispatcher confirms again (RESOLVED -> CONFIRMED)
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    r4 = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "CONFIRMED", "note": "Nghiệm thu lần 2 đạt yêu cầu"},
+    )
+    assert r4.status_code == 200
+    assert incident.status == "CONFIRMED"
+
+    # 5. Citizen confirms completion on second feedback (CONFIRMED -> CLOSED)
+    app.dependency_overrides[get_current_user] = lambda: citizen
+    r5 = await client.post(
+        f"/api/v1/incidents/{incident.id}/feedback",
+        json={"action": "CONFIRM", "rating": 5, "comment": "Lần 2 đã xử lý tốt, đồng ý đóng"},
+    )
+    assert r5.status_code == 201, f"Second feedback failed: {r5.text}"
+    assert incident.status == "CLOSED"
+    assert incident.resolved_at == second_resolved_at
+    assert r5.json()["rating"] == 5
+
+
+@pytest.mark.asyncio
+async def test_sla_calculation_by_priority_and_reset_on_reopen(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify 4h/12h/24h/48h SLA calculation from created_at and reset from reopen time on REOPENED."""
+    from app.api.v1.endpoints.incidents import calculate_sla_due_at
+
+    base = datetime(2026, 11, 8, 0, 0, 0, tzinfo=timezone.utc)
+    assert calculate_sla_due_at("EMERGENCY", base) == base + timedelta(hours=4)
+    assert calculate_sla_due_at("HIGH", base) == base + timedelta(hours=12)
+    assert calculate_sla_due_at("NORMAL", base) == base + timedelta(hours=24)
+    assert calculate_sla_due_at("LOW", base) == base + timedelta(hours=48)
+
+    dispatcher = _make_mock_user(role="DISPATCHER")
+    citizen = _make_mock_user(role="CITIZEN", email="sla_cit@danang.gov.vn")
+    cat = Category(id=uuid4(), code="ROAD_DAMAGE", name="Hư hỏng đường", default_sla_hours=24)
+    dept = Department(id=uuid4(), code="SGTVT_DN", name="Sở GTVT", level="CITY_DEPT")
+
+    created_at = datetime.now(timezone.utc) - timedelta(hours=10)
+    inc = _make_mock_incident(status="SUBMITTED", priority="NORMAL")
+    inc.created_at = created_at
+    inc.citizen_id = citizen.id
+    inc.sla_due_at = calculate_sla_due_at("NORMAL", created_at)
+    mock_session.seed(dispatcher, citizen, cat, dept, inc)
+
+    # 1. Triage changes priority to HIGH -> sla_due_at recalculated as created_at + 12h
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    r_triage = await client.patch(
+        f"/api/v1/incidents/{inc.id}/triage",
+        json={
+            "category_id": str(cat.id),
+            "priority": "HIGH",
+            "assigned_department_id": str(dept.id),
+        },
+    )
+    assert r_triage.status_code == 200
+    assert inc.sla_due_at == created_at + timedelta(hours=12)
+
+    # 2. Dispatcher reopens RESOLVED -> REOPENED -> sla_due_at reset to now + 12h
+    inc.status = "RESOLVED"
+    before_reopen = datetime.now(timezone.utc)
+    r_reopen = await client.patch(
+        f"/api/v1/incidents/{inc.id}/status",
+        data={"to_status": "REOPENED", "note": "Yêu cầu làm lại"},
+    )
+    assert r_reopen.status_code == 200
+    assert inc.status == "REOPENED"
+    assert inc.sla_due_at is not None
+    assert 11.9 <= (inc.sla_due_at - before_reopen).total_seconds() / 3600 <= 12.1
+
+    # 3. Citizen disputes CONFIRMED -> REOPENED -> sla_due_at reset to now + 48h (when priority=LOW)
+    inc2 = _make_mock_incident(status="CONFIRMED", priority="LOW", ticket_code="DN-202611-SLA2")
+    inc2.created_at = created_at
+    inc2.citizen_id = citizen.id
+    inc2.sla_due_at = calculate_sla_due_at("LOW", created_at)
+    mock_session.seed(inc2)
+
+    app.dependency_overrides[get_current_user] = lambda: citizen
+    before_dispute = datetime.now(timezone.utc)
+    r_disp = await client.post(
+        f"/api/v1/incidents/{inc2.id}/feedback",
+        json={"action": "DISPUTE", "comment": "Khiếu nại mở lại tính lại hạn SLA"},
+    )
+    assert r_disp.status_code == 201
+    assert inc2.status == "REOPENED"
+    assert inc2.sla_due_at is not None
+    assert 47.9 <= (inc2.sla_due_at - before_dispute).total_seconds() / 3600 <= 48.1
+
+
+@pytest.mark.asyncio
+async def test_technician_same_department_claims_unassigned_incident_and_other_department_forbidden(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Technician in same department starts unassigned incident -> 200 and gets assigned; other dept -> 403."""
+    dept_road = Department(id=uuid4(), code="SGTVT_DN", name="Sở GTVT", level="CITY_DEPT")
+    dept_water = Department(id=uuid4(), code="CTDN_WATER", name="Cty Thoát nước", level="UTILITY_COMPANY")
+
+    tech_same_dept = _make_mock_user(role="TECHNICIAN", email="tech_road@danang.gov.vn")
+    tech_same_dept.department_id = dept_road.id
+
+    tech_other_dept = _make_mock_user(role="TECHNICIAN", email="tech_water@danang.gov.vn")
+    tech_other_dept.department_id = dept_water.id
+
+    incident = _make_mock_incident(status="ASSIGNED")
+    incident.assigned_department_id = dept_road.id
+    incident.assigned_department = dept_road
+    incident.assigned_technician_id = None
+    incident.assigned_technician = None
+
+    mock_session.seed(dept_road, dept_water, tech_same_dept, tech_other_dept, incident)
+
+    # 1. Technician from different department is rejected with 403
+    app.dependency_overrides[get_current_user] = lambda: tech_other_dept
+    res_other = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên khác đơn vị thử nhận"},
+    )
+    assert res_other.status_code == 403
+    assert incident.assigned_technician_id is None
+
+    # 2. Technician from same department succeeds (200) and gets assigned_technician_id = current_user.id
+    app.dependency_overrides[get_current_user] = lambda: tech_same_dept
+    res_same = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={"to_status": "IN_PROGRESS", "note": "Kỹ thuật viên cùng đơn vị nhận xử lý"},
+    )
+    assert res_same.status_code == 200, f"Error: {res_same.text}"
+    assert res_same.json()["status"] == "IN_PROGRESS"
+    assert res_same.json()["assigned_technician_id"] == str(tech_same_dept.id)
+    assert incident.assigned_technician_id == tech_same_dept.id
+
+
+@pytest.mark.asyncio
+async def test_fastapi_lifespan_runs_schema_migrations_twice_idempotent():
+    """Verify FastAPI lifespan in app/main.py executes apply_schema_migrations twice without error."""
+    from app.core.database import engine
+    from app.main import app as fastapi_app, lifespan
+
+    async with lifespan(fastapi_app):
+        pass
+    async with lifespan(fastapi_app):
+        pass
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_step5_proof_gps_and_privacy_masking_for_rejection_and_technician_name(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify AFTER_PROOF GPS coordinates, technician name abbreviation, rejection_reason RBAC, and map duplicate_count."""
+    from app.api.deps import get_current_user_optional
+
+    owner = _make_mock_user(role="CITIZEN", email="owner_s5@danang.gov.vn", full_name="Lê Văn Chủ")
+    other_citizen = _make_mock_user(role="CITIZEN", email="other_s5@danang.gov.vn", full_name="Phạm Thị Khác")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_s5@danang.gov.vn", full_name="Trần Văn Kỹ")
+    dispatcher = _make_mock_user(role="DISPATCHER", email="disp_s5@danang.gov.vn", full_name="Nguyễn Điều Phối")
+
+    incident = _make_mock_incident(
+        ticket_code="DN-202611-STP5",
+        status="IN_PROGRESS",
+        duplicate_count=7,
+    )
+    incident.citizen_id = owner.id
+    incident.assigned_technician_id = technician.id
+    incident.assigned_technician = technician
+    mock_session.seed(owner, other_citizen, technician, dispatcher, incident)
+
+    # 1. Technician uploads AFTER_PROOF with proof_latitude & proof_longitude
+    app.dependency_overrides[get_current_user] = lambda: technician
+    img_bytes = _create_synthetic_image_bytes()
+    res_resolve = await client.patch(
+        f"/api/v1/incidents/{incident.id}/status",
+        data={
+            "to_status": "RESOLVED",
+            "note": "Đã xử lý tại hiện trường có tọa độ GPS",
+            "proof_latitude": "16.0615",
+            "proof_longitude": "108.2212",
+        },
+        files={"proof_image": ("proof_gps.jpg", img_bytes, "image/jpeg")},
+    )
+    assert res_resolve.status_code == 200, f"Failed: {res_resolve.text}"
+    resolve_body = res_resolve.json()
+    proof_items = [m for m in resolve_body["media"] if m["media_type"] == "AFTER_PROOF"]
+    assert len(proof_items) == 1
+    assert proof_items[0]["latitude"] == pytest.approx(16.0615, abs=1e-5)
+    assert proof_items[0]["longitude"] == pytest.approx(108.2212, abs=1e-5)
+    assert resolve_body["assigned_technician_name"] == "Trần Văn Kỹ"
+
+    # 2. Check GET /map exposes duplicate_count
+    res_map = await client.get("/api/v1/incidents/map")
+    assert res_map.status_code == 200
+    feat = next(f for f in res_map.json()["features"] if f["properties"]["ticket_code"] == "DN-202611-STP5")
+    assert feat["properties"]["duplicate_count"] == 7
+
+    # 3. Create a REJECTED incident with assigned technician and test GET /{id_or_code} privacy rules
+    rej_inc = _make_mock_incident(
+        ticket_code="DN-202611-REJ5",
+        status="ASSIGNED",
+    )
+    rej_inc.citizen_id = owner.id
+    rej_inc.assigned_technician_id = technician.id
+    rej_inc.assigned_technician = technician
+    mock_session.seed(rej_inc)
+
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    res_rej = await client.patch(
+        f"/api/v1/incidents/{rej_inc.id}/status",
+        data={"to_status": "REJECTED", "note": "Báo cáo sai địa điểm thực tế"},
+    )
+    assert res_rej.status_code == 200
+    assert res_rej.json()["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
+
+    try:
+        # 3a. Anonymous lookup: assigned_technician_name is abbreviated, rejection_reason is None, REJECTED history note is None
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+        r_anon = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_anon.status_code == 200
+        d_anon = r_anon.json()
+        assert d_anon["assigned_technician_name"] == "Trần V. K."
+        assert d_anon["rejection_reason"] is None
+        rej_hist_anon = [h for h in d_anon["history"] if h["to_status"] == "REJECTED"]
+        assert all(h["note"] is None for h in rej_hist_anon)
+
+        # 3b. Other citizen (logged in): assigned_technician_name is full, rejection_reason is None
+        app.dependency_overrides[get_current_user_optional] = lambda: other_citizen
+        r_other = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_other.status_code == 200
+        d_other = r_other.json()
+        assert d_other["assigned_technician_name"] == "Trần Văn Kỹ"
+        assert d_other["rejection_reason"] is None
+
+        # 3c. Owner citizen: sees full assigned_technician_name and rejection_reason
+        app.dependency_overrides[get_current_user_optional] = lambda: owner
+        r_owner = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_owner.status_code == 200
+        d_owner = r_owner.json()
+        assert d_owner["assigned_technician_name"] == "Trần Văn Kỹ"
+        assert d_owner["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
+
+        # 3d. Dispatcher: sees full assigned_technician_name and rejection_reason
+        app.dependency_overrides[get_current_user_optional] = lambda: dispatcher
+        r_disp = await client.get(f"/api/v1/incidents/{rej_inc.ticket_code}")
+        assert r_disp.status_code == 200
+        d_disp = r_disp.json()
+        assert d_disp["assigned_technician_name"] == "Trần Văn Kỹ"
+        assert d_disp["rejection_reason"] == "Báo cáo sai địa điểm thực tế"
+    finally:
+        app.dependency_overrides.pop(get_current_user_optional, None)
+
+
+@pytest.mark.asyncio
+async def test_step6_analytics_resolution_time_satisfaction_and_district_completion(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify avg_resolution_time_minutes, avg_satisfaction_rating, satisfaction_score, and completion_rate_by_district (CONFIRMED + CLOSED)."""
+    base = datetime(2026, 11, 10, 8, 0, 0, tzinfo=timezone.utc)
+    cit1 = _make_mock_user(role="CITIZEN", email="c1@danang.gov.vn")
+    cit2 = _make_mock_user(role="CITIZEN", email="c2@danang.gov.vn")
+
+    # District Hải Châu: 3 incidents (1 CONFIRMED [60 min], 1 CLOSED [120 min], 1 IN_PROGRESS) -> 2/3 completed = 66.7%
+    inc_hc_confirmed = _make_mock_incident(ticket_code="DN-202611-AN1", status="CONFIRMED", district="Hải Châu")
+    inc_hc_confirmed.created_at = base
+    inc_hc_confirmed.resolved_at = base + timedelta(minutes=60)
+    fb1 = IncidentFeedback(
+        id=uuid4(),
+        incident_id=inc_hc_confirmed.id,
+        citizen_id=cit1.id,
+        rating=4,
+        comment="Tốt",
+        created_at=base + timedelta(minutes=65),
+    )
+    inc_hc_confirmed.feedback = fb1
+
+    inc_hc_closed = _make_mock_incident(ticket_code="DN-202611-AN2", status="CLOSED", district="Hải Châu")
+    inc_hc_closed.created_at = base
+    inc_hc_closed.resolved_at = base + timedelta(minutes=120)
+    fb2 = IncidentFeedback(
+        id=uuid4(),
+        incident_id=inc_hc_closed.id,
+        citizen_id=cit2.id,
+        rating=5,
+        comment="Rất hài lòng",
+        created_at=base + timedelta(minutes=130),
+    )
+    inc_hc_closed.feedback = fb2
+
+    inc_hc_inprog = _make_mock_incident(ticket_code="DN-202611-AN3", status="IN_PROGRESS", district="Hải Châu")
+    inc_hc_inprog.created_at = base
+    inc_hc_inprog.resolved_at = None
+
+    # District Thanh Khê: 2 incidents (1 RESOLVED [not yet CONFIRMED/CLOSED, 90 min], 1 SUBMITTED) -> 0/2 completed = 0.0%
+    inc_tk_resolved = _make_mock_incident(ticket_code="DN-202611-AN4", status="RESOLVED", district="Thanh Khê")
+    inc_tk_resolved.created_at = base
+    inc_tk_resolved.resolved_at = base + timedelta(minutes=90)
+
+    inc_tk_sub = _make_mock_incident(ticket_code="DN-202611-AN5", status="SUBMITTED", district="Thanh Khê")
+    inc_tk_sub.created_at = base
+    inc_tk_sub.resolved_at = None
+
+    mock_session.seed(
+        cit1,
+        cit2,
+        inc_hc_confirmed,
+        inc_hc_closed,
+        inc_hc_inprog,
+        inc_tk_resolved,
+        inc_tk_sub,
+        fb1,
+        fb2,
+    )
+
+    res = await client.get("/api/v1/incidents/analytics/summary")
+    assert res.status_code == 200, f"Error: {res.text}"
+    data = res.json()
+
+    # Average resolution time across 3 resolved incidents: (60 + 120 + 90) / 3 = 90.0 minutes
+    assert data["avg_resolution_time_minutes"] == 90.0
+
+    # Average satisfaction rating: (4 + 5) / 2 = 4.5 -> score = 4.5 * 20 = 90.0
+    assert data["avg_satisfaction_rating"] == 4.5
+    assert data["satisfaction_score"] == 90.0
+
+    # Completion rate by district: CONFIRMED + CLOSED count as completed
+    assert data["completion_rate_by_district"]["Hải Châu"] == 66.7
+    assert data["completion_rate_by_district"]["Thanh Khê"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_step7_is_priority_suggested_becomes_false_on_triage_or_assign(
+    client: httpx.AsyncClient, mock_session: MockWorkflowSession
+):
+    """Verify is_priority_suggested is True initially and becomes False when either /triage or /assign is called."""
+    dispatcher = _make_mock_user(role="DISPATCHER", email="disp_s7@danang.gov.vn")
+    technician = _make_mock_user(role="TECHNICIAN", email="tech_s7@danang.gov.vn")
+    cat = Category(id=uuid4(), code="FLOODING", name="Ngập úng", default_sla_hours=12)
+    dept = Department(id=uuid4(), code="CTN_DN", name="Cty Thoát nước", level="UTILITY_COMPANY")
+
+    # Case 1: Incident in SUBMITTED with suggested priority -> /triage sets is_priority_suggested = False
+    inc1 = _make_mock_incident(ticket_code="DN-202611-PR1", status="SUBMITTED", priority="HIGH")
+    inc1.ai_classification_raw = {"citizen_suggested_priority": "HIGH", "is_priority_suggested": True}
+
+    # Case 2: Incident auto-triaged by AI (actor_id=None, status=TRIAGED, is_priority_suggested=True) -> /assign sets is_priority_suggested = False
+    inc2 = _make_mock_incident(ticket_code="DN-202611-PR2", status="TRIAGED", priority="EMERGENCY")
+    inc2.ai_classification_raw = {"priority": "EMERGENCY", "is_priority_suggested": True}
+    inc2.history = [
+        IncidentHistory(
+            id=uuid4(),
+            incident_id=inc2.id,
+            actor_id=None,
+            from_status="SUBMITTED",
+            to_status="TRIAGED",
+            note="AI tự động phân loại",
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+
+    mock_session.seed(dispatcher, technician, cat, dept, inc1, inc2)
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+
+    # Before triage/assign, both have is_priority_suggested == True
+    r_get1 = await client.get(f"/api/v1/incidents/{inc1.ticket_code}")
+    assert r_get1.status_code == 200
+    assert r_get1.json()["is_priority_suggested"] is True
+
+    r_get2 = await client.get(f"/api/v1/incidents/{inc2.ticket_code}")
+    assert r_get2.status_code == 200
+    assert r_get2.json()["is_priority_suggested"] is True
+
+    # Calling /triage on inc1 flips is_priority_suggested -> False
+    r_triage = await client.patch(
+        f"/api/v1/incidents/{inc1.ticket_code}/triage",
+        json={
+            "category_id": str(cat.id),
+            "priority": "HIGH",
+            "assigned_department_id": str(dept.id),
+        },
+    )
+    assert r_triage.status_code == 200
+    assert r_triage.json()["is_priority_suggested"] is False
+
+    # Calling /assign directly on inc2 flips is_priority_suggested -> False
+    r_assign = await client.patch(
+        f"/api/v1/incidents/{inc2.ticket_code}/assign",
+        json={
+            "assigned_department_id": str(dept.id),
+            "assigned_technician_id": str(technician.id),
+        },
+    )
+    assert r_assign.status_code == 200
+    assert r_assign.json()["is_priority_suggested"] is False
+
+
+
+
+
+
+
