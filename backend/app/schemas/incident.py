@@ -63,6 +63,19 @@ def _extract_rejection_reason_from_history(history_list: object) -> str | None:
     return None
 
 
+def _safe_get_rel(obj: object, name: str) -> object:
+    """Safely read an attribute or ORM relationship without triggering SQLAlchemy lazy-load (MissingGreenlet)."""
+    try:
+        from sqlalchemy.orm.base import instance_state
+
+        state = instance_state(obj)  # type: ignore[arg-type]
+        if state is not None and name in state.mapper.relationships and name not in state.dict:
+            return None
+    except Exception:
+        pass
+    return getattr(obj, name, None)
+
+
 def _resolve_is_priority_suggested(status_val: object, ai_raw: object, history_list: object) -> bool:
     """Return False once dispatcher has triaged or assigned the incident, otherwise True."""
     if isinstance(ai_raw, dict) and ai_raw.get("is_priority_suggested") is False:
@@ -291,26 +304,33 @@ class IncidentOut(BaseModel):
         # Category code
         if hasattr(data, "category_code") and getattr(data, "category_code") is not None:
             res["category_code"] = getattr(data, "category_code")
-        elif hasattr(data, "category") and getattr(data, "category") is not None:
-            res["category_code"] = getattr(data.category, "code", None)
+        else:
+            cat_rel = _safe_get_rel(data, "category")
+            if cat_rel is not None:
+                res["category_code"] = getattr(cat_rel, "code", None)
 
         # Assigned department code
         if hasattr(data, "assigned_department_code") and getattr(data, "assigned_department_code") is not None:
             res["assigned_department_code"] = getattr(data, "assigned_department_code")
-        elif hasattr(data, "assigned_department") and getattr(data, "assigned_department") is not None:
-            res["assigned_department_code"] = getattr(data.assigned_department, "code", None)
+        else:
+            dept_rel = _safe_get_rel(data, "assigned_department")
+            if dept_rel is not None:
+                res["assigned_department_code"] = getattr(dept_rel, "code", None)
 
         # Assigned technician name
         if hasattr(data, "assigned_technician_name") and getattr(data, "assigned_technician_name") is not None:
             res["assigned_technician_name"] = getattr(data, "assigned_technician_name")
-        elif hasattr(data, "assigned_technician") and getattr(data, "assigned_technician") is not None:
-            res["assigned_technician_name"] = getattr(data.assigned_technician, "full_name", None)
+        else:
+            tech_rel = _safe_get_rel(data, "assigned_technician")
+            if tech_rel is not None:
+                res["assigned_technician_name"] = getattr(tech_rel, "full_name", None)
 
         # Rejection reason
+        hist_rel = _safe_get_rel(data, "history")
         if hasattr(data, "rejection_reason") and getattr(data, "rejection_reason") is not None:
             res["rejection_reason"] = getattr(data, "rejection_reason")
-        elif hasattr(data, "history") and getattr(data, "history") is not None:
-            res["rejection_reason"] = _extract_rejection_reason_from_history(getattr(data, "history"))
+        elif hist_rel is not None:
+            res["rejection_reason"] = _extract_rejection_reason_from_history(hist_rel)
 
         # Priority suggested flag
         if hasattr(data, "is_priority_suggested") and getattr(data, "is_priority_suggested") is not None:
@@ -319,31 +339,24 @@ class IncidentOut(BaseModel):
             res["is_priority_suggested"] = _resolve_is_priority_suggested(
                 res.get("status"),
                 res.get("ai_classification_raw"),
-                getattr(data, "history", None),
+                hist_rel,
             )
 
         # Anonymized image url
+        media_rel = _safe_get_rel(data, "media")
         if hasattr(data, "anonymized_image_url") and getattr(data, "anonymized_image_url") is not None:
             res["anonymized_image_url"] = getattr(data, "anonymized_image_url")
-        elif hasattr(data, "media") and getattr(data, "media") is not None:
-            media_list = getattr(data, "media")
-            if isinstance(media_list, list):
-                for m in media_list:
-                    if getattr(m, "media_type", None) == "BEFORE_ANONYMIZED":
-                        res["anonymized_image_url"] = getattr(m, "file_url", None)
-                        break
+        elif isinstance(media_rel, list):
+            for m in media_rel:
+                if getattr(m, "media_type", None) == "BEFORE_ANONYMIZED":
+                    res["anonymized_image_url"] = getattr(m, "file_url", None)
+                    break
 
-        # Detail fields (guard against None attributes)
-        if hasattr(data, "category") and getattr(data, "category") is not None:
-            res["category"] = getattr(data, "category")
-        if hasattr(data, "assigned_department") and getattr(data, "assigned_department") is not None:
-            res["assigned_department"] = getattr(data, "assigned_department")
-        if hasattr(data, "media") and getattr(data, "media") is not None:
-            res["media"] = getattr(data, "media")
-        if hasattr(data, "history") and getattr(data, "history") is not None:
-            res["history"] = getattr(data, "history")
-        if hasattr(data, "feedback") and getattr(data, "feedback") is not None:
-            res["feedback"] = getattr(data, "feedback")
+        # Detail fields (guard against None / unloaded ORM relationships)
+        for rel_name in ("category", "assigned_department", "media", "history", "feedback"):
+            rel_val = _safe_get_rel(data, rel_name)
+            if rel_val is not None:
+                res[rel_name] = rel_val
 
         return res
 

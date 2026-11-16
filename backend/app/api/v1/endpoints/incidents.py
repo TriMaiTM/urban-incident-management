@@ -677,8 +677,10 @@ async def create_incident(
         .options(
             selectinload(Incident.category),
             selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
             selectinload(Incident.media),
             selectinload(Incident.history),
+            selectinload(Incident.feedback),
         )
     )
     loaded_incident = (await db.execute(reload_stmt)).scalar_one()
@@ -909,6 +911,7 @@ async def triage_incident(
         .options(
             selectinload(Incident.category),
             selectinload(Incident.assigned_department),
+            selectinload(Incident.assigned_technician),
             selectinload(Incident.media),
             selectinload(Incident.history),
             selectinload(Incident.feedback),
