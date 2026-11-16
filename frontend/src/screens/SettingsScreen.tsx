@@ -1,24 +1,25 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Droplets, Lightbulb, Phone, Plus, Save, Trash2, TreeDeciduous, Construction, CircleDot, X, type LucideProps } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { Button, IconChip, cn, ic } from '../components/primitives'
 import { InputField } from '../components/data'
 import AdminShell from './AdminShell'
+import { apiCreateDepartment, apiListCategories, apiListDepartments, apiUpdateCategory } from '../lib/backend-api'
 
-const cats: { name: string; code: string; icon: ComponentType<LucideProps>; sla: string; n: number; on: boolean }[] = [
+const cats: { id?: string; name: string; code: string; icon: ComponentType<LucideProps>; sla: string; n: number; on: boolean }[] = [
   { name: 'Ngập úng', code: 'FLOOD', icon: Droplets, sla: 'Khẩn cấp', n: 38, on: true },
   { name: 'Cây đổ', code: 'TREE', icon: TreeDeciduous, sla: 'Khẩn cấp', n: 21, on: true },
   { name: 'Hư hỏng mặt đường', code: 'ROAD', icon: Construction, sla: 'Cao', n: 64, on: true },
   { name: 'Hố ga, nắp cống', code: 'MANHOLE', icon: CircleDot, sla: 'Cao', n: 17, on: true },
-  { name: 'Đèn chiếu sáng', code: 'LIGHT', icon: Lightbulb, sla: 'Tiêu chuẩn', n: 29, on: true },
+  { name: 'Đèn chiếu sáng', code: 'LIGHT', icon: Lightbulb, sla: 'Trung bình', n: 29, on: true },
   { name: 'Rác thải', code: 'TRASH', icon: Trash2, sla: 'Thấp', n: 45, on: false },
 ]
 const slaFields = [
   { key: 'urgent', label: 'Khẩn cấp', dot: 'bg-urgent', def: '4' },
   { key: 'high', label: 'Cao', dot: 'bg-high', def: '12' },
-  { key: 'normal', label: 'Tiêu chuẩn', dot: 'bg-normal', def: '24' },
+  { key: 'normal', label: 'Trung bình', dot: 'bg-normal', def: '24' },
   { key: 'low', label: 'Thấp', dot: 'bg-low', def: '48' },
 ]
 type Unit = { name: string; head: string; phone: string; size: number }
@@ -44,11 +45,34 @@ export default function SettingsScreen() {
   const timer = useRef<number | undefined>(undefined)
   const say = (text: string) => { setToast({ kind: 'success', text }); window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), 2200) }
 
+  useEffect(() => {
+    apiListCategories().then((apiCats) => {
+      if (!apiCats.length) return
+      setCat((prev) =>
+        prev.map((c) => {
+          const m = apiCats.find((a) => a.code.includes(c.code) || c.code.includes(a.code))
+          return m ? { ...c, id: m.id, on: m.is_active ?? c.on } : c
+        }),
+      )
+    }).catch(() => {})
+    apiListDepartments().then((depts) => {
+      if (!depts.length) return
+      setUnits(
+        depts.map((d, idx) => ({
+          name: d.name,
+          head: unitSeed[idx % unitSeed.length]?.head ?? 'Trưởng bộ phận',
+          phone: d.contact_phone ?? '0236 3821 000',
+          size: 8 + (idx * 2) % 8,
+        })),
+      )
+    }).catch(() => {})
+  }, [])
+
   const saveSla = async () => {
     const e: Record<string, string> = {}
     slaFields.forEach((f) => { const v = Number(sla[f.key]); if (!Number.isInteger(v) || v < 1 || v > 168) e[f.key] = 'Từ 1 đến 168 giờ' })
     const v = slaFields.map((f) => Number(sla[f.key]))
-    if (!Object.keys(e).length && !(v[0] < v[1] && v[1] < v[2] && v[2] < v[3])) e.order = 'Thời hạn phải tăng dần: Khẩn cấp < Cao < Tiêu chuẩn < Thấp'
+    if (!Object.keys(e).length && !(v[0] < v[1] && v[1] < v[2] && v[2] < v[3])) e.order = 'Thời hạn phải tăng dần: Khẩn cấp < Cao < Trung bình < Thấp'
     setErrs(e); setFailed(false)
     if (Object.keys(e).length) return
     setSaving(true); await new Promise((r) => setTimeout(r, 900)); setSaving(false)
@@ -61,6 +85,8 @@ export default function SettingsScreen() {
     if (!/^[\d\s]{9,14}$/.test(nu.phone.trim())) e.phone = 'Số điện thoại chưa hợp lệ'
     setNe(e)
     if (Object.keys(e).length) return
+    const code = `DEPT_${Date.now().toString().slice(-4)}`
+    apiCreateDepartment({ code, name: nu.name.trim(), contact_phone: nu.phone.trim() }).catch(() => {})
     setUnits((l) => [...l, { name: nu.name.trim(), head: nu.head.trim() || 'Chưa phân công', phone: nu.phone.trim(), size: 0 }])
     setNu({ name: '', head: '', phone: '' }); setAdding(false); say('Đã thêm đơn vị')
   }
@@ -100,7 +126,7 @@ export default function SettingsScreen() {
                     <td className="px-4 py-3 text-[12px] font-semibold">{c.sla}</td>
                     <td className="px-4 py-3 tabular-nums text-muted">{c.n}</td>
                     <td className="px-4 py-3">
-                      <button role="switch" aria-checked={c.on} aria-label={`Bật ${c.name}`} onClick={() => { setCat((l) => l.map((x) => (x.code === c.code ? { ...x, on: !x.on } : x))); say(c.on ? `Đã ẩn danh mục ${c.name}` : `Đã bật danh mục ${c.name}`) }} className={cn('flex h-6 w-11 items-center rounded-full p-1 transition-colors', c.on ? 'bg-ink' : 'bg-low')}>
+                      <button role="switch" aria-checked={c.on} aria-label={`Bật ${c.name}`} onClick={() => { const nextOn = !c.on; setCat((l) => l.map((x) => (x.code === c.code ? { ...x, on: nextOn } : x))); if (c.id) apiUpdateCategory(c.id, { is_active: nextOn }).catch(() => {}); say(c.on ? `Đã ẩn danh mục ${c.name}` : `Đã bật danh mục ${c.name}`) }} className={cn('flex h-6 w-11 items-center rounded-full p-1 transition-colors', c.on ? 'bg-ink' : 'bg-low')}>
                         <span className={cn('size-4 rounded-full bg-white transition-transform', c.on && 'translate-x-5')} />
                       </button>
                     </td>

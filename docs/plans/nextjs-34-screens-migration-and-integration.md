@@ -104,7 +104,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit`
 - **Commit 3:** `feat(frontend): wire citizen, dispatcher, and technician screens to live backend APIs`
 
-### [ ] Bước 4: Ghép Nối API Quản Trị, 7 Đa Giác GIS Quận/Huyện & Open311 (Màn 5, 24–28) + Kiểm Thử Build Toàn Diện
+### [x] Bước 4: Ghép Nối API Quản Trị, 7 Đa Giác GIS Quận/Huyện & Open311 (Màn 5, 24–28) + Kiểm Thử Build Toàn Diện
 - Kết nối Màn 26 (`ZonesScreen`) với `GET /api/v1/zones` và `PATCH /api/v1/zones/{zone_id}`, chuyển đổi tọa độ đa giác WGS84 `[lon, lat]` của 7 Quận/Huyện (`HC`, `TK`, `ST`, `CL`, `NHS`, `LC`, `HV`) lên bản đồ SVG để chọn và bật/tắt theo đúng ranh giới thực tế.
 - Kết nối Màn 5 (`Open311Screen`), Màn 24 (`AnalyticsScreen`), Màn 25 (`UsersScreen`), Màn 27 (`SettingsScreen`), Màn 28 (`AuditLogsScreen`) với các API tương ứng.
 - Chạy kiểm tra biên dịch và build toàn diện cả Frontend lẫn Backend.

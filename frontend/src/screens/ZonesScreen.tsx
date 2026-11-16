@@ -5,8 +5,17 @@ import { Download, MapPin } from 'lucide-react'
 import { Button, Skeleton, cn, ic } from '../components/primitives'
 import { MapCanvas } from '../components/MapArt'
 import AdminShell from './AdminShell'
+import { apiListZones, apiUpdateZone, type ApiZoneOut } from '../lib/backend-api'
 
-export type Zone = { id: string; name: string; open: number; pts: [number, number][]; on: boolean }
+export type Zone = {
+  id: string
+  backendId?: string
+  name: string
+  open: number
+  pts: [number, number][]
+  on: boolean
+  rawGeometry?: { type: string; coordinates: unknown } | null
+}
 export const zoneSeed: Zone[] = [
   { id: 'hc', name: 'Hải Châu', open: 24, on: true, pts: [[720, 336], [800, 329], [850, 364], [840, 434], [740, 434]] },
   { id: 'tk', name: 'Thanh Khê', open: 18, on: true, pts: [[640, 315], [700, 210], [780, 245], [800, 329], [720, 336]] },
@@ -22,22 +31,86 @@ export function zonesGeoJson(zones: Zone[]) {
   return {
     type: 'FeatureCollection',
     features: zones.map((z) => {
+      if (z.rawGeometry) {
+        return {
+          type: 'Feature',
+          properties: { id: z.id.toUpperCase(), name: z.name, accepting: z.on, open_incident_count: z.open },
+          geometry: z.rawGeometry,
+        }
+      }
       const ring = [...z.pts, z.pts[0]].map(([x, y]) => [+(108.1 + (x / 1000) * 0.2).toFixed(5), +(16.15 - (y / 700) * 0.15).toFixed(5)])
       return { type: 'Feature', properties: { id: z.id, name: z.name, accepting: z.on }, geometry: { type: 'Polygon', coordinates: [ring] } }
     }),
   }
 }
 
+function projectApiZones(apiZones: ApiZoneOut[]): Zone[] {
+  const districts = apiZones.filter((z) => z.id.toUpperCase() !== 'DANANG_CORE')
+  if (districts.length === 0) return zoneSeed
+  const minLon = 107.988296
+  const maxLon = 108.342224
+  const minLat = 15.926163
+  const maxLat = 16.215607
+  const lonSpan = maxLon - minLon
+  const latSpan = maxLat - minLat
+
+  return districts.map((z) => {
+    const fallback = zoneSeed.find((s) => s.id === z.id.toLowerCase())
+    let pts: [number, number][] = fallback?.pts ?? [[500, 350], [550, 350], [550, 400]]
+    const geom = z.geojson_geometry
+    if (geom && Array.isArray(geom.coordinates) && geom.coordinates.length > 0) {
+      let ring: number[][] = []
+      if (geom.type === 'Polygon') {
+        ring = (geom.coordinates as number[][][])[0] ?? []
+      } else if (geom.type === 'MultiPolygon') {
+        const polys = geom.coordinates as number[][][][]
+        ring = polys.reduce((best, cur) => ((cur[0]?.length ?? 0) > best.length ? (cur[0] ?? []) : best), [] as number[][])
+      }
+      if (ring.length >= 3) {
+        const step = Math.max(1, Math.floor(ring.length / 120))
+        const sampled = ring.filter((_, idx) => idx % step === 0)
+        pts = sampled.map(([lon, lat]) => [
+          Math.round(((lon - minLon) / lonSpan) * 960 + 20),
+          Math.round(((maxLat - lat) / latSpan) * 660 + 20),
+        ])
+      }
+    }
+    return {
+      id: z.id.toLowerCase(),
+      backendId: z.id,
+      name: z.name,
+      open: z.open_incident_count ?? fallback?.open ?? 0,
+      on: z.is_active,
+      pts,
+      rawGeometry: z.geojson_geometry,
+    }
+  })
+}
+
 export default function ZonesScreen() {
-  const [zones, setZones] = useState(zoneSeed)
+  const [zones, setZones] = useState<Zone[]>(zoneSeed)
   const [sel, setSel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<null | { kind: 'success' | 'info'; text: string }>(null)
   const timer = useRef<number | undefined>(undefined)
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 600); return () => clearTimeout(t) }, [])
+  useEffect(() => {
+    let active = true
+    const t = setTimeout(() => { if (active) setLoading(false) }, 600)
+    apiListZones().then((list) => {
+      if (!active) return
+      setZones(projectApiZones(list))
+      setLoading(false)
+    }).catch(() => {})
+    return () => { active = false; clearTimeout(t) }
+  }, [])
   const say = (kind: 'success' | 'info', text: string) => { setToast({ kind, text }); window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), 2200) }
 
-  const flip = (z: Zone) => { setZones((l) => l.map((x) => (x.id === z.id ? { ...x, on: !x.on } : x))); say(z.on ? 'info' : 'success', z.on ? `Đã ngừng tiếp nhận tại ${z.name}` : `Đã mở tiếp nhận tại ${z.name}`) }
+  const flip = (z: Zone) => {
+    const nextOn = !z.on
+    setZones((l) => l.map((x) => (x.id === z.id ? { ...x, on: nextOn } : x)))
+    say(z.on ? 'info' : 'success', z.on ? `Đã ngừng tiếp nhận tại ${z.name}` : `Đã mở tiếp nhận tại ${z.name}`)
+    apiUpdateZone(z.backendId ?? z.id.toUpperCase(), { is_active: nextOn }).catch(() => {})
+  }
   const download = () => {
     const geo = zonesGeoJson(zones)
     const a = document.createElement('a')

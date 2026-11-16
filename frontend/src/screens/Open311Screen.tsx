@@ -7,6 +7,7 @@ import { InputField } from '../components/data'
 import { kindLabel } from './HomeScreen'
 import { getTickets, statusLabel } from '../data/tickets'
 import { zoneSeed, zonesGeoJson } from './ZonesScreen'
+import { apiCreateOpen311Request, apiGetOpen311Services, apiListOpen311Requests, apiListZones } from '../lib/backend-api'
 
 const BASE = 'https://api.urbana.danang.gov.vn/open311/v2'
 const services = [
@@ -77,18 +78,61 @@ export default function Open311Screen() {
     if (Object.keys(e).length) return
     setBusy(true); setRes(null)
     const t0 = performance.now()
-    await new Promise((r) => setTimeout(r, 600 + Math.random() * 500))
     let status = 200, body: unknown
-    if (new URLSearchParams((typeof window !== 'undefined' ? window.location.search : '')).get('state') === 'error') { status = 500; body = [{ code: 500, description: 'Internal server error' }] }
-    else if (sel === 'services') body = services
-    else if (sel === 'post') { status = 201; body = [{ service_request_id: `DN-202610-${150 + Math.floor(Math.random() * 40)}`, service_notice: 'Phản ánh đã được tiếp nhận', account_id: null, token: Math.random().toString(36).slice(2, 12) }] }
-    else body = requests.filter((r) => (svc === ALL || r.service_code === svc) && (stat === ALL || r.status === stat)).slice(0, Number(limit))
+    if (new URLSearchParams((typeof window !== 'undefined' ? window.location.search : '')).get('state') === 'error') {
+      await new Promise((r) => setTimeout(r, 600))
+      status = 500
+      body = [{ code: 500, description: 'Internal server error' }]
+    } else {
+      try {
+        if (sel === 'services') {
+          body = await apiGetOpen311Services()
+        } else if (sel === 'post') {
+          status = 201
+          body = await apiCreateOpen311Request({
+            service_code: f.service_code,
+            lat: Number(f.lat),
+            long: Number(f.long),
+            address_string: f.address_string || undefined,
+            description: f.description,
+          })
+        } else {
+          body = await apiListOpen311Requests({
+            service_code: svc !== ALL ? svc : undefined,
+            status: stat !== ALL ? stat : undefined,
+            limit: Number(limit),
+          })
+        }
+      } catch {
+        await new Promise((r) => setTimeout(r, 600))
+        if (sel === 'services') body = services
+        else if (sel === 'post') { status = 201; body = [{ service_request_id: `DN-202610-${150 + Math.floor(Math.random() * 40)}`, service_notice: 'Phản ánh đã được tiếp nhận', account_id: null, token: Math.random().toString(36).slice(2, 12) }] }
+        else body = requests.filter((r) => (svc === ALL || r.service_code === svc) && (stat === ALL || r.status === stat)).slice(0, Number(limit))
+      }
+    }
     setRes({ status, ms: Math.round(performance.now() - t0), body }); setBusy(false)
   }
   const copy = () => { navigator.clipboard?.writeText(JSON.stringify(res?.body, null, 2)).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1500) }
-  const download = () => {
+  const download = async () => {
+    let payload: unknown = zonesGeoJson(zoneSeed)
+    try {
+      const apiZ = await apiListZones()
+      const districts = apiZ.filter((z) => z.id.toUpperCase() !== 'DANANG_CORE' && z.geojson_geometry)
+      if (districts.length > 0) {
+        payload = {
+          type: 'FeatureCollection',
+          features: districts.map((z) => ({
+            type: 'Feature',
+            properties: { id: z.id, name: z.name, accepting: z.is_active, open_incident_count: z.open_incident_count },
+            geometry: z.geojson_geometry,
+          })),
+        }
+      }
+    } catch {
+      // Fallback to zoneSeed
+    }
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(zonesGeoJson(zoneSeed), null, 2)], { type: 'application/geo+json' }))
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/geo+json' }))
     a.download = 'ranh-gioi-da-nang.geojson'; a.click(); setDl(true); setTimeout(() => setDl(false), 1800)
   }
   const ok = res && res.status < 400

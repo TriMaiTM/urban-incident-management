@@ -5,9 +5,10 @@ import { ChevronRight, FilterX, Lock, LockOpen, Plus, Search, X } from 'lucide-r
 import { Avatar, Button, Dropdown, EmptyState, ErrorState, PillTab, Skeleton, cn, ic } from '../components/primitives'
 import { InputField } from '../components/data'
 import AdminShell from './AdminShell'
+import { apiCreateUserByAdmin, apiListUsers, apiUpdateUserByAdmin } from '../lib/backend-api'
 
 type Role = 'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN'
-type User = { id: number; name: string; contact: string; role: Role; unit: string; locked: boolean }
+type User = { id: number; backendId?: string; name: string; contact: string; role: Role; unit: string; locked: boolean }
 const roleLabel: Record<Role, string> = { CITIZEN: 'Công dân', DISPATCHER: 'Điều phối', TECHNICIAN: 'Kỹ thuật viên', ADMIN: 'Quản trị' }
 const roleChip: Record<Role, string> = { CITIZEN: 'bg-surface text-ink', DISPATCHER: 'bg-ink text-white', TECHNICIAN: 'bg-high/15 text-high', ADMIN: 'bg-accent/10 text-accent' }
 const roles = Object.keys(roleLabel) as Role[]
@@ -98,11 +99,41 @@ export default function UsersScreen() {
   const [sheet, setSheet] = useState<null | 'new' | number>(null)
   const [toast, setToast] = useState<null | { kind: 'success'; text: string }>(null)
   const timer = useRef<number | undefined>(undefined)
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 700); return () => clearTimeout(t) }, [])
+  useEffect(() => {
+    let active = true
+    const t = setTimeout(() => { if (active) setLoading(false) }, 700)
+    apiListUsers({ page_size: 50 }).then((res) => {
+      if (!active || !res.items.length) return
+      const mapped: User[] = res.items.map((u, idx) => ({
+        id: idx + 1,
+        backendId: u.id,
+        name: u.full_name,
+        contact: u.email ?? u.phone ?? '—',
+        role: u.role,
+        unit: u.role === 'CITIZEN' ? units[0] : (seed[idx % seed.length]?.unit ?? 'Trung tâm IOC'),
+        locked: u.is_locked ?? false,
+      }))
+      setUsers(mapped)
+      setLoading(false)
+    }).catch(() => {})
+    return () => { active = false; clearTimeout(t) }
+  }, [])
 
   const list = useMemo(() => users.filter((u) => (filter === 'Tất cả' || roleLabel[u.role] === filter) && (!q.trim() || `${u.name} ${u.contact} ${u.unit}`.toLowerCase().includes(q.trim().toLowerCase()))), [users, filter, q])
   const editing = typeof sheet === 'number' ? users.find((u) => u.id === sheet) ?? null : null
   const save = (u: User) => {
+    if (editing?.backendId) {
+      apiUpdateUserByAdmin(editing.backendId, { full_name: u.name, role: u.role, is_locked: u.locked }).catch(() => {})
+    } else if (!editing) {
+      const isEmail = u.contact.includes('@')
+      apiCreateUserByAdmin({
+        full_name: u.name,
+        email: isEmail ? u.contact : undefined,
+        phone: !isEmail ? u.contact.replace(/\s/g, '') : undefined,
+        password: 'Password123!',
+        role: u.role,
+      }).catch(() => {})
+    }
     setUsers((l) => (l.some((x) => x.id === u.id) ? l.map((x) => (x.id === u.id ? u : x)) : [u, ...l]))
     setSheet(null)
     setToast({ kind: 'success', text: 'Đã lưu người dùng' })

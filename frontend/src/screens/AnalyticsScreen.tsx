@@ -5,6 +5,7 @@ import { Activity, AlertTriangle, Clock, MapPin, Smile, Target } from 'lucide-re
 import { Avatar, Button, EmptyState, ErrorState, IconChip, PillTab, Skeleton, cn, ic } from '../components/primitives'
 import { MapBentoViewport, MetricBentoCard } from '../components/data'
 import { AdminRail } from '../components/nav'
+import { apiGetAnalyticsSummary } from '../lib/backend-api'
 
 type D = { name: string; x: number; y: number; count: [number, number]; done: [number, number] }
 // Tâm quận theo tọa độ % trên bản đồ minh họa; count/done theo [7 ngày, 30 ngày].
@@ -28,8 +29,23 @@ export default function AnalyticsScreen() {
   const empty = forced === 'empty'
   const lowest = districts.reduce((a, b) => (b.done[pi] < a.done[pi] ? b : a)).name
   const [sel, setSel] = useState('Liên Chiểu')
+  const [liveTotal, setLiveTotal] = useState<number | null>(null)
+  const [liveSla, setLiveSla] = useState<number | null>(null)
+  const [liveSat, setLiveSat] = useState<number | null>(null)
 
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 700); return () => clearTimeout(t) }, [])
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 700)
+    apiGetAnalyticsSummary().then((summary) => {
+      if (summary.total_incidents > 0) setLiveTotal(summary.total_incidents)
+      if (typeof summary.sla_compliance?.compliance_rate === 'number') {
+        setLiveSla(Math.round(summary.sla_compliance.compliance_rate))
+      }
+      if (typeof summary.satisfaction_score === 'number' && summary.satisfaction_score > 0) {
+        setLiveSat(Math.round(summary.satisfaction_score))
+      }
+    }).catch(() => {})
+    return () => clearTimeout(t)
+  }, [])
   const switchPeriod = (v: string) => {
     setPeriod(v)
     setLoading(true)
@@ -63,10 +79,10 @@ export default function AnalyticsScreen() {
   ) : (
     <>
       <div className="grid grid-cols-4 gap-4">
-        <MetricBentoCard title="Tổng sự cố" value={empty ? 0 : total} icon={Activity} chart="bars" series={[3, 5, 4, 7, 6, 9, 12]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
-        <MetricBentoCard dark title="Đúng hạn SLA" value={pi ? 91 : 94} suffix="%" icon={Target} chart="spark" series={[5, 6, 5, 8, 7, 9, 10]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
+        <MetricBentoCard title="Tổng sự cố" value={empty ? 0 : (liveTotal ?? total)} icon={Activity} chart="bars" series={[3, 5, 4, 7, 6, 9, 12]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
+        <MetricBentoCard dark title="Đúng hạn SLA" value={liveSla ?? (pi ? 91 : 94)} suffix="%" icon={Target} chart="spark" series={[5, 6, 5, 8, 7, 9, 10]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
         <MetricBentoCard title="Giải quyết TB" value={pi ? 412 : 384} suffix=" phút" icon={Clock} chart="spark" series={[9, 8, 8, 7, 6, 7, 6]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
-        <MetricBentoCard title="Hài lòng" value={pi ? 90 : 92} suffix="/100" icon={Smile} tone="done" chart="bars" series={[6, 7, 7, 8, 8, 9, 9]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
+        <MetricBentoCard title="Hài lòng" value={liveSat ?? (pi ? 90 : 92)} suffix="/100" icon={Smile} tone="done" chart="bars" series={[6, 7, 7, 8, 8, 9, 9]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
       </div>
 
       <div className="grid min-h-[560px] flex-1 grid-cols-[1fr_440px] gap-4">

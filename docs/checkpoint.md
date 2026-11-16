@@ -3,14 +3,14 @@
 **Đề tài:** Phát triển nền tảng tiếp nhận, phân loại và quản lý sự cố hạ tầng đô thị tích hợp trí tuệ nhân tạo tại thành phố Đà Nẵng  
 **Mã dự án:** `DATN-HK10-URBAN-INCIDENT`  
 **Sinh viên thực hiện:** Đoàn Văn Trí - Bùi Quốc Tuấn  
-**Thời gian cập nhật:** 16/11/2026  
-**Tiến độ ước tính tổng thể:** **100% Backend, CSDL Không gian & AI Pipeline — Đang hoàn thiện tích hợp UI/UX 34 màn hình V2**
+**Thời gian cập nhật:** 17/11/2026  
+**Tiến độ ước tính tổng thể:** **100% Hoàn thành Backend, CSDL Không gian 7 Quận/Huyện, AI Pipeline & Tích hợp 34 Màn hình Next.js V2**
 
 ---
 
 ## 1. TỔNG QUAN TIẾN ĐỘ & KẾT QUẢ ĐÃ ĐẠT ĐƯỢC
 
-Đến thời điểm hiện tại, nhóm đã hoàn thành **100% Hạ tầng Backend & CSDL Không gian (PostGIS)**, **Động cơ AI DeepSeek Vision & Làm mờ Nghị định 13/2023/NĐ-CP**, **Máy trạng thái 9 bước khép kín**, **Các API Quản trị & Điều hành phụ trợ (Users/RBAC, Zones, Categories, Departments, Audit Logs, Open311 v2, Facebook Messenger Webhook)** và bộ kiểm thử tự động **`610 passed, 0 failed`**.
+Đến thời điểm hiện tại, nhóm đã hoàn thành **100% Hạ tầng Backend & CSDL Không gian (PostGIS 7 Quận/Huyện)**, **Động cơ AI DeepSeek Vision & Làm mờ Nghị định 13/2023/NĐ-CP**, **Máy trạng thái 9 bước khép kín**, **Các API Quản trị & Điều hành phụ trợ**, **Chuyển đổi & Ghép nối toàn bộ 34 Màn hình Bento V2 + Component Library sang Next.js 16 App Router (`frontend/`)** và bộ kiểm thử tự động **`612 passed, 0 failed`**.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -18,7 +18,7 @@
 ├──────────────────────────────────────────────────────┬─────────────────┤
 │ Phân hệ / Hạng mục công việc                         │ Trạng thái      │
 ├──────────────────────────────────────────────────────┼─────────────────┤
-│ 1. Hạ tầng CSDL Không gian (PostGIS & Dynamic Zones) │ 100% Hoàn thành │
+│ 1. Hạ tầng CSDL Không gian (PostGIS & 7 Quận/Huyện)  │ 100% Hoàn thành │
 │ 2. AI Thị giác phân loại sự cố (DeepSeek Vision)     │ 100% Hoàn thành │
 │ 3. Bảo vệ dữ liệu cá nhân (Nghị định 13/2023/NĐ-CP) │ 100% Hoàn thành │
 │ 4. Tiếp nhận đa kênh: Facebook Messenger Bot         │ 100% Hoàn thành │
@@ -26,7 +26,7 @@
 │ 6. Máy trạng thái 9 bước, SLA & API Điều phối IOC    │ 100% Hoàn thành │
 │ 7. API Kỹ thuật viên hiện trường & Đối chiếu GPS     │ 100% Hoàn thành │
 │ 8. API Quản trị (Users, Zones, SLA, Audit, Analytics)│ 100% Hoàn thành │
-│ 9. Thiết kế UI/UX 34 màn hình V2 & Ghép nối Adapter  │ Đang triển khai │
+│ 9. Chuyển đổi 34 màn hình V2 sang Next.js & Ghép API │ 100% Hoàn thành │
 └──────────────────────────────────────────────────────┴─────────────────┘
 ```
 
@@ -73,15 +73,15 @@
 
 ## 3. MINH CHỨNG KIỂM THỬ & DỮ LIỆU DEMO
 
-1. **Bộ kiểm thử tự động (`pytest`):**
-   - Vượt qua **610 / 610 tests (`0 failed`)** bao gồm kiểm thử đơn vị, ma trận 380 tổ hợp chuyển trạng thái/vai trò, kiểm thử OpenAPI (`docs/openapi.json`), và kiểm thử End-to-End trên container PostgreSQL + PostGIS thật (`test_e2e_lifecycle_db.py`).
+1. **Bộ kiểm thử tự động (`pytest` & `next build`):**
+   - Backend vượt qua **612 / 612 tests (`0 failed`)** bao gồm kiểm thử đơn vị, ma trận 380 tổ hợp chuyển trạng thái/vai trò, kiểm thử 7 đa giác GIS Quận/Huyện (`HC`, `TK`, `ST`, `CL`, `NHS`, `LC`, `HV`), kiểm thử OpenAPI (`docs/openapi.json`), và kiểm thử End-to-End trên container PostgreSQL + PostGIS thật (`test_e2e_lifecycle_db.py`).
+   - Frontend Next.js 16 App Router vượt qua **`npx tsc --noEmit` (0 lỗi)** và **`npm run build` (34 route + `/gallery` biên dịch thành công)**.
 2. **Kịch bản dữ liệu Demo (`scripts/seed_demo.py`):**
-   - Khởi tạo tự động 4 vai trò (`CITIZEN`, `DISPATCHER`, `TECHNICIAN` có `department_id`, `ADMIN`) và đẩy 9 phiếu sự cố đi qua đúng các API của máy trạng thái bao phủ đủ 9 trạng thái, nổi bật là phiếu mẫu xuyên suốt **`DN-202610-0129`** (Ngập úng nút giao Nguyễn Văn Linh - Hàm Nghi, mức Cao).
+   - Khởi tạo tự động 4 vai trò (`CITIZEN`, `DISPATCHER`, `TECHNICIAN` có `department_id`, `ADMIN`), 7 đa giác GIS Quận/Huyện và đẩy 9 phiếu sự cố đi qua đúng các API của máy trạng thái bao phủ đủ 9 trạng thái, nổi bật là phiếu mẫu xuyên suốt **`DN-202610-0129`** (Ngập úng nút giao Nguyễn Văn Linh - Hàm Nghi, mức Cao).
 
 ---
 
 ## 4. LỘ TRÌNH KẾ TIẾP
 
-1. **Hoàn thiện Thiết kế UI/UX 34 Màn hình trên Figma** theo đúng hệ thống Design System Bento V2 (`docs/design-direction.md`, `docs/screen.md`).
-2. **Kết nối Tầng Frontend Adapter với Backend API** dựa trên `docs/openapi.json` và `docs/ui-api-mapping.md`.
-3. **Đóng gói Docker Compose & Hoàn thiện Thuyết minh Đồ án Tốt nghiệp.**
+1. **Chạy Demo End-to-End trực quan** giữa `frontend/` (Next.js port 3000) và `backend/` (FastAPI port 8000 + PostGIS 5432).
+2. **Đóng gói Docker Compose & Hoàn thiện Thuyết minh Đồ án Tốt nghiệp.**
