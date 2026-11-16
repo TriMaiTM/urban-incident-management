@@ -8,7 +8,7 @@ export default function AdminShell({ title, subtitle, actions, toast, children }
   return (
     <div className="fixed inset-0 overflow-auto bg-page">
       {toast && <div className="fixed top-6 left-1/2 z-[120] -translate-x-1/2 animate-rise"><Toast kind={toast.kind} text={toast.text} /></div>}
-      <div className="flex min-h-screen w-[1440px] gap-4 p-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] gap-4 p-4">
         <div className="shrink-0"><AdminRail /></div>
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <header className="flex items-center justify-between">

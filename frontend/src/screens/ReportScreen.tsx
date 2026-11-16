@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, CheckCircle2, ChevronUp, Plus, Clock, Construction, Droplets, Lightbulb, Send, Sparkles, Trash2, TreeDeciduous, Users, Wrench } from 'lucide-react'
 import {
   Button,
@@ -23,7 +23,7 @@ import {
   Timeline,
 } from '../components/data'
 import { CitizenTabBar, TopPillNav } from '../components/nav'
-import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident } from '../data/tickets'
+import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident, useTicketVersion } from '../data/tickets'
 import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate } from '../lib/backend-api'
 
 type Photo = 'empty' | 'scanning' | 'done'
@@ -41,8 +41,10 @@ const LEVELS: { label: string; level: Level; hours: number }[] = [
 ]
 const M_PER_PCT = 15
 
-// Phiếu đang mở (trừ phiếu demo) từ nguồn dữ liệu chung, dùng để phát hiện trùng lặp trong bán kính 50m.
-const existing = getTickets().filter((t) => isOpen(t) && t.id !== DEMO_ID).map((t) => ({
+type ExistingPin = {
+  x: number; y: number; level: Level; title: string; address: string; time: string; kind: 'road' | 'flood' | 'tree' | 'trash' | 'light'; code: string
+}
+const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t) && t.id !== DEMO_ID).map((t) => ({
   x: t.x, y: t.y, level: t.priority as Level, title: t.title, address: `${t.district}, Đà Nẵng`, time: agoText(t.submittedAt), kind: t.kind, code: t.id,
 }))
 
@@ -54,9 +56,9 @@ function addressAt({ x, y }: Pt) {
   if (x < 60) return top ? 'Điện Biên Phủ, Thanh Khê' : 'Lê Duẩn, Hải Châu'
   return top ? 'Ngô Quyền, Sơn Trà' : 'Trường Sa, Ngũ Hành Sơn'
 }
-function nearest(p: Pt) {
+function nearest(p: Pt, list: ExistingPin[]) {
   let best = { i: -1, m: Infinity }
-  existing.forEach((e, i) => {
+  list.forEach((e, i) => {
     const m = Math.hypot(e.x - p.x, e.y - p.y) * M_PER_PCT
     if (m < best.m) best = { i, m }
   })
@@ -147,7 +149,7 @@ function AiSuggestCard({ photo, type, level, address, onType, onLevel }: {
 }
 
 function DuplicateAlert({ meters, item, onJoin, onNew }: {
-  meters: number; item: (typeof existing)[number]; onJoin: () => void; onNew: () => void
+  meters: number; item: ExistingPin; onJoin: () => void; onNew: () => void
 }) {
   return (
     <section className="animate-rise rounded-card bg-card p-4 shadow-card ring-1 ring-high">
@@ -165,6 +167,8 @@ function DuplicateAlert({ meters, item, onJoin, onNew }: {
 }
 
 export default function ReportScreen() {
+  const version = useTicketVersion()
+  const existing = useMemo(buildExisting, [version])
   const desktop = useMedia('(min-width: 768px)')
   const [photo, setPhoto] = useState<Photo>('empty')
   const [type, setType] = useState('Ngập úng')
@@ -218,7 +222,7 @@ export default function ReportScreen() {
   const lv = LEVELS.find((l) => l.label === levelLabel)!
   const addr = pin ? addressAt(pin) : null
   const outside = !!pin && !addr
-  const near = pin && !outside ? nearest(pin) : null
+  const near = pin && !outside ? nearest(pin, existing) : null
   const dup = near && near.m <= 50 && !dupHandled ? { ...existing[near.i], m: Math.round(near.m) } : null
   const phoneBad = phone.length > 0 && !/^0\d{9}$/.test(phone)
   const ready = photo === 'done' && !!pin && !outside && /^0\d{9}$/.test(phone)
@@ -272,7 +276,7 @@ export default function ReportScreen() {
   if (result)
     return (
       <ScreenFrame title={result.merged ? 'Đã ghi nhận' : 'Gửi thành công'} sub={result.merged ? 'Cộng thêm vào phiếu đã có' : 'Lưu mã để theo dõi'}>
-        <ResultView code={result.code} merged={result.merged} type={type} level={lv.level} hours={lv.hours} address={addr ?? ''} pin={pin!} onReset={reset} />
+        <ResultView code={result.code} merged={result.merged} type={type} level={lv.level} hours={lv.hours} address={addr ?? ''} pin={pin!} existing={existing} onReset={reset} />
       </ScreenFrame>
     )
 
@@ -401,8 +405,8 @@ export default function ReportScreen() {
   )
 }
 
-function ResultView({ code, merged, type, level, hours, address, pin, onReset }: {
-  code: string; merged: boolean; type: string; level: Level; hours: number; address: string; pin: Pt; onReset: () => void
+function ResultView({ code, merged, type, level, hours, address, pin, existing, onReset }: {
+  code: string; merged: boolean; type: string; level: Level; hours: number; address: string; pin: Pt; existing: ExistingPin[]; onReset: () => void
 }) {
   const [copied, setCopied] = useState(false)
   return (

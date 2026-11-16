@@ -14,7 +14,17 @@ export type Zone = {
   open: number
   pts: [number, number][]
   on: boolean
+  labelPos?: [number, number]
   rawGeometry?: { type: string; coordinates: unknown } | null
+}
+const LABEL_POS: Record<string, [number, number]> = {
+  hc: [78.5, 53.5],
+  tk: [70.5, 42.5],
+  st: [88.5, 34.0],
+  cl: [68.5, 63.0],
+  nhs: [83.5, 73.0],
+  lc: [61.5, 22.5],
+  hv: [35.0, 50.0],
 }
 export const zoneSeed: Zone[] = [
   { id: 'hc', name: 'Hải Châu', open: 24, on: true, pts: [[720, 336], [800, 329], [850, 364], [840, 434], [740, 434]] },
@@ -47,15 +57,17 @@ export function zonesGeoJson(zones: Zone[]) {
 function projectApiZones(apiZones: ApiZoneOut[]): Zone[] {
   const districts = apiZones.filter((z) => z.id.toUpperCase() !== 'DANANG_CORE')
   if (districts.length === 0) return zoneSeed
-  const minLon = 107.988296
-  const maxLon = 108.342224
-  const minLat = 15.926163
-  const maxLat = 16.215607
+  // Exact geographic extent of the background map /danang-map.png
+  const minLon = 107.795
+  const maxLon = 108.342
+  const minLat = 15.912
+  const maxLat = 16.222
   const lonSpan = maxLon - minLon
   const latSpan = maxLat - minLat
 
   return districts.map((z) => {
-    const fallback = zoneSeed.find((s) => s.id === z.id.toLowerCase())
+    const idLower = z.id.toLowerCase()
+    const fallback = zoneSeed.find((s) => s.id === idLower)
     let pts: [number, number][] = fallback?.pts ?? [[500, 350], [550, 350], [550, 400]]
     const geom = z.geojson_geometry
     if (geom && Array.isArray(geom.coordinates) && geom.coordinates.length > 0) {
@@ -67,21 +79,22 @@ function projectApiZones(apiZones: ApiZoneOut[]): Zone[] {
         ring = polys.reduce((best, cur) => ((cur[0]?.length ?? 0) > best.length ? (cur[0] ?? []) : best), [] as number[][])
       }
       if (ring.length >= 3) {
-        const step = Math.max(1, Math.floor(ring.length / 120))
+        const step = Math.max(1, Math.floor(ring.length / 150))
         const sampled = ring.filter((_, idx) => idx % step === 0)
         pts = sampled.map(([lon, lat]) => [
-          Math.round(((lon - minLon) / lonSpan) * 960 + 20),
-          Math.round(((maxLat - lat) / latSpan) * 660 + 20),
+          Math.round(((lon - minLon) / lonSpan) * 1000),
+          Math.round(((maxLat - lat) / latSpan) * 700),
         ])
       }
     }
     return {
-      id: z.id.toLowerCase(),
+      id: idLower,
       backendId: z.id,
       name: z.name,
       open: z.open_incident_count ?? fallback?.open ?? 0,
       on: z.is_active,
       pts,
+      labelPos: LABEL_POS[idLower],
       rawGeometry: z.geojson_geometry,
     }
   })
@@ -138,7 +151,7 @@ export default function ZonesScreen() {
                   )
                 })}
               </svg>
-              {zones.map((z) => { const [x, y] = centroid(z.pts); return (
+              {zones.map((z) => { const [x, y] = z.labelPos ?? LABEL_POS[z.id] ?? centroid(z.pts); return (
                 <button key={z.id} onClick={() => setSel(z.id)} className={cn('absolute -translate-x-1/2 -translate-y-1/2 rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap shadow-card transition', sel === z.id ? 'bg-ink text-white' : 'bg-card', !z.on && 'opacity-60')} style={{ left: `${x}%`, top: `${y}%` }}>{z.name}</button>
               ) })}
               </MapCanvas>

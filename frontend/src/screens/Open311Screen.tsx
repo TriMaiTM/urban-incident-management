@@ -139,7 +139,7 @@ export default function Open311Screen() {
 
   return (
     <div className="min-h-screen bg-page">
-      <div className="mx-auto w-[1440px] p-4">
+      <div className="mx-auto w-full max-w-[1440px] p-4">
         <header className="animate-rise mb-4 flex items-end justify-between">
           <div>
             <a href="/" className="mb-3 inline-flex items-center gap-2 text-[14px] font-bold"><span className="flex size-8 items-center justify-center rounded-full bg-ink text-white"><MapPin size={16} {...ic} /></span>Urbana · Developers</a>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Clock, Download, FilterX, Search } from 'lucide-react'
 import { Button, EmptyState, PillTab, StatusPill, cn, ic, levelLabel, type Level } from '../components/primitives'
-import { getTickets, kindLabel, levelOf, remainingSec, statusLabel, type Ticket } from '../data/tickets'
+import { getTickets, kindLabel, levelOf, remainingSec, statusLabel, useTicketVersion, type Ticket } from '../data/tickets'
 import DispatcherShell, { type ToastState } from './DispatcherShell'
 
 type Row = { code: string; type: string; street: string; district: string; level: Level; unit: string; sla: string; status: string }
@@ -12,15 +12,15 @@ const slaText = (t: Ticket) => {
   const txt = `${Math.floor(a / 3600)}h ${String(Math.floor((a % 3600) / 60)).padStart(2, '0')}m`
   return ['CONFIRMED', 'CLOSED'].includes(t.status) ? 'Hoàn tất' : t.status === 'REJECTED' ? '—' : r < 0 ? `Trễ ${txt}` : `Còn ${txt}`
 }
-// Sổ bộ đọc từ nguồn dữ liệu chung, hạn SLA tính từ lúc gửi + mức ưu tiên.
-const rows: Row[] = getTickets().map((t) => ({
-  code: t.id, type: kindLabel[t.kind], street: t.address, district: t.district, level: levelOf(t), unit: t.unit, sla: slaText(t), status: statusLabel[t.status],
-}))
 const PAGE = 8
 const lv: Level[] = ['urgent', 'high', 'normal', 'low', 'done']
 const filters = ['Tất cả', ...lv.map((l) => levelLabel[l])]
 
 export default function IncidentsScreen() {
+  const version = useTicketVersion()
+  const rows: Row[] = useMemo(() => getTickets().map((t) => ({
+    code: t.id, type: kindLabel[t.kind], street: t.address, district: t.district, level: levelOf(t), unit: t.unit, sla: slaText(t), status: statusLabel[t.status],
+  })), [version])
   const forcedEmpty = new URLSearchParams((typeof window !== 'undefined' ? window.location.search : '')).get('state') === 'empty'
   const [filter, setFilter] = useState('Tất cả')
   const [q, setQ] = useState(forcedEmpty ? 'zzz' : '')
@@ -31,7 +31,7 @@ export default function IncidentsScreen() {
   const list = useMemo(() => {
     const k = q.trim().toLowerCase()
     return rows.filter((r) => (filter === 'Tất cả' || levelLabel[r.level] === filter) && (!k || `${r.code} ${r.type} ${r.street} ${r.district} ${r.unit} ${r.status}`.toLowerCase().includes(k)))
-  }, [filter, q])
+  }, [rows, filter, q])
   useEffect(() => setPage(1), [filter, q])
   const pages = Math.max(1, Math.ceil(list.length / PAGE))
   const view = list.slice((page - 1) * PAGE, page * PAGE)
