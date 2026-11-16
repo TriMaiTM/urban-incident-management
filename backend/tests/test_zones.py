@@ -94,3 +94,40 @@ def test_points_outside_danang_core(danang_boundary_shape: BaseGeometry, point: 
     assert not danang_boundary_shape.contains(point), (
         f"{description} ({point.x}, {point.y}) không được nằm trong vùng Đà Nẵng"
     )
+
+
+def test_danang_7_districts_geojson_partition_and_landmarks():
+    """Kiểm tra bộ 7 đa giác GIS cấp Quận/Huyện (HC, TK, ST, CL, NHS, LC, HV) hợp lệ và chứa đúng địa danh."""
+    districts_path = Path(__file__).resolve().parent.parent / "data" / "danang_districts_boundary.geojson"
+    assert districts_path.is_file(), f"Không tìm thấy {districts_path}"
+
+    data = json.loads(districts_path.read_text(encoding="utf-8"))
+    assert data["type"] == "FeatureCollection"
+    features = data["features"]
+    assert len(features) == 7
+
+    shapes_by_id: dict[str, BaseGeometry] = {}
+    for feat in features:
+        props = feat["properties"]
+        zid = props["zone_id"]
+        geom = shape(feat["geometry"])
+        assert geom.is_valid and not geom.is_empty, f"Đa giác {zid} không hợp lệ"
+        shapes_by_id[zid] = geom
+
+    assert set(shapes_by_id.keys()) == {"HC", "TK", "ST", "CL", "NHS", "LC", "HV"}
+
+    landmark_cases = [
+        ("HC", Point(108.2208, 16.0611), "Cầu Rồng (Hải Châu)"),
+        ("TK", Point(108.1985, 16.0655), "120 Điện Biên Phủ (Thanh Khê)"),
+        ("ST", Point(108.2350, 16.0660), "412 Ngô Quyền (Sơn Trà)"),
+        ("CL", Point(108.1950, 16.0150), "Hòa Xuân (Cẩm Lệ)"),
+        ("NHS", Point(108.2600, 16.0020), "Ngũ Hành Sơn"),
+        ("LC", Point(108.1500, 16.0700), "Hòa Khánh (Liên Chiểu)"),
+        ("HV", Point(108.0500, 16.0200), "Hòa Phong (Hòa Vang)"),
+    ]
+    for expected_zid, pt, label in landmark_cases:
+        assert shapes_by_id[expected_zid].contains(pt), f"{label} phải thuộc phân vùng {expected_zid}"
+        for other_zid, other_geom in shapes_by_id.items():
+            if other_zid != expected_zid:
+                assert not other_geom.contains(pt), f"{label} không được trùng sang phân vùng {other_zid}"
+

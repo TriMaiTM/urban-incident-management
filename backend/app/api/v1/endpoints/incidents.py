@@ -533,19 +533,22 @@ async def create_incident(
     - Sinh mã phiếu tra cứu công khai (DN-YYYYMM-XXXX).
     - Lưu sự cố và kích hoạt tác vụ AI DeepSeek Vision ngầm trong BackgroundTasks.
     """
-    # 1. Hàng rào địa lý PostGIS: Point(longitude, latitude)
+    # 1. Hàng rào địa lý PostGIS theo từng Quận/Huyện đang hoạt động: Point(longitude, latitude)
     point_geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
     zone_stmt = (
-        select(SystemZone.id)
+        select(SystemZone.name)
         .where(SystemZone.is_active.is_(True), ST_Contains(SystemZone.boundary, point_geom))
         .limit(1)
     )
     zone_result = await db.execute(zone_stmt)
-    if zone_result.scalar_one_or_none() is None:
+    matched_zone_name = zone_result.scalar_one_or_none()
+    if matched_zone_name is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Vị trí bạn chọn nằm ngoài phạm vi Vùng Đô thị Trung tâm Đà Nẵng (thử nghiệm đợt 1).",
+            detail="Vị trí bạn chọn nằm ngoài phạm vi Vùng Đô thị Trung tâm Đà Nẵng (thử nghiệm đợt 1) hoặc khu vực đang tạm dừng tiếp nhận.",
         )
+    if (not district or not district.strip()) and isinstance(matched_zone_name, str) and matched_zone_name != "DANANG_CORE":
+        district = matched_zone_name
 
     # 2. Xử lý lưu trữ & Làm mờ ảnh bảo vệ quyền riêng tư
     image_content = await image.read()

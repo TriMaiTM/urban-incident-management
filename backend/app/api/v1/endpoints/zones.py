@@ -18,13 +18,23 @@ router = APIRouter(prefix="/zones", tags=["Geographical Zones & Geofencing"])
 @router.get("", response_model=List[ZoneOut], summary="Lấy toàn bộ danh sách phân vùng GIS (kèm trạng thái bật/tắt)")
 @router.get("/", response_model=List[ZoneOut], include_in_schema=False)
 async def list_all_zones(db: AsyncSession = Depends(get_db)) -> List[ZoneOut]:
-    """Trả về toàn bộ các phân vùng (cả đang hoạt động và đang tạm dừng) kèm số phiếu đang mở."""
-    open_count_res = await db.execute(
-        select(func.count(Incident.id)).where(
-            Incident.status.not_in(["RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"])
+    """Trả về toàn bộ các phân vùng (cả đang hoạt động và đang tạm dừng) kèm số phiếu đang mở của từng vùng."""
+    open_res = await db.execute(
+        select(Incident.district, func.count(Incident.id))
+        .where(
+            Incident.status.not_in(["RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"]),
+            Incident.district.isnot(None),
         )
+        .group_by(Incident.district)
     )
-    open_count = int(open_count_res.scalar() or 0)
+    open_rows = open_res.all()
+    counts_by_name: dict[str, int] = {}
+    fallback_count = 0
+    for item in open_rows:
+        if isinstance(item, int):
+            fallback_count = int(item)
+        elif hasattr(item, "__getitem__") and len(item) >= 2 and item[0] is not None:
+            counts_by_name[str(item[0]).strip().lower()] = int(item[1])
 
     stmt = select(
         SystemZone.id,
@@ -45,12 +55,18 @@ async def list_all_zones(db: AsyncSession = Depends(get_db)) -> List[ZoneOut]:
             except Exception:
                 geojson_geom = None
 
+        norm_name = str(row.name).strip().lower()
+        open_cnt = counts_by_name.get(
+            norm_name,
+            fallback_count if (row.is_active and not counts_by_name) else 0,
+        )
+
         zones.append(
             ZoneOut(
                 id=row.id,
                 name=row.name,
                 is_active=row.is_active,
-                open_incident_count=open_count if row.is_active else 0,
+                open_incident_count=open_cnt,
                 bounding_box=row.bounding_box,
                 description=row.description,
                 geojson_geometry=geojson_geom,

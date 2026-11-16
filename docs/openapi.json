@@ -523,7 +523,7 @@
           "Geographical Zones & Geofencing"
         ],
         "summary": "Lấy toàn bộ danh sách phân vùng GIS (kèm trạng thái bật/tắt)",
-        "description": "Trả về toàn bộ các phân vùng (cả đang hoạt động và đang tạm dừng) kèm số phiếu đang mở.",
+        "description": "Trả về toàn bộ các phân vùng (cả đang hoạt động và đang tạm dừng) kèm số phiếu đang mở của từng vùng.",
         "operationId": "list_all_zones_api_v1_zones_get",
         "responses": {
           "200": {

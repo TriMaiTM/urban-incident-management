@@ -57,7 +57,7 @@
 - **Lệnh kiểm tra:** `py backend/scripts/seed_data.py && py -m pytest backend/tests/test_zones.py`
 - **Commit 1:** `feat(gis): partition Danang core boundary into 7 district GIS polygons and seed system_zones`
 
-### [ ] Bước 2: Đếm `open_incident_count` theo Quận tại `GET /zones`, Tự động suy ra `district` qua `ST_Contains` & Viết Tests
+### [x] Bước 2: Đếm `open_incident_count` theo Quận tại `GET /zones`, Tự động suy ra `district` qua `ST_Contains` & Viết Tests
 - Trong `backend/app/api/v1/endpoints/zones.py`:
   - Tại `GET /api/v1/zones`: tính `open_incident_count` theo từng Quận/Huyện (dựa trên `Incident.district` hoặc `ST_Contains`), trả đầy đủ 7 phân vùng Quận/Huyện kèm `geojson_geometry`.
 - Trong `backend/app/api/v1/endpoints/incidents.py`:
