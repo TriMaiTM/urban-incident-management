@@ -131,7 +131,7 @@
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 3:** `feat(admin): add zone toggle, category config update, and department management endpoints`
 
-### [ ] Bước 4: Nhật ký Kiểm toán (`GET /api/v1/audit-logs`), Gộp phiếu trùng (`POST /incidents/{id_or_code}/merge-duplicate`) & Danh sách Open311 (`GET /open311/v2/requests.json`)
+### [x] Bước 4: Nhật ký Kiểm toán (`GET /api/v1/audit-logs`), Gộp phiếu trùng (`POST /incidents/{id_or_code}/merge-duplicate`) & Danh sách Open311 (`GET /open311/v2/requests.json`)
 - Tạo `backend/app/api/v1/endpoints/audit_logs.py` (`GET /api/v1/audit-logs` có phân trang và bộ lọc cho `ADMIN`, `DISPATCHER`).
 - Thêm `POST /api/v1/incidents/{id_or_code}/merge-duplicate` trong `backend/app/api/v1/endpoints/incidents.py` cho `ADMIN`, `DISPATCHER`.
 - Thêm `GET /open311/v2/requests.json` trong `backend/app/api/open311.py` (lọc `service_code`, `status=open|closed`, `limit`).

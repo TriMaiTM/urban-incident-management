@@ -459,6 +459,59 @@ class IncidentVoteDuplicateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class IncidentMergeDuplicateIn(BaseModel):
+    """Request schema for dispatcher merging a duplicate incident into a primary incident."""
+
+    duplicate_incident_id_or_code: str = Field(
+        ...,
+        min_length=3,
+        max_length=100,
+        description="UUID hoặc mã phiếu DN-YYYYMM-XXXX của phiếu trùng lặp cần gộp",
+    )
+    note: str | None = Field(None, max_length=500, description="Ghi chú gộp phiếu trùng lặp")
+
+
+class IncidentMergeDuplicateOut(BaseModel):
+    """Response schema after dispatcher merges a duplicate incident."""
+
+    primary_incident_id: UUID
+    primary_ticket_code: str
+    duplicate_incident_id: UUID
+    duplicate_ticket_code: str
+    duplicate_count: int
+    message: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditLogItemOut(BaseModel):
+    """System-wide audit log entry for incident state transitions."""
+
+    id: UUID
+    incident_id: UUID
+    ticket_code: str
+    actor_id: UUID | None = None
+    actor_name: str | None = None
+    actor_role: str | None = None
+    from_status: str | None = None
+    to_status: str
+    note: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditLogListOut(BaseModel):
+    """Paginated response for system-wide audit logs."""
+
+    total: int
+    items: list[AuditLogItemOut]
+    page: int = 1
+    page_size: int = 20
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class IncidentListOut(BaseModel):
     """Paginated list response for incidents."""
 

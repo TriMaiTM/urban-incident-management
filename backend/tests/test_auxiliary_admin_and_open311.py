@@ -327,3 +327,137 @@ async def test_admin_zones_categories_and_departments_management(client: httpx.A
     finally:
         app.dependency_overrides.clear()
 
+
+@pytest.mark.asyncio
+async def test_audit_logs_duplicate_merge_and_open311_requests_list(client: httpx.AsyncClient):
+    """Verify GET /api/v1/audit-logs, POST /api/v1/incidents/{id_or_code}/merge-duplicate, and GET /open311/v2/requests.json."""
+    from shapely.geometry import Point
+    from app.models.category import Category
+    from app.models.incident import Incident, IncidentHistory, IncidentMedia
+
+    session = _MockSession()
+    dispatcher = User(
+        id=uuid4(),
+        email="disp_ops@danang.gov.vn",
+        full_name="Điều Phối IOC",
+        role="DISPATCHER",
+        auth_provider="LOCAL",
+        is_locked=False,
+        created_at=datetime.now(timezone.utc),
+    )
+    cat = Category(
+        id=uuid4(),
+        code="FLOODING",
+        name="Ngập úng đô thị",
+        default_sla_hours=12,
+        is_active=True,
+    )
+    now = datetime.now(timezone.utc)
+
+    primary_inc = Incident(
+        id=uuid4(),
+        ticket_code="DN-202611-PRI1",
+        title="Ngập sâu đường Hàm Nghi",
+        description="Nước ngập sâu 35cm",
+        status="TRIAGED",
+        priority="HIGH",
+        channel="WEB",
+        address_text="Hàm Nghi, Thanh Khê, Đà Nẵng",
+        district="Thanh Khê",
+        duplicate_count=1,
+        location=Point(108.2100, 16.0600),
+        created_at=now,
+        updated_at=now,
+    )
+    primary_inc.category = cat
+    primary_inc.assigned_department = None
+    primary_inc.media = [
+        IncidentMedia(
+            id=uuid4(),
+            incident_id=primary_inc.id,
+            media_type="BEFORE_ANONYMIZED",
+            file_url="/uploads/public/pri_anon.jpg",
+            created_at=now,
+        )
+    ]
+
+    dup_inc = Incident(
+        id=uuid4(),
+        ticket_code="DN-202611-DUP1",
+        title="Ngập nước trước 50 Hàm Nghi",
+        description="Cùng điểm ngập",
+        status="SUBMITTED",
+        priority="NORMAL",
+        channel="WEB",
+        address_text="50 Hàm Nghi, Thanh Khê, Đà Nẵng",
+        district="Thanh Khê",
+        duplicate_count=0,
+        location=Point(108.2101, 16.0601),
+        created_at=now,
+        updated_at=now,
+    )
+    dup_inc.category = cat
+    dup_inc.assigned_department = None
+    dup_inc.media = []
+
+    hist_entry = IncidentHistory(
+        id=uuid4(),
+        incident_id=primary_inc.id,
+        actor_id=dispatcher.id,
+        from_status="SUBMITTED",
+        to_status="TRIAGED",
+        note="Điều phối viên xác nhận ngập úng",
+        created_at=now,
+    )
+    hist_entry.incident = primary_inc
+    hist_entry.actor = dispatcher
+
+    session.seed(dispatcher, cat, primary_inc, dup_inc, hist_entry)
+
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_current_user] = lambda: dispatcher
+    try:
+        # 1. GET /api/v1/audit-logs
+        session.execute_queue = [_MockResult(1), _MockResult([hist_entry])]
+        res_logs = await client.get("/api/v1/audit-logs", params={"ticket_code": "DN-202611-PRI1"})
+        assert res_logs.status_code == 200, res_logs.text
+        logs_body = res_logs.json()
+        assert logs_body["total"] == 1
+        assert logs_body["items"][0]["ticket_code"] == "DN-202611-PRI1"
+        assert logs_body["items"][0]["actor_name"] == "Điều Phối IOC"
+        assert logs_body["items"][0]["to_status"] == "TRIAGED"
+
+        # 2. POST /api/v1/incidents/{id_or_code}/merge-duplicate
+        session.execute_queue = [_MockResult(primary_inc), _MockResult(dup_inc)]
+        res_merge = await client.post(
+            "/api/v1/incidents/DN-202611-PRI1/merge-duplicate",
+            json={
+                "duplicate_incident_id_or_code": "DN-202611-DUP1",
+                "note": "Gộp phiếu trùng trong bán kính 20m",
+            },
+        )
+        assert res_merge.status_code == 200, res_merge.text
+        merge_body = res_merge.json()
+        assert merge_body["primary_ticket_code"] == "DN-202611-PRI1"
+        assert merge_body["duplicate_ticket_code"] == "DN-202611-DUP1"
+        assert merge_body["duplicate_count"] == 2
+        assert dup_inc.status == "REJECTED"
+        assert dup_inc.is_duplicate_of_id == primary_inc.id
+
+        # 3. GET /open311/v2/requests.json
+        session.execute_queue = [_MockResult([primary_inc])]
+        res_open311 = await client.get(
+            "/open311/v2/requests.json",
+            params={"service_code": "FLOODING", "status": "open", "limit": 10},
+        )
+        assert res_open311.status_code == 200, res_open311.text
+        open311_items = res_open311.json()
+        assert len(open311_items) == 1
+        assert open311_items[0]["service_request_id"] == "DN-202611-PRI1"
+        assert open311_items[0]["service_code"] == "FLOODING"
+        assert open311_items[0]["status"] == "open"
+        assert open311_items[0]["media_url"] == "/uploads/public/pri_anon.jpg"
+    finally:
+        app.dependency_overrides.clear()
+
+

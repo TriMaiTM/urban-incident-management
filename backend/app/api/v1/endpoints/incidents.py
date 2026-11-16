@@ -54,6 +54,8 @@ from app.schemas.incident import (
     IncidentMapFeatureCollectionOut,
     IncidentMapGeometry,
     IncidentMapProperties,
+    IncidentMergeDuplicateIn,
+    IncidentMergeDuplicateOut,
     IncidentNearbyItem,
     IncidentNearbyOut,
     IncidentOut,
@@ -810,6 +812,82 @@ async def vote_duplicate(
         ticket_code=incident.ticket_code,
         duplicate_count=incident.duplicate_count,
         message="Ghi nhận phản ánh trùng lặp thành công. Cảm ơn đóng góp của bạn.",
+    )
+
+
+@router.post(
+    "/{id_or_code}/merge-duplicate",
+    response_model=IncidentMergeDuplicateOut,
+    summary="Gộp một phiếu sự cố trùng lặp vào phiếu chính (ADMIN, DISPATCHER)",
+)
+async def merge_duplicate_incident(
+    id_or_code: str,
+    payload: IncidentMergeDuplicateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN", "DISPATCHER"])),
+) -> IncidentMergeDuplicateOut:
+    """
+    Điều phối viên IOC gộp một phiếu trùng lặp (duplicate_incident_id_or_code) vào phiếu gốc (id_or_code):
+    - Tăng `duplicate_count` của phiếu gốc thêm 1.
+    - Gán `is_duplicate_of_id = primary.id` và chuyển trạng thái phiếu trùng sang `REJECTED` kèm lịch sử.
+    """
+    primary = await _resolve_incident(db, id_or_code, load_relations=True)
+    if not primary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy phiếu chính với ID/mã '{id_or_code}'.",
+        )
+
+    dup = await _resolve_incident(db, payload.duplicate_incident_id_or_code, load_relations=True)
+    if not dup:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy phiếu trùng lặp với ID/mã '{payload.duplicate_incident_id_or_code}'.",
+        )
+
+    if primary.id == dup.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Không thể gộp một phiếu sự cố với chính nó.",
+        )
+
+    if dup.status not in {"SUBMITTED", "TRIAGED", "ASSIGNED"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Chỉ có thể gộp phiếu đang ở trạng thái 'SUBMITTED', 'TRIAGED' hoặc 'ASSIGNED' (trạng thái hiện tại: '{dup.status}').",
+        )
+
+    now = datetime.now(timezone.utc)
+    old_dup_status = dup.status
+    dup.is_duplicate_of_id = primary.id
+    dup.status = "REJECTED"
+    primary.duplicate_count += 1
+
+    merge_note = (
+        payload.note.strip()
+        if payload.note and payload.note.strip()
+        else f"Đã gộp trùng lặp vào phiếu chính {primary.ticket_code}"
+    )
+    history = IncidentHistory(
+        incident_id=dup.id,
+        actor_id=current_user.id,
+        from_status=old_dup_status,
+        to_status="REJECTED",
+        note=merge_note,
+        created_at=now,
+    )
+    db.add(history)
+    db.add(dup)
+    db.add(primary)
+    await db.commit()
+
+    return IncidentMergeDuplicateOut(
+        primary_incident_id=primary.id,
+        primary_ticket_code=primary.ticket_code,
+        duplicate_incident_id=dup.id,
+        duplicate_ticket_code=dup.ticket_code,
+        duplicate_count=primary.duplicate_count,
+        message=f"Đã gộp phiếu {dup.ticket_code} vào phiếu chính {primary.ticket_code}.",
     )
 
 
