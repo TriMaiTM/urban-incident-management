@@ -5,7 +5,7 @@ import { Check, CheckCircle2, Clock, Package, RotateCcw, ShieldCheck, TrafficCon
 import { Avatar, HeaderStat, Button, EmptyState, ErrorState, IconChip, PillTab, Skeleton, Toast, cn, ic } from '../components/primitives'
 import { CompareEvidence, MapBentoViewport, MetricBentoCard } from '../components/data'
 import { DispatcherRail } from '../components/nav'
-import { DEMO_ID, clock, deadlineOf, getTickets, gpsDeviation, setStatus, shortHash } from '../data/tickets'
+import { DEMO_ID, clock, deadlineOf, getTickets, gpsDeviation, setStatus, shortHash, useTicketVersion } from '../data/tickets'
 import { plan } from './technicianData'
 
 type Case = {
@@ -39,8 +39,9 @@ function Confetti() {
 }
 
 export default function VerifyScreen() {
+  const version = useTicketVersion()
   const forced = new URLSearchParams((typeof window !== 'undefined' ? window.location.search : '')).get('state')
-  const [cases] = useState(buildCases)
+  const cases = useMemo(buildCases, [version])
   const [idx, setIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [closed, setClosed] = useState<string[]>([])
@@ -166,7 +167,7 @@ export default function VerifyScreen() {
   return (
     <div className="fixed inset-0 overflow-auto bg-page">
       {toast && <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 animate-rise"><Toast kind={toast.kind} text={toast.text} /></div>}
-      <div className="flex min-h-screen w-[1440px] gap-4 p-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] gap-4 p-4">
         <div className="shrink-0"><DispatcherRail /></div>
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <header className="flex items-center justify-between">

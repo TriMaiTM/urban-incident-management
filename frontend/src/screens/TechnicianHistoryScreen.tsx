@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CheckCircle2, Clock, MapPin, Package, Percent, Wrench } from 'lucide-react'
 import { EmptyState, PillTab, StatusPill, cn, ic } from '../components/primitives'
 import { MetricBentoCard } from '../components/data'
 import SamplePhoto from '../components/SamplePhoto'
-import { agoText, clock, getTickets } from '../data/tickets'
+import { agoText, clock, getTickets, useTicketVersion } from '../data/tickets'
 import { plan } from './technicianData'
 import TechnicianShell from './TechnicianShell'
 
@@ -14,11 +14,6 @@ const weeks: Record<string, { d: string; n: number }[]> = {
   'Tuần trước': [{ d: 'T2', n: 8 }, { d: 'T3', n: 5 }, { d: 'T4', n: 10 }, { d: 'T5', n: 6 }, { d: 'T6', n: 9 }, { d: 'T7', n: 7 }, { d: 'CN', n: 3 }],
 }
 type Job = { code: string; title: string; address: string; time: string; mats: string; ok: boolean }
-// Vụ việc đã xử lý xong (từ Đã xử lý trở đi) đọc từ nguồn dữ liệu chung.
-const jobs: Job[] = getTickets().filter((t) => ['RESOLVED', 'CONFIRMED', 'CLOSED', 'REOPENED'].includes(t.status)).map((t) => {
-  const doneAt = t.at.RESOLVED ?? t.submittedAt
-  return { code: t.id, title: t.title, address: t.address, time: `${agoText(doneAt)} trước · ${clock(doneAt)}`, mats: plan[t.kind].materials.join(', '), ok: t.status !== 'REOPENED' }
-})
 
 function Thumb({ label, after }: { label: string; after?: boolean }) {
   return (
@@ -30,6 +25,11 @@ function Thumb({ label, after }: { label: string; after?: boolean }) {
 }
 
 export default function TechnicianHistoryScreen() {
+  const version = useTicketVersion()
+  const jobs: Job[] = useMemo(() => getTickets().filter((t) => ['RESOLVED', 'CONFIRMED', 'CLOSED', 'REOPENED'].includes(t.status)).map((t) => {
+    const doneAt = t.at.RESOLVED ?? t.submittedAt
+    return { code: t.id, title: t.title, address: t.address, time: `${agoText(doneAt)} trước · ${clock(doneAt)}`, mats: plan[t.kind].materials.join(', '), ok: t.status !== 'REOPENED' }
+  }), [version])
   const [week, setWeek] = useState('Tuần này')
   const [filter, setFilter] = useState('Tất cả')
   const data = weeks[week]

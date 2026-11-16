@@ -132,7 +132,7 @@ export default function CommandCenterScreen() {
   return (
     <div className="fixed inset-0 overflow-auto bg-page">
       {toast && <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 animate-rise"><Toast kind={toast.kind} text={toast.text} /></div>}
-      <div className="flex h-screen min-h-[760px] w-[1440px] gap-4 p-4">
+      <div className="mx-auto flex h-screen min-h-[760px] w-full max-w-[1440px] gap-4 p-4">
         <div className="shrink-0"><DispatcherRail /></div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">

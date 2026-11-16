@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, BellRing, Clock, MapPin, Repeat, Check } from 'lucide-react'
 import { Button, HeaderStat, StatusPill, cn, ic, type Level } from '../components/primitives'
-import { SLA_HOURS, deadlineOf, getTickets, isOpen } from '../data/tickets'
+import { SLA_HOURS, deadlineOf, getTickets, isOpen, useTicketVersion } from '../data/tickets'
 import DispatcherShell, { type ToastState } from './DispatcherShell'
 
 type Ticket = { code: string; title: string; street: string; level: Level; hours: number; deadline: number; unit: string }
@@ -73,7 +73,9 @@ function TicketCard({ t, remain, nudged, onNudge, onTransfer }: { t: Ticket; rem
 }
 
 export default function SlaWatchScreen() {
+  const version = useTicketVersion()
   const [tickets, setTickets] = useState(buildSeed)
+  useEffect(() => { setTickets(buildSeed()) }, [version])
   const [tick, setTick] = useState(0)
   const [nudged, setNudged] = useState<string[]>([])
   const [toast, setToast] = useState<ToastState>(null)
