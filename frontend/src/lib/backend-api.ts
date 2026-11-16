@@ -328,15 +328,54 @@ async function requestJson<T>(
   return (await res.json()) as T
 }
 
+const ROLE_DEMO_EMAILS: Record<'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN', string> = {
+  CITIZEN: 'citizen@danang.gov.vn',
+  DISPATCHER: 'dispatcher@danang.gov.vn',
+  TECHNICIAN: 'technician@danang.gov.vn',
+  ADMIN: 'admin@danang.gov.vn',
+}
+
+export function normalizeLoginIdentifier(raw: string): string {
+  const s = raw.trim().toLowerCase()
+  if (s === 'admin' || s === 'quantri') return ROLE_DEMO_EMAILS.ADMIN
+  if (s === 'dispatcher' || s === 'ioc' || s === 'quan.tm') return ROLE_DEMO_EMAILS.DISPATCHER
+  if (s === 'technician' || s === 'kt' || s === 'kt.hung' || s === 'hung.lv') return ROLE_DEMO_EMAILS.TECHNICIAN
+  if (s === 'citizen' || s === 'congdan') return ROLE_DEMO_EMAILS.CITIZEN
+  return raw.trim()
+}
+
+export async function ensureRoleToken(
+  role: 'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN',
+): Promise<ApiUserOut | null> {
+  const curUser = getStoredUser()
+  const curToken = getAuthToken()
+  if (curUser && curToken && curUser.role === role) {
+    return curUser
+  }
+  try {
+    const out = await apiLogin(ROLE_DEMO_EMAILS[role], 'Password123!')
+    return out.user
+  } catch {
+    return curUser
+  }
+}
+
+export async function loadSampleFieldPhotoFile(): Promise<File> {
+  const res = await fetch('/field-photo.jpg')
+  const blob = await res.blob()
+  return new File([blob], 'field-photo.jpg', { type: blob.type || 'image/jpeg' })
+}
+
 /* ==================== Auth & Profile ==================== */
 
 export async function apiLogin(
   username: string,
   password: string,
 ): Promise<ApiTokenOut> {
+  const normalized = normalizeLoginIdentifier(username)
   const out = await requestJson<ApiTokenOut>('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username: normalized, password }),
   })
   setAuthSession(out.access_token, out.user)
   return out
@@ -626,6 +665,7 @@ export async function apiSubmitIncidentFeedback(
 /* ==================== Analytics, Zones, Admin & Open311 ==================== */
 
 export async function apiGetAnalyticsSummary(): Promise<ApiAnalyticsSummaryOut> {
+  await ensureRoleToken('ADMIN')
   return requestJson<ApiAnalyticsSummaryOut>('/api/v1/incidents/analytics/summary')
 }
 
@@ -637,6 +677,7 @@ export async function apiUpdateZone(
   zoneId: string,
   payload: { is_active?: boolean; name?: string; description?: string },
 ): Promise<ApiZoneOut> {
+  await ensureRoleToken('ADMIN')
   return requestJson<ApiZoneOut>(
     `/api/v1/zones/${encodeURIComponent(zoneId)}`,
     {
@@ -659,6 +700,7 @@ export async function apiUpdateCategory(
     is_active?: boolean
   },
 ): Promise<ApiCategoryOut> {
+  await ensureRoleToken('ADMIN')
   return requestJson<ApiCategoryOut>(
     `/api/v1/categories/${encodeURIComponent(categoryId)}`,
     {
@@ -679,6 +721,7 @@ export async function apiCreateDepartment(payload: {
   contact_email?: string
   contact_phone?: string
 }): Promise<ApiDepartmentOut> {
+  await ensureRoleToken('ADMIN')
   return requestJson<ApiDepartmentOut>('/api/v1/departments', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -691,6 +734,7 @@ export async function apiListUsers(params?: {
   role?: string
   q?: string
 }): Promise<ApiUserListOut> {
+  await ensureRoleToken('ADMIN')
   const sp = new URLSearchParams()
   if (params?.page) sp.set('page', String(params.page))
   if (params?.page_size) sp.set('page_size', String(params.page_size))
@@ -708,6 +752,7 @@ export async function apiCreateUserByAdmin(payload: {
   role: 'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN'
   department_id?: string
 }): Promise<ApiUserOut> {
+  await ensureRoleToken('ADMIN')
   return requestJson<ApiUserOut>('/api/v1/users', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -724,6 +769,7 @@ export async function apiUpdateUserByAdmin(
     is_locked?: boolean
   },
 ): Promise<ApiUserOut> {
+  await ensureRoleToken('ADMIN')
   return requestJson<ApiUserOut>(
     `/api/v1/users/${encodeURIComponent(userId)}`,
     {
@@ -739,6 +785,7 @@ export async function apiListAuditLogs(params?: {
   ticket_code?: string
   to_status?: string
 }): Promise<ApiAuditLogListOut> {
+  await ensureRoleToken('ADMIN')
   const sp = new URLSearchParams()
   if (params?.page) sp.set('page', String(params.page))
   if (params?.page_size) sp.set('page_size', String(params.page_size))

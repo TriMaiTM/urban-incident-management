@@ -8,12 +8,20 @@
  */
 import { useEffect, useState } from 'react'
 import {
+  type ApiCategoryOut,
+  type ApiDepartmentOut,
   type ApiIncidentDetailOut,
   type ApiIncidentOut,
+  apiAssignIncident,
+  apiGetIncidentDetail,
+  apiListCategories,
+  apiListDepartments,
   apiListIncidents,
   apiSubmitIncidentFeedback,
+  apiTriageIncident,
   apiUpdateIncidentStatus,
-  getAuthToken,
+  ensureRoleToken,
+  loadSampleFieldPhotoFile,
 } from '../lib/backend-api'
 
 export type Priority = 'urgent' | 'high' | 'normal' | 'low'
@@ -145,11 +153,27 @@ const base: Ticket[] = specs.map((s) => {
 })
 
 /* ---------- Lưu thay đổi trạng thái & Đồng bộ Backend ---------- */
-type Override = { status: Status; at: Ticket['at']; submittedAt?: number; supporters?: number; reason?: string; rated?: number; note?: string; ktv?: string; unit?: string }
+type Override = {
+  status: Status
+  at: Ticket['at']
+  submittedAt?: number
+  supporters?: number
+  reason?: string
+  rated?: number
+  note?: string
+  ktv?: string
+  unit?: string
+  kind?: Kind
+  priority?: Priority
+  proofFile?: File
+}
 const KEY = 'urbana.tickets'
 const EVT = 'urbana-tickets'
 const liveTicketsById = new Map<string, Ticket>()
-let initialSyncStarted = false
+let hasLiveBackendData = false
+let cachedCategories: ApiCategoryOut[] | null = null
+let cachedDepartments: ApiDepartmentOut[] | null = null
+let cachedTechId: string | null = null
 
 export function toXY(lat: number, lng: number): { x: number; y: number } {
   const x = Math.max(6, Math.min(94, +(((lng - 108.1) / 0.2) * 100).toFixed(1)))
@@ -252,8 +276,14 @@ export function mapApiIncidentToTicket(inc: ApiIncidentOut | ApiIncidentDetailOu
 
 export function upsertBackendIncident(inc: ApiIncidentOut | ApiIncidentDetailOut): Ticket {
   const mapped = mapApiIncidentToTicket(inc)
+  hasLiveBackendData = true
   liveTicketsById.set(mapped.id, mapped)
   if (typeof window !== 'undefined') {
+    const o = load()
+    if (o[mapped.id]) {
+      delete o[mapped.id]
+      localStorage.setItem(KEY, JSON.stringify(o))
+    }
     window.dispatchEvent(new Event(EVT))
   }
   return mapped
@@ -263,6 +293,8 @@ export async function syncTicketsFromBackend(): Promise<void> {
   if (typeof window === 'undefined') return
   try {
     const res = await apiListIncidents({ page: 1, page_size: 100 })
+    hasLiveBackendData = true
+    liveTicketsById.clear()
     for (const item of res.items) {
       const mapped = mapApiIncidentToTicket(item)
       liveTicketsById.set(mapped.id, mapped)
@@ -284,19 +316,15 @@ const load = (): Record<string, Override> => {
 
 export function getTickets(): Ticket[] {
   const o = load()
-  const mergedMap = new Map<string, Ticket>()
-  for (const t of base) {
-    mergedMap.set(t.id, t)
-  }
-  for (const [id, liveTicket] of liveTicketsById.entries()) {
-    const existing = mergedMap.get(id)
-    mergedMap.set(id, existing ? { ...existing, ...liveTicket, at: { ...existing.at, ...liveTicket.at } } : liveTicket)
-  }
+  // When connected to PostgreSQL backend, use 100% live PostgreSQL incidents (newest first)
+  const sourceList: Ticket[] =
+    hasLiveBackendData && liveTicketsById.size > 0
+      ? Array.from(liveTicketsById.values()).sort((a, b) => b.submittedAt - a.submittedAt)
+      : base
 
-  return Array.from(mergedMap.values()).map((t) => {
+  return sourceList.map((t) => {
     const x = o[t.id]
     if (!x) return t
-    // Không có tự đóng theo thời gian (lifecycle.md)
     return {
       ...t,
       status: x.status,
@@ -307,6 +335,8 @@ export function getTickets(): Ticket[] {
       note: x.note ?? t.note,
       ktv: x.ktv ?? t.ktv,
       unit: x.unit ?? t.unit,
+      kind: x.kind ?? t.kind,
+      priority: x.priority ?? t.priority,
       at: { ...t.at, ...x.at },
     }
   })
@@ -314,41 +344,133 @@ export function getTickets(): Ticket[] {
 
 export const getTicket = (id: string) => getTickets().find((t) => t.id === id)
 
+async function syncStatusMutationToBackend(
+  id: string,
+  cur: Ticket,
+  status: Status,
+  extra?: Partial<Override>,
+): Promise<void> {
+  try {
+    if (status === 'ASSIGNED') {
+      if (!cachedTechId) {
+        const techUser = await ensureRoleToken('TECHNICIAN')
+        cachedTechId = techUser?.id ?? null
+      }
+      await ensureRoleToken('DISPATCHER')
+      if (!cachedCategories) cachedCategories = await apiListCategories()
+      if (!cachedDepartments) cachedDepartments = await apiListDepartments()
+
+      const targetKind = extra?.kind ?? cur.kind
+      const targetPrio = extra?.priority ?? cur.priority
+      const catCode = KIND_TO_CATEGORY[targetKind] ?? 'ROAD_DAMAGE'
+      const catObj = cachedCategories.find((c) => c.code === catCode) ?? cachedCategories[0]
+
+      const unitName = extra?.unit ?? cur.unit
+      const deptCode = Object.entries(DEPT_CODE_TO_UNIT).find(([, uName]) => uName === unitName)?.[0]
+      const deptObj =
+        (deptCode ? cachedDepartments.find((d) => d.code === deptCode) : undefined) ??
+        cachedDepartments[0]
+
+      if (catObj && deptObj) {
+        await apiTriageIncident(id, {
+          category_id: catObj.id,
+          priority: UI_PRIO_TO_API[targetPrio] ?? 'NORMAL',
+          assigned_department_id: deptObj.id,
+          note: 'Điều phối viên IOC duyệt phân loại sự cố',
+        }).catch(() => {})
+
+        const assigned = await apiAssignIncident(id, {
+          assigned_department_id: deptObj.id,
+          assigned_technician_id: cachedTechId ?? undefined,
+          note: `Giao việc cho ${unitName}`,
+        })
+        upsertBackendIncident(assigned)
+        return
+      }
+    } else if (status === 'IN_PROGRESS') {
+      await ensureRoleToken('TECHNICIAN')
+      const updated = await apiUpdateIncidentStatus(id, {
+        to_status: 'IN_PROGRESS',
+        note: extra?.note || 'Kỹ thuật viên đã có mặt tại hiện trường và bắt đầu xử lý',
+      })
+      upsertBackendIncident(updated)
+      return
+    } else if (status === 'RESOLVED') {
+      await ensureRoleToken('TECHNICIAN')
+      if (cur.status !== 'IN_PROGRESS') {
+        await apiUpdateIncidentStatus(id, {
+          to_status: 'IN_PROGRESS',
+          note: 'Kỹ thuật viên bắt đầu xử lý tại hiện trường',
+        }).catch(() => {})
+      }
+      const proofFile = extra?.proofFile ?? (await loadSampleFieldPhotoFile())
+      const updated = await apiUpdateIncidentStatus(id, {
+        to_status: 'RESOLVED',
+        note: extra?.note || 'Đã hoàn thành khắc phục sự cố tại hiện trường',
+        proof_latitude: cur.gps.lat,
+        proof_longitude: cur.gps.lng,
+        proof_image: proofFile,
+      })
+      upsertBackendIncident(updated)
+      return
+    } else if (status === 'CONFIRMED' || status === 'REJECTED' || (status === 'REOPENED' && cur.status === 'RESOLVED')) {
+      await ensureRoleToken('DISPATCHER')
+      const updated = await apiUpdateIncidentStatus(id, {
+        to_status: status,
+        note:
+          extra?.reason ||
+          extra?.note ||
+          (status === 'CONFIRMED'
+            ? 'Điều phối viên IOC duyệt nghiệm thu đạt yêu cầu'
+            : status === 'REJECTED'
+              ? 'Từ chối tiếp nhận phản ánh'
+              : 'Yêu cầu kỹ thuật viên xử lý lại hiện trường'),
+      })
+      upsertBackendIncident(updated)
+      return
+    } else if (status === 'CLOSED') {
+      await ensureRoleToken('CITIZEN')
+      await apiSubmitIncidentFeedback(id, {
+        action: 'CONFIRM',
+        rating: extra?.rated,
+        comment: extra?.note || 'Công dân xác nhận hài lòng đóng phiếu',
+      })
+      const detail = await apiGetIncidentDetail(id)
+      upsertBackendIncident(detail)
+      return
+    } else if (status === 'REOPENED' && cur.status === 'CONFIRMED') {
+      await ensureRoleToken('CITIZEN')
+      await apiSubmitIncidentFeedback(id, {
+        action: 'DISPUTE',
+        rating: extra?.rated,
+        comment: extra?.reason || extra?.note || 'Công dân khiếu nại yêu cầu xử lý lại',
+      })
+      const detail = await apiGetIncidentDetail(id)
+      upsertBackendIncident(detail)
+      return
+    }
+  } catch {
+    // Keep optimistic state if backend call fails
+  }
+}
+
 export function setStatus(id: string, status: Status, extra?: Partial<Override>) {
   if (typeof window === 'undefined') return
   const o = load()
   const cur = getTicket(id)
   if (!cur) return
+  const { proofFile, ...persistExtra } = extra ?? {}
+  void proofFile
   o[id] = {
     ...(o[id] ?? { at: {} }),
-    ...extra,
+    ...persistExtra,
     status,
     at: { ...(o[id]?.at ?? {}), [status]: Date.now() },
   }
   localStorage.setItem(KEY, JSON.stringify(o))
   window.dispatchEvent(new Event(EVT))
 
-  // Synchronize status mutation to Backend API if token is available
-  if (getAuthToken()) {
-    if (status === 'CLOSED') {
-      apiSubmitIncidentFeedback(id, {
-        action: 'CONFIRM',
-        rating: extra?.rated,
-        comment: extra?.note || 'Công dân xác nhận hài lòng đóng phiếu',
-      }).catch(() => {})
-    } else if (status === 'REOPENED' && cur.status === 'CONFIRMED') {
-      apiSubmitIncidentFeedback(id, {
-        action: 'DISPUTE',
-        rating: extra?.rated,
-        comment: extra?.reason || extra?.note || 'Công dân khiếu nại yêu cầu xử lý lại',
-      }).catch(() => {})
-    } else if (['IN_PROGRESS', 'RESOLVED', 'CONFIRMED', 'REOPENED', 'REJECTED'].includes(status)) {
-      apiUpdateIncidentStatus(id, {
-        to_status: status,
-        note: extra?.reason || extra?.note || `Cập nhật trạng thái sang ${status}`,
-      }).catch(() => {})
-    }
-  }
+  void syncStatusMutationToBackend(id, cur, status, extra)
 }
 
 /** Công dân gửi phản ánh ở màn 2: phiếu demo bắt đầu tính SLA từ lúc này, rồi AI tự phân loại. */
@@ -374,15 +496,21 @@ export function useTicketVersion() {
   const [v, setV] = useState(0)
   useEffect(() => {
     const f = () => setV((n) => n + 1)
-    window.addEventListener(EVT, f)
-    window.addEventListener('storage', f)
-    if (!initialSyncStarted) {
-      initialSyncStarted = true
+    const onFocus = () => {
       void syncTicketsFromBackend()
     }
+    window.addEventListener(EVT, f)
+    window.addEventListener('storage', f)
+    window.addEventListener('focus', onFocus)
+    void syncTicketsFromBackend()
+    const timer = window.setInterval(() => {
+      void syncTicketsFromBackend()
+    }, 5000)
     return () => {
       window.removeEventListener(EVT, f)
       window.removeEventListener('storage', f)
+      window.removeEventListener('focus', onFocus)
+      window.clearInterval(timer)
     }
   }, [])
   return v

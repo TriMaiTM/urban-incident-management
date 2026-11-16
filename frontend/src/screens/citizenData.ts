@@ -18,10 +18,13 @@ const toReport = (t: Ticket): Report => ({
   label: statusLabel[t.status], raw: t.status, gpsDev: gpsDeviation(t), date: dateText(t.submittedAt), ago: agoText(t.submittedAt), unit: t.unit, x: t.x, y: t.y, times: timesOf(t),
   reason: t.reason, rated: t.rated, ktv: t.ktv, note: t.note,
 })
-/** Danh sách phản ánh của công dân, đọc từ nguồn dữ liệu chung. */
-const MINE = ['DN-202610-0129', 'DN-202610-0121', 'DN-202610-0097', 'DN-202610-0052', 'DN-202610-0048', 'DN-202610-0036']
-export const getReports = (): Report[] => MINE.map((id) => getTickets().find((t) => t.id === id)!).map(toReport)
-/** Bản chụp tại thời điểm tải module, dùng cho dữ liệu tĩnh (tiêu đề, mã). */
+
+/** Danh sách phản ánh của công dân, lấy trực tiếp từ nguồn dữ liệu thật (phiếu mới nhất lên đầu). */
+export const getReports = (): Report[] =>
+  [...getTickets()]
+    .sort((a, b) => b.submittedAt - a.submittedAt)
+    .map(toReport)
+
 export const reports: Report[] = getReports()
 
 // Tab "Đã hoàn tất" chỉ gồm phiếu CLOSED; phiếu Đã xác nhận vẫn chờ công dân đánh giá.
