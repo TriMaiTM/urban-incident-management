@@ -78,8 +78,8 @@ Xây dựng nền tảng GovTech thông minh phục vụ tiếp nhận, phân lo
   - **Lưu ý khi mở lại phiếu (`REOPENED`):** Khi phiếu chuyển sang `REOPENED` (do điều phối viên yêu cầu làm lại hoặc công dân khiếu nại), hệ thống xóa `resolved_at = None` và **đặt lại hạn `sla_due_at` mới tính từ thời điểm mở lại** theo mức độ ưu tiên hiện tại.
 
 ### 3.5. Kết quả Kiểm thử Tự động Backend
-- Vượt qua **197 / 201 unit & integration tests** trong `backend/tests/`.
-- 100% các bài test trắc địa, GIS containment, deduplication 50m, OpenCV anonymization, State Machine và Open311 đều đạt `PASSED`.
+- Vượt qua **607 / 607 unit, matrix & live-DB E2E tests** trong `backend/tests/`.
+- 100% các bài test trắc địa, GIS containment, deduplication 50m, OpenCV anonymization, ma trận 380 case State Machine 9 trạng thái, Open311 và E2E trên PostgreSQL thật đều đạt `PASSED`.
 
 ---
 
@@ -110,10 +110,11 @@ Mọi màn hình thiết kế mới trên Figma bắt buộc tuân thủ bộ ng
    - 100% tiếng Việt có dấu đầy đủ, chuẩn xác, văn phong hành chính hiện đại.
    - **Tuyệt đối KHÔNG sử dụng emoji** trong text layer, code hay chú thích.
    - Chữ viết ngắn gọn, tường minh, dứt khoát; loại bỏ các cụm từ giải thích dài dòng.
-2. **Quy tắc Màu sắc & Tương phản:**
-   - **Một màu nhấn chính (Primary Action):** Nút hành động cốt lõi mang màu xanh dương đậm (`#1051a6` / `#1d4ed8`) hoặc xanh lá nghiệm thu (`#15803d`).
-   - Các nút phụ, nút hủy dùng viền outline trung tính (`#e2e8f0`, chữ `#0f172a`).
-   - Cắt giảm tối đa các badge, tag màu mè không cần thiết để tránh làm phân tán thị giác người dùng.
+2. **Quy tắc Màu sắc & Tương phản (Tham chiếu `docs/design-direction.md`):**
+   - **Nền & Bề mặt Bento:** Nền trang `#E9E9EB`, Card `#FFFFFF` (bóng mềm, không viền), Surface phụ `#F4F4F5`; Chữ chính `#111111`, Chữ phụ `#6B6B70`.
+   - **Nút hành động (Primary Action):** Đen chủ đạo `#111111`. Chỉ nút hero `"Gửi báo cáo"` (công dân) và trạng thái Khẩn cấp (`EMERGENCY`) dùng đỏ `#E5251B` (kèm icon cảnh báo cho Khẩn cấp).
+   - **Mức độ ưu tiên & Trạng thái:** Khẩn cấp `#E5251B`, Cao `#F97316`, Trung bình `#F5B400`, Thấp `#9CA3AF`, Trạng thái hoàn tất `#16A34A`.
+   - **Bo góc & Spacing:** Bo góc card `20px`, chip `999px`, ô icon `12px`; hệ lưới spacing `4 / 8 / 12 / 16 / 24 / 32`.
 3. **Quy tắc Bố cục & Khung nhìn:**
    - Desktop chuẩn 1440px cố định, Mobile chuẩn 390x844px.
    - Bố cục lưới rõ ràng, phân vùng tác chiến mạch lạc giữa Form nhập liệu - Bản đồ GIS - Hàng nút hành động.
