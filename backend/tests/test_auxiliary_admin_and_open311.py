@@ -225,3 +225,105 @@ async def test_admin_users_crud_and_account_lock_enforcement(client: httpx.Async
         assert "đã bị khóa" in res_login_locked.json()["detail"]
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_admin_zones_categories_and_departments_management(client: httpx.AsyncClient):
+    """Verify GET/PATCH /api/v1/zones, PATCH /api/v1/categories/{id}, and POST/PATCH /api/v1/departments."""
+    from types import SimpleNamespace
+    from app.models.category import Category
+    from app.models.zone import SystemZone
+
+    session = _MockSession()
+    admin = User(
+        id=uuid4(),
+        email="admin_cfg@danang.gov.vn",
+        full_name="Quản Trị Cấu Hình",
+        role="ADMIN",
+        auth_provider="LOCAL",
+        is_locked=False,
+        created_at=datetime.now(timezone.utc),
+    )
+    dept = Department(
+        id=uuid4(),
+        code="CTN_DN",
+        name="Cty Thoát Nước",
+        level="UTILITY_COMPANY",
+    )
+    cat = Category(
+        id=uuid4(),
+        code="FLOODING",
+        name="Ngập úng đô thị",
+        default_sla_hours=12,
+        default_department_id=dept.id,
+        is_active=True,
+    )
+    zone = SystemZone(
+        id="DANANG_CORE",
+        name="Vùng Đô thị Lõi Đà Nẵng",
+        is_active=True,
+        bounding_box={"min_lon": 107.8, "min_lat": 15.9, "max_lon": 108.4, "max_lat": 16.3},
+        description="Vùng lõi",
+    )
+    session.seed(admin, dept, cat, zone)
+
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_current_user] = lambda: admin
+    try:
+        # 1. GET /api/v1/zones returns all zones with open_incident_count
+        row = SimpleNamespace(
+            id="DANANG_CORE",
+            name="Vùng Đô thị Lõi Đà Nẵng",
+            is_active=True,
+            bounding_box=zone.bounding_box,
+            description="Vùng lõi",
+            geojson_str='{"type": "Polygon", "coordinates": []}',
+        )
+        session.execute_queue = [_MockResult(5), _MockResult([row])]
+        res_zones = await client.get("/api/v1/zones")
+        assert res_zones.status_code == 200
+        zones_body = res_zones.json()
+        assert len(zones_body) == 1
+        assert zones_body[0]["open_incident_count"] == 5
+
+        # 2. PATCH /api/v1/zones/{zone_id} toggles is_active
+        res_patch_zone = await client.patch(
+            "/api/v1/zones/DANANG_CORE",
+            json={"is_active": False, "description": "Tạm dừng bảo trì"},
+        )
+        assert res_patch_zone.status_code == 200
+        assert res_patch_zone.json()["is_active"] is False
+
+        # 3. PATCH /api/v1/categories/{category_id} updates SLA & is_active
+        res_patch_cat = await client.patch(
+            f"/api/v1/categories/{cat.id}",
+            json={"default_sla_hours": 8, "is_active": False},
+        )
+        assert res_patch_cat.status_code == 200
+        assert res_patch_cat.json()["default_sla_hours"] == 8
+        assert res_patch_cat.json()["is_active"] is False
+
+        # 4. POST /api/v1/departments & PATCH /api/v1/departments/{id}
+        session.execute_queue = [_MockResult(None)]
+        res_create_dept = await client.post(
+            "/api/v1/departments",
+            json={
+                "code": "UBND_ST",
+                "name": "UBND Quận Sơn Trà",
+                "level": "DISTRICT_GOV",
+                "contact_phone": "02363844555",
+            },
+        )
+        assert res_create_dept.status_code == 201
+        new_dept_id = res_create_dept.json()["id"]
+
+        res_patch_dept = await client.patch(
+            f"/api/v1/departments/{new_dept_id}",
+            json={"name": "UBND Quận Sơn Trà - Đà Nẵng", "contact_email": "sontra@danang.gov.vn"},
+        )
+        assert res_patch_dept.status_code == 200
+        assert res_patch_dept.json()["name"] == "UBND Quận Sơn Trà - Đà Nẵng"
+        assert res_patch_dept.json()["contact_email"] == "sontra@danang.gov.vn"
+    finally:
+        app.dependency_overrides.clear()
+

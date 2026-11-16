@@ -5,11 +5,99 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.functions import ST_AsGeoJSON, ST_Contains, ST_MakePoint, ST_SetSRID
 
+from app.api.deps import require_roles
 from app.core.database import get_db
+from app.models.incident import Incident
+from app.models.user import User
 from app.models.zone import SystemZone
-from app.schemas.zone import LocationValidateIn, LocationValidateOut, ZoneOut
+from app.schemas.zone import LocationValidateIn, LocationValidateOut, ZoneOut, ZoneUpdateIn
 
 router = APIRouter(prefix="/zones", tags=["Geographical Zones & Geofencing"])
+
+
+@router.get("", response_model=List[ZoneOut], summary="Lấy toàn bộ danh sách phân vùng GIS (kèm trạng thái bật/tắt)")
+@router.get("/", response_model=List[ZoneOut], include_in_schema=False)
+async def list_all_zones(db: AsyncSession = Depends(get_db)) -> List[ZoneOut]:
+    """Trả về toàn bộ các phân vùng (cả đang hoạt động và đang tạm dừng) kèm số phiếu đang mở."""
+    open_count_res = await db.execute(
+        select(func.count(Incident.id)).where(
+            Incident.status.not_in(["RESOLVED", "CONFIRMED", "CLOSED", "REJECTED"])
+        )
+    )
+    open_count = int(open_count_res.scalar() or 0)
+
+    stmt = select(
+        SystemZone.id,
+        SystemZone.name,
+        SystemZone.is_active,
+        SystemZone.bounding_box,
+        SystemZone.description,
+        ST_AsGeoJSON(SystemZone.boundary).label("geojson_str"),
+    ).order_by(SystemZone.id)
+    rows = (await db.execute(stmt)).all()
+
+    zones: list[ZoneOut] = []
+    for row in rows:
+        geojson_geom = None
+        if row.geojson_str:
+            try:
+                geojson_geom = json.loads(row.geojson_str)
+            except Exception:
+                geojson_geom = None
+
+        zones.append(
+            ZoneOut(
+                id=row.id,
+                name=row.name,
+                is_active=row.is_active,
+                open_incident_count=open_count if row.is_active else 0,
+                bounding_box=row.bounding_box,
+                description=row.description,
+                geojson_geometry=geojson_geom,
+            )
+        )
+    return zones
+
+
+@router.patch(
+    "/{zone_id}",
+    response_model=ZoneOut,
+    summary="Bật/Tắt tiếp nhận sự cố hoặc cập nhật phân vùng GIS (Chỉ ADMIN)",
+)
+async def update_zone(
+    zone_id: str,
+    body: ZoneUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(["ADMIN"])),
+) -> ZoneOut:
+    """Quản trị viên bật/tắt trạng thái is_active hoặc cập nhật thông tin phân vùng GIS."""
+    zone = await db.get(SystemZone, zone_id)
+    if not zone:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy phân vùng GIS với mã '{zone_id}'.",
+        )
+
+    if body.name is not None and body.name.strip():
+        zone.name = body.name.strip()
+    if body.description is not None:
+        zone.description = body.description
+    if body.is_active is not None:
+        zone.is_active = body.is_active
+
+    db.add(zone)
+    await db.commit()
+    await db.refresh(zone)
+
+    return ZoneOut(
+        id=zone.id,
+        name=zone.name,
+        is_active=zone.is_active,
+        open_incident_count=0,
+        bounding_box=zone.bounding_box,
+        description=zone.description,
+        geojson_geometry=None,
+    )
 
 
 @router.get("/active", response_model=List[ZoneOut], summary="Lấy danh sách các phân vùng đang kích hoạt")

@@ -18,8 +18,16 @@ class ZoneOut(BaseModel):
     id: str
     name: str
     is_active: bool
+    open_incident_count: int = 0
     bounding_box: Optional[Dict[str, Any]] = None
     description: Optional[str] = None
     geojson_geometry: Optional[Dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
+
+
+class ZoneUpdateIn(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=255)
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+

@@ -122,7 +122,7 @@
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest`
 - **Commit 2:** `feat(users): add profile update, password change, and admin user management with account lock`
 
-### [ ] Bước 3: Quản trị Phân vùng GIS (`/zones`), Danh mục (`/categories`) & Đơn vị (`/departments`)
+### [x] Bước 3: Quản trị Phân vùng GIS (`/zones`), Danh mục (`/categories`) & Đơn vị (`/departments`)
 - Thêm `is_active` vào model `Category` và `SCHEMA_ALTER_STATEMENTS` trong `backend/scripts/init_db.py`.
 - Mở rộng `backend/app/api/v1/endpoints/zones.py`: thêm `GET /api/v1/zones` (trả tất cả vùng kèm `open_incident_count`) và `PATCH /api/v1/zones/{zone_id}` (chỉ `ADMIN`).
 - Mở rộng `backend/app/api/v1/endpoints/categories.py`: thêm `PATCH /api/v1/categories/{category_id}` (chỉ `ADMIN`).

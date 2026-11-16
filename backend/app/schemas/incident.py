@@ -101,8 +101,30 @@ class CategoryOut(BaseModel):
     name: str
     default_sla_hours: int
     default_department_id: UUID | None = None
+    is_active: bool = True
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_is_active(cls, data: object) -> object:
+        if isinstance(data, dict):
+            d = dict(data)
+            if d.get("is_active") is None:
+                d["is_active"] = True
+            return d
+        if hasattr(data, "is_active") and getattr(data, "is_active") is None:
+            setattr(data, "is_active", True)
+        return data
+
+
+class CategoryUpdateIn(BaseModel):
+    """Schema for admin updating category configuration and SLA."""
+
+    name: str | None = Field(None, min_length=2, max_length=255)
+    default_sla_hours: int | None = Field(None, ge=1, le=720)
+    default_department_id: UUID | None = None
+    is_active: bool | None = None
 
 
 class DepartmentOut(BaseModel):
@@ -116,6 +138,25 @@ class DepartmentOut(BaseModel):
     contact_phone: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DepartmentCreateIn(BaseModel):
+    """Schema for admin creating a new department/unit."""
+
+    code: str = Field(..., min_length=2, max_length=50)
+    name: str = Field(..., min_length=2, max_length=255)
+    level: str = Field("UTILITY_COMPANY", min_length=2, max_length=50)
+    contact_email: str | None = Field(None, max_length=255)
+    contact_phone: str | None = Field(None, max_length=50)
+
+
+class DepartmentUpdateIn(BaseModel):
+    """Schema for admin updating an existing department/unit."""
+
+    name: str | None = Field(None, min_length=2, max_length=255)
+    level: str | None = Field(None, min_length=2, max_length=50)
+    contact_email: str | None = Field(None, max_length=255)
+    contact_phone: str | None = Field(None, max_length=50)
 
 
 class IncidentMediaOut(BaseModel):
