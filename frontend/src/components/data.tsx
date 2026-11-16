@@ -23,7 +23,7 @@ import {
   type LucideProps,
 } from 'lucide-react'
 import { useState, type ComponentType, type ReactNode } from 'react'
-import MapArt from './MapArt'
+import GoongBentoMap from './GoongBentoMap'
 import SamplePhoto from './SamplePhoto'
 import {
   Button,
@@ -312,159 +312,53 @@ export function EvidenceUploadCard({
   )
 }
 
-/* 8. MapBentoViewport */
-// Toạ độ ghim giữ hệ 0-100% cũ, quy đổi vào vùng nội thành trên ảnh bản đồ thật.
-const mx = (x: number) => 58 + x * 0.24
-const my = (y: number) => 36 + y * 0.5
-const ux = (x: number) => (x - 58) / 0.24
-const uy = (y: number) => (y - 36) / 0.5
-const pinColor: Record<Level, string> = { urgent: 'bg-urgent', high: 'bg-high', normal: 'bg-normal', low: 'bg-low', done: 'bg-done' }
+/* 8. MapBentoViewport — Interactive Goong Map with GADM 4.1 District GIS Layers */
 export function MapBentoViewport({
   pins,
   state = 'normal',
   compact,
   fill,
-  detailed,
   controls = 'top',
   userPin,
   onPick,
-  image = '/danang-map.png',
-  imageRatio = 1177 / 711,
-  zoom = 1,
   onZoom,
   onPinClick,
   selectedPin,
   route,
   heat,
 }: {
-  heat?: { x: number; y: number; size: number; alpha: number }[]
-  route?: { x: number; y: number }[]
+  heat?: { x: number; y: number; lat?: number; lng?: number; size: number; alpha: number }[]
+  route?: { x: number; y: number; lat?: number; lng?: number }[]
   image?: string
   imageRatio?: number
   zoom?: number
   onZoom?: (dir: -1 | 0 | 1) => void
   onPinClick?: (i: number) => void
   selectedPin?: number
-  pins: { x: number; y: number; level: Level; label?: string }[]
+  pins: { x: number; y: number; lat?: number; lng?: number; level: Level; label?: string }[]
   state?: DataState
   compact?: boolean
   fill?: boolean
   detailed?: boolean
   controls?: 'top' | 'bottom' | 'bottom-left'
-  userPin?: { x: number; y: number; level: Level; bad?: boolean; radius?: number; label?: string }
-  onPick?: (x: number, y: number) => void
+  userPin?: { x: number; y: number; lat?: number; lng?: number; level: Level; bad?: boolean; radius?: number; label?: string }
+  onPick?: (x: number, y: number, lngLat?: { lng: number; lat: number; district: string | null }) => void
 }) {
-  const layer = (
-    <>
-      {state === 'normal' && heat?.map((h, i) => (
-        <span
-          key={i}
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-700 ease-out"
-          style={{ left: `${mx(h.x)}%`, top: `${my(h.y)}%`, width: h.size, height: h.size, background: `radial-gradient(circle, rgba(229,37,27,${h.alpha}) 0%, rgba(229,37,27,${h.alpha * 0.45}) 40%, rgba(229,37,27,0) 70%)` }}
-        />
-      ))}
-      {state === 'normal' && route && route.length > 1 && (
-        <>
-          <svg key={route.map((r) => r.x + r.y).join()} className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 1000 700" preserveAspectRatio="none" fill="none">
-            {['#ffffff', '#111111'].map((c, i) => (
-              <polyline key={c} points={route.map((r) => `${mx(r.x) * 10},${my(r.y) * 7}`).join(' ')} pathLength={1} stroke={c} strokeWidth={i ? 6 : 12} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={1} className="animate-draw" />
-            ))}
-          </svg>
-          <span className="pointer-events-none absolute flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-ink text-white shadow-card ring-4 ring-card" style={{ left: `${mx(route[0].x)}%`, top: `${my(route[0].y)}%` }}>
-            <Navigation size={14} {...ic} />
-          </span>
-        </>
-      )}
-      {state === 'normal' &&
-        pins.map((p, i) => {
-          const sel = selectedPin === i
-          const inner = p.label ? (
-            <span className="relative flex size-7 items-center justify-center rounded-full bg-ink text-[12px] font-bold text-white shadow-card ring-4 ring-card">{p.label}</span>
-          ) : (
-            <>
-              <span className={cn('absolute inset-0 animate-pulse-soft rounded-full', pinColor[p.level])} style={{ animationDelay: `${(i % 5) * 0.4}s` }} />
-              <span className={cn('relative block rounded-full shadow-card ring-4 ring-card transition-all duration-300', sel ? 'size-6 ring-ink' : 'size-4', pinColor[p.level])} />
-            </>
-          )
-          return onPinClick ? (
-            <button key={i} aria-label="Ghim sự cố" onClick={(e) => { e.stopPropagation(); onPinClick(i) }} className="absolute -translate-x-1/2 -translate-y-1/2 transition hover:scale-125" style={{ left: `${mx(p.x)}%`, top: `${my(p.y)}%`, zIndex: sel ? 5 : 1 }}>{inner}</button>
-          ) : (
-            <span key={i} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2" style={{ left: `${mx(p.x)}%`, top: `${my(p.y)}%` }}>{inner}</span>
-          )
-        })}
-      {state === 'normal' && userPin && (
-        <span key={`${Math.round(userPin.x)}-${Math.round(userPin.y)}`} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2" style={{ left: `${mx(userPin.x)}%`, top: `${my(userPin.y)}%` }}>
-          {userPin.radius && (
-            <span className={cn('absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-rise rounded-full border-2 border-dashed', userPin.bad ? 'border-urgent bg-urgent/10' : 'border-ink/40 bg-ink/5')} style={{ width: userPin.radius * 2, height: userPin.radius * 2 }} />
-          )}
-          <span className={cn('absolute inset-0 animate-pulse-soft rounded-full', userPin.bad ? 'bg-urgent' : 'bg-ink')} />
-          <span className={cn('animate-rise relative flex size-8 items-center justify-center rounded-full text-white shadow-card ring-4 ring-card', userPin.bad ? 'bg-urgent' : 'bg-ink')}>
-            {userPin.label ? <span className="text-[14px] font-bold">{userPin.label}</span> : <MapPin size={16} {...ic} />}
-          </span>
-        </span>
-      )}
-    </>
-  )
-  const pick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!onPick || state !== 'normal') return
-    const r = e.currentTarget.getBoundingClientRect()
-    onPick(ux(((e.clientX - r.left) / r.width) * 100), uy(((e.clientY - r.top) / r.height) * 100))
-  }
   return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-card bg-surface',
-        fill ? 'absolute inset-0' : cn('relative', compact ? 'h-[200px]' : 'h-[320px]'),
-        (detailed || image) && '[container-type:size]',
-        onPick && 'cursor-crosshair',
-      )}
-      onClick={detailed || image ? undefined : pick}
-    >
-      {detailed || image ? (
-        <div
-          onClick={pick}
-          className="absolute top-1/2 left-1/2 transition-transform duration-500 ease-out"
-          style={{
-            width: `max(100cqw, ${imageRatio * 100}cqh)`,
-            height: `max(100cqh, ${100 / imageRatio}cqw)`,
-            transform: `translate(-50%, -50%) scale(${zoom})`,
-          }}
-        >
-          {image ? <img src={image} alt="" draggable={false} className="absolute inset-0 size-full select-none" /> : <MapArt />}
-          {layer}
-        </div>
-      ) : (
-        <>
-          <svg className="absolute inset-0 size-full" viewBox="0 0 400 300" preserveAspectRatio="none" fill="none">
-            <rect width="400" height="300" fill="#f4f4f5" />
-            <path d="M300 0 C330 80 380 120 400 130 L400 300 L260 300 C300 220 280 120 300 0Z" fill="#e9e9eb" />
-            <g stroke="#ffffff" strokeLinecap="round">
-              <path d="M0 80 L400 60" strokeWidth="14" />
-              <path d="M0 200 C120 180 200 240 400 190" strokeWidth="14" />
-              <path d="M110 0 L130 300" strokeWidth="12" />
-              <path d="M240 0 L210 300" strokeWidth="10" />
-              <path d="M0 140 L200 150" strokeWidth="5" />
-              <path d="M40 0 L60 300" strokeWidth="5" />
-            </g>
-          </svg>
-          {layer}
-        </>
-      )}
-      {state === 'normal' && (
-        <div className={cn('absolute flex flex-col gap-2', controls === 'top' ? 'top-3 right-3' : controls === 'bottom' ? 'right-3 bottom-3' : 'bottom-3 left-3')} onClick={(e) => e.stopPropagation()}>
-          {[Plus, Minus, Navigation].map((I, i) => (
-            <button key={i} onClick={() => onZoom?.(([1, -1, 0] as const)[i])} className="flex size-10 items-center justify-center rounded-full bg-card shadow-card transition hover:-translate-y-0.5"><I size={16} {...ic} /></button>
-          ))}
-        </div>
-      )}
-      {state !== 'normal' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-card/80 backdrop-blur-sm">
-          {state === 'loading' && <div className="size-10 animate-spin rounded-full border-4 border-surface border-t-ink" />}
-          {state === 'empty' && <EmptyState icon={MapPin} text="Chưa có sự cố" />}
-          {state === 'error' && <ErrorState text="Không tải bản đồ" />}
-        </div>
-      )}
-    </div>
+    <GoongBentoMap
+      pins={pins}
+      state={state}
+      compact={compact}
+      fill={fill}
+      controls={controls}
+      userPin={userPin}
+      onPick={onPick}
+      onZoom={onZoom}
+      onPinClick={onPinClick}
+      selectedPin={selectedPin}
+      route={route}
+      heat={heat}
+    />
   )
 }
 

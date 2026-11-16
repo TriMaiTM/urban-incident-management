@@ -1,0 +1,868 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import * as maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import { Box, Minus, Navigation, Plus } from 'lucide-react'
+import { EmptyState, ErrorState, cn, ic, type DataState, type Level } from './primitives'
+import { MapPin } from 'lucide-react'
+import districtsGeoJsonRaw from '../data/danang_districts_boundary.json'
+import { apiListZones, type ApiZoneOut } from '../lib/backend-api'
+
+if (typeof window !== 'undefined') {
+  maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
+}
+
+const GOONG_MAPTILES_KEY = process.env.NEXT_PUBLIC_GOONG_MAPTILES_KEY?.trim() || ''
+const CARTO_API_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY?.trim() || ''
+
+const DANANG_CENTER: [number, number] = [108.212, 16.062]
+const DANANG_ZONES_CENTER: [number, number] = [108.115, 16.055]
+const DANANG_MAX_BOUNDS: [[number, number], [number, number]] = [
+  [107.72, 15.82],
+  [108.48, 16.32],
+]
+
+/**
+ * Convert legacy 0-100 (x, y) urban coordinates to real WGS84 [lng, lat] in Da Nang.
+ */
+export function xyToLngLat(x: number, y: number): [number, number] {
+  const lng = +(108.12 + (x / 100) * 0.18).toFixed(6)
+  const lat = +(16.13 - (y / 100) * 0.12).toFixed(6)
+  return [lng, lat]
+}
+
+/**
+ * Convert real WGS84 [lng, lat] to legacy 0-100 (x, y) coordinates.
+ */
+export function lngLatToXY(lng: number, lat: number): { x: number; y: number } {
+  const x = +(((lng - 108.12) / 0.18) * 100).toFixed(2)
+  const y = +(((16.13 - lat) / 0.12) * 100).toFixed(2)
+  return { x, y }
+}
+
+/**
+ * Ray-casting point-in-polygon check for GeoJSON Polygon / MultiPolygon in [lng, lat].
+ */
+function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1]
+    const xj = ring[j][0], yj = ring[j][1]
+    const intersect = yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi + 1e-12) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+export function findDistrictAtLngLat(
+  lng: number,
+  lat: number,
+  customZones?: { id: string; name: string; on: boolean; geometry: GeoJSON.Geometry }[],
+): { id: string; name: string; on: boolean } | null {
+  const list =
+    customZones ??
+    (districtsGeoJsonRaw.features as unknown as Array<{
+      properties: { zone_id: string; name: string; is_active?: boolean }
+      geometry: GeoJSON.Geometry
+    }>).map((f) => ({
+      id: f.properties.zone_id.toLowerCase(),
+      name: f.properties.name,
+      on: f.properties.is_active !== false,
+      geometry: f.geometry,
+    }))
+
+  for (const z of list) {
+    const g = z.geometry
+    if (g.type === 'Polygon') {
+      if (pointInRing(lng, lat, g.coordinates[0])) return { id: z.id, name: z.name, on: z.on }
+    } else if (g.type === 'MultiPolygon') {
+      for (const poly of g.coordinates) {
+        if (pointInRing(lng, lat, poly[0])) return { id: z.id, name: z.name, on: z.on }
+      }
+    }
+  }
+  return null
+}
+
+function createFallbackRasterStyle(): maplibregl.StyleSpecification {
+  const qp = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : ''
+  return {
+    version: 8,
+    sources: {
+      'carto-voyager': {
+        type: 'raster',
+        tiles: [
+          `https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${qp}`,
+          `https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${qp}`,
+          `https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png${qp}`,
+        ],
+        tileSize: 256,
+        maxzoom: 19,
+      },
+    },
+    layers: [
+      {
+        id: 'carto-voyager-layer',
+        type: 'raster',
+        source: 'carto-voyager',
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    ],
+  }
+}
+
+function getGoongOrFallbackStyle(): string | maplibregl.StyleSpecification {
+  if (GOONG_MAPTILES_KEY) {
+    return `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(GOONG_MAPTILES_KEY)}`
+  }
+  return createFallbackRasterStyle()
+}
+
+function createCircleGeoJSON(centerLat: number, centerLng: number, radiusMeters = 50, points = 64): GeoJSON.FeatureCollection {
+  const coords: [number, number][] = []
+  const earthRadius = 6378137
+  const angularDistance = radiusMeters / earthRadius
+  const latRad = (centerLat * Math.PI) / 180
+  const lngRad = (centerLng * Math.PI) / 180
+
+  for (let i = 0; i <= points; i++) {
+    const bearing = (2 * Math.PI * i) / points
+    const pointLat = Math.asin(
+      Math.sin(latRad) * Math.cos(angularDistance) +
+        Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearing),
+    )
+    const pointLng =
+      lngRad +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(latRad),
+        Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(pointLat),
+      )
+    coords.push([(pointLng * 180) / Math.PI, (pointLat * 180) / Math.PI])
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [coords] },
+      },
+    ],
+  }
+}
+
+const LEVEL_HEX: Record<Level, string> = {
+  urgent: '#e5251b',
+  high: '#f97316',
+  normal: '#f5b400',
+  low: '#9ca3af',
+  done: '#16a34a',
+}
+
+export interface InteractiveZoneItem {
+  id: string
+  backendId?: string
+  name: string
+  open: number
+  on: boolean
+  labelLngLat: [number, number]
+  geometry: GeoJSON.Geometry
+}
+
+export interface FieldUnitMarkerItem {
+  id: string
+  name: string
+  status: 'idle' | 'moving' | 'working'
+  lngLat: [number, number]
+  selected?: boolean
+  highlighted?: boolean
+  dimmed?: boolean
+}
+
+export interface GoongBentoMapProps {
+  pins?: { x: number; y: number; lat?: number; lng?: number; level: Level; label?: string }[]
+  state?: DataState
+  compact?: boolean
+  fill?: boolean
+  controls?: 'top' | 'bottom' | 'bottom-left'
+  userPin?: { x: number; y: number; lat?: number; lng?: number; level: Level; bad?: boolean; radius?: number; label?: string }
+  onPick?: (x: number, y: number, lngLat?: { lng: number; lat: number; district: string | null }) => void
+  onZoom?: (dir: -1 | 0 | 1) => void
+  onPinClick?: (i: number) => void
+  selectedPin?: number
+  route?: { x: number; y: number; lat?: number; lng?: number }[]
+  heat?: { x: number; y: number; lat?: number; lng?: number; size: number; alpha: number }[]
+  /** Optional interactive 7-district mode for /admin/zones */
+  interactiveZones?: InteractiveZoneItem[]
+  selectedZoneId?: string | null
+  onSelectZone?: (id: string) => void
+  /** Optional field unit dispatch mode for /dispatcher/field-units */
+  fieldUnits?: FieldUnitMarkerItem[]
+  onSelectFieldUnit?: (id: string) => void
+  dispatchRoute?: { from: [number, number]; to: [number, number] } | null
+  initialZoom?: number
+  initialCenter?: [number, number]
+}
+
+const SOURCE_DISTRICTS = 'bento-gadm-districts'
+const LAYER_DISTRICTS_FILL = 'bento-gadm-districts-fill'
+const LAYER_DISTRICTS_ACTIVE_LINE = 'bento-gadm-districts-active-line'
+const LAYER_DISTRICTS_PAUSED_LINE = 'bento-gadm-districts-paused-line'
+
+const SOURCE_RADIUS = 'bento-user-radius'
+const LAYER_RADIUS_FILL = 'bento-user-radius-fill'
+const LAYER_RADIUS_LINE = 'bento-user-radius-line'
+
+const SOURCE_ROUTE = 'bento-route-line'
+const LAYER_ROUTE_CASING = 'bento-route-casing'
+const LAYER_ROUTE_MAIN = 'bento-route-main'
+
+let cachedLiveZones: ApiZoneOut[] | null = null
+
+export default function GoongBentoMap({
+  pins = [],
+  state = 'normal',
+  compact,
+  fill,
+  controls = 'top',
+  userPin,
+  onPick,
+  onZoom,
+  onPinClick,
+  selectedPin,
+  route,
+  heat,
+  interactiveZones,
+  selectedZoneId,
+  onSelectZone,
+  fieldUnits,
+  onSelectFieldUnit,
+  dispatchRoute,
+  initialZoom,
+  initialCenter,
+}: GoongBentoMapProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [is3D, setIs3D] = useState(false)
+  const [liveZones, setLiveZones] = useState<ApiZoneOut[] | null>(cachedLiveZones)
+  const fallbackAppliedRef = useRef(false)
+
+  const markersRef = useRef<maplibregl.Marker[]>([])
+  const onPickRef = useRef(onPick)
+  const onSelectZoneRef = useRef(onSelectZone)
+  const onPinClickRef = useRef(onPinClick)
+  const onSelectFieldUnitRef = useRef(onSelectFieldUnit)
+
+  useEffect(() => {
+    onPickRef.current = onPick
+    onSelectZoneRef.current = onSelectZone
+    onPinClickRef.current = onPinClick
+    onSelectFieldUnitRef.current = onSelectFieldUnit
+  }, [onPick, onSelectZone, onPinClick, onSelectFieldUnit])
+
+  useEffect(() => {
+    if (interactiveZones || cachedLiveZones) return
+    apiListZones()
+      .then((zs) => {
+        cachedLiveZones = zs
+        setLiveZones(zs)
+      })
+      .catch(() => {})
+  }, [interactiveZones])
+
+  const buildDistrictsFeatureCollection = (): GeoJSON.FeatureCollection => {
+    if (interactiveZones && interactiveZones.length > 0) {
+      return {
+        type: 'FeatureCollection',
+        features: interactiveZones.map((z) => ({
+          type: 'Feature',
+          properties: {
+            id: z.id,
+            name: z.name,
+            on: z.on,
+            selected: selectedZoneId === z.id,
+            interactive: true,
+          },
+          geometry: z.geometry,
+        })),
+      }
+    }
+
+    const rawFeatures = (districtsGeoJsonRaw as unknown as GeoJSON.FeatureCollection).features
+    return {
+      type: 'FeatureCollection',
+      features: rawFeatures.map((f) => {
+        const zid = String(f.properties?.zone_id ?? '').toUpperCase()
+        const live = liveZones?.find((lz) => lz.id.toUpperCase() === zid)
+        const isActive = live ? live.is_active : f.properties?.is_active !== false
+        return {
+          type: 'Feature',
+          properties: {
+            id: zid.toLowerCase(),
+            name: live?.name ?? f.properties?.name ?? zid,
+            on: isActive,
+            selected: false,
+            interactive: false,
+          },
+          geometry: (live?.geojson_geometry as unknown as GeoJSON.Geometry) ?? f.geometry,
+        }
+      }),
+    }
+  }
+
+  // Initialize MapLibre + Goong Map
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const defaultCenter: [number, number] =
+      initialCenter ??
+      (interactiveZones
+        ? DANANG_ZONES_CENTER
+        : userPin
+          ? userPin.lng !== undefined && userPin.lat !== undefined
+            ? [userPin.lng, userPin.lat]
+            : xyToLngLat(userPin.x, userPin.y)
+          : DANANG_CENTER)
+
+    const defaultZoom = initialZoom ?? (interactiveZones ? 10.4 : compact ? 12.2 : 12.6)
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: getGoongOrFallbackStyle(),
+      center: defaultCenter,
+      zoom: defaultZoom,
+      maxBounds: DANANG_MAX_BOUNDS,
+      attributionControl: false,
+    })
+
+    mapRef.current = map
+
+    map.on('error', (e) => {
+      const msg = String(e.error?.message || e || '')
+      if (!fallbackAppliedRef.current && (msg.includes('goong') || msg.includes('401') || msg.includes('403') || msg.includes('Failed to fetch'))) {
+        fallbackAppliedRef.current = true
+        try {
+          map.setStyle(createFallbackRasterStyle())
+        } catch {
+          // ignore
+        }
+      }
+    })
+
+    map.on('pitch', () => {
+      setIs3D(map.getPitch() > 20)
+    })
+
+    const setupLayers = () => {
+      const layers = map.getStyle()?.layers
+      let firstSymbolId: string | undefined
+      if (layers) {
+        for (const layer of layers) {
+          if (layer.type === 'symbol') {
+            firstSymbolId = layer.id
+            break
+          }
+        }
+      }
+
+      if (!map.getSource(SOURCE_DISTRICTS)) {
+        map.addSource(SOURCE_DISTRICTS, {
+          type: 'geojson',
+          data: buildDistrictsFeatureCollection(),
+        })
+
+        map.addLayer(
+          {
+            id: LAYER_DISTRICTS_FILL,
+            type: 'fill',
+            source: SOURCE_DISTRICTS,
+            paint: {
+              'fill-color': [
+                'case',
+                ['!', ['boolean', ['get', 'on'], true]],
+                '#9ca3af',
+                '#e5251b',
+              ],
+              'fill-opacity': [
+                'case',
+                ['boolean', ['get', 'interactive'], false],
+                [
+                  'case',
+                  ['!', ['boolean', ['get', 'on'], true]],
+                  0.26,
+                  ['boolean', ['get', 'selected'], false],
+                  0.32,
+                  0.14,
+                ],
+                [
+                  'case',
+                  ['!', ['boolean', ['get', 'on'], true]],
+                  0.18,
+                  0.04,
+                ],
+              ],
+            },
+          },
+          firstSymbolId,
+        )
+
+        map.addLayer(
+          {
+            id: LAYER_DISTRICTS_ACTIVE_LINE,
+            type: 'line',
+            source: SOURCE_DISTRICTS,
+            filter: ['==', ['boolean', ['get', 'on'], true], true],
+            paint: {
+              'line-color': '#e5251b',
+              'line-width': [
+                'case',
+                ['boolean', ['get', 'selected'], false],
+                3.5,
+                ['boolean', ['get', 'interactive'], false],
+                2,
+                1.4,
+              ],
+              'line-opacity': [
+                'case',
+                ['boolean', ['get', 'interactive'], false],
+                0.9,
+                0.55,
+              ],
+            },
+          },
+          firstSymbolId,
+        )
+
+        map.addLayer(
+          {
+            id: LAYER_DISTRICTS_PAUSED_LINE,
+            type: 'line',
+            source: SOURCE_DISTRICTS,
+            filter: ['==', ['boolean', ['get', 'on'], true], false],
+            paint: {
+              'line-color': '#6b6b70',
+              'line-width': [
+                'case',
+                ['boolean', ['get', 'selected'], false],
+                3.5,
+                2,
+              ],
+              'line-dasharray': [3, 2],
+              'line-opacity': 0.85,
+            },
+          },
+          firstSymbolId,
+        )
+      }
+
+      if (!map.getSource(SOURCE_RADIUS)) {
+        map.addSource(SOURCE_RADIUS, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+        map.addLayer({
+          id: LAYER_RADIUS_FILL,
+          type: 'fill',
+          source: SOURCE_RADIUS,
+          paint: {
+            'fill-color': '#111111',
+            'fill-opacity': 0.08,
+          },
+        })
+        map.addLayer({
+          id: LAYER_RADIUS_LINE,
+          type: 'line',
+          source: SOURCE_RADIUS,
+          paint: {
+            'line-color': '#111111',
+            'line-width': 2,
+            'line-dasharray': [2, 2],
+          },
+        })
+      }
+
+      if (!map.getSource(SOURCE_ROUTE)) {
+        map.addSource(SOURCE_ROUTE, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+        map.addLayer({
+          id: LAYER_ROUTE_CASING,
+          type: 'line',
+          source: SOURCE_ROUTE,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#ffffff', 'line-width': 8 },
+        })
+        map.addLayer({
+          id: LAYER_ROUTE_MAIN,
+          type: 'line',
+          source: SOURCE_ROUTE,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#e5251b', 'line-width': 4 },
+        })
+      }
+
+      if (map.getLayer('building')) {
+        try {
+          map.setLayerZoomRange('building', 14.5, 24)
+        } catch {
+          // ignore
+        }
+      }
+
+      setLoaded(true)
+    }
+
+    map.on('load', setupLayers)
+    map.on('styledata', () => {
+      if (map.isStyleLoaded() && !map.getSource(SOURCE_DISTRICTS)) {
+        setupLayers()
+      }
+    })
+
+    map.on('click', (e) => {
+      if (onSelectZoneRef.current && map.getLayer(LAYER_DISTRICTS_FILL)) {
+        const feats = map.queryRenderedFeatures(e.point, { layers: [LAYER_DISTRICTS_FILL] })
+        if (feats.length > 0) {
+          const zid = feats[0].properties?.id
+          if (zid) {
+            onSelectZoneRef.current(String(zid))
+            return
+          }
+        }
+      }
+      if (onPickRef.current) {
+        const { lng, lat } = e.lngLat
+        const xy = lngLatToXY(lng, lat)
+        const dist = findDistrictAtLngLat(lng, lat)
+        onPickRef.current(xy.x, xy.y, {
+          lng,
+          lat,
+          district: dist && dist.on ? dist.name : null,
+        })
+      }
+    })
+
+    return () => {
+      setLoaded(false)
+      markersRef.current.forEach((m) => m.remove())
+      markersRef.current = []
+      map.remove()
+      mapRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ResizeObserver for responsive containers
+  useEffect(() => {
+    if (!containerRef.current) return
+    const obs = new ResizeObserver(() => {
+      mapRef.current?.resize()
+    })
+    obs.observe(containerRef.current)
+    return () => obs.disconnect()
+  }, [])
+
+  // Update GADM district polygons when interactiveZones, selectedZoneId, or liveZones change
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+    const src = map.getSource(SOURCE_DISTRICTS) as maplibregl.GeoJSONSource | undefined
+    if (src) {
+      src.setData(buildDistrictsFeatureCollection())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, interactiveZones, selectedZoneId, liveZones])
+
+  // Update route / dispatchRoute line
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+    const src = map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    if (dispatchRoute) {
+      src.setData({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: [dispatchRoute.from, dispatchRoute.to],
+            },
+          },
+        ],
+      })
+      return
+    }
+
+    if (route && route.length > 1) {
+      const coords = route.map((r) => (r.lng !== undefined && r.lat !== undefined ? [r.lng, r.lat] : xyToLngLat(r.x, r.y)))
+      src.setData({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: coords,
+            },
+          },
+        ],
+      })
+    } else {
+      src.setData({ type: 'FeatureCollection', features: [] })
+    }
+  }, [loaded, route, dispatchRoute])
+
+  // Update 50m radius circle around userPin
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+    const src = map.getSource(SOURCE_RADIUS) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    if (userPin && userPin.radius) {
+      const [lng, lat] =
+        userPin.lng !== undefined && userPin.lat !== undefined
+          ? [userPin.lng, userPin.lat]
+          : xyToLngLat(userPin.x, userPin.y)
+      src.setData(createCircleGeoJSON(lat, lng, 50))
+      const color = userPin.bad ? '#e5251b' : '#111111'
+      if (map.getLayer(LAYER_RADIUS_FILL)) map.setPaintProperty(LAYER_RADIUS_FILL, 'fill-color', color)
+      if (map.getLayer(LAYER_RADIUS_LINE)) map.setPaintProperty(LAYER_RADIUS_LINE, 'line-color', color)
+    } else {
+      src.setData({ type: 'FeatureCollection', features: [] })
+    }
+  }, [loaded, userPin])
+
+  // Render HTML markers (pins, userPin, heat, interactiveZone labels, fieldUnits)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+
+    markersRef.current.forEach((m) => m.remove())
+    markersRef.current = []
+
+    if (state !== 'normal') return
+
+    // 1. Heat blobs (for AnalyticsScreen)
+    if (heat && heat.length > 0) {
+      for (const h of heat) {
+        const [lng, lat] = h.lng !== undefined && h.lat !== undefined ? [h.lng, h.lat] : xyToLngLat(h.x, h.y)
+        const el = document.createElement('div')
+        el.style.width = `${Math.round(h.size * 0.75)}px`
+        el.style.height = `${Math.round(h.size * 0.75)}px`
+        el.style.borderRadius = '9999px'
+        el.style.pointerEvents = 'none'
+        el.style.background = `radial-gradient(circle, rgba(229,37,27,${h.alpha}) 0%, rgba(229,37,27,${h.alpha * 0.45}) 40%, rgba(229,37,27,0) 70%)`
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
+        markersRef.current.push(marker)
+      }
+    }
+
+    // 2. Interactive Zone label pills (for ZonesScreen /admin/zones)
+    if (interactiveZones && interactiveZones.length > 0) {
+      for (const z of interactiveZones) {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        const isSel = selectedZoneId === z.id
+        btn.className = [
+          'rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap shadow-card transition cursor-pointer',
+          isSel ? 'bg-ink text-white ring-2 ring-white' : 'bg-card text-ink hover:bg-surface',
+          !z.on ? 'opacity-65' : '',
+        ].join(' ')
+        btn.textContent = z.name
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          onSelectZoneRef.current?.(z.id)
+        })
+        const marker = new maplibregl.Marker({ element: btn, anchor: 'center' }).setLngLat(z.labelLngLat).addTo(map)
+        markersRef.current.push(marker)
+      }
+    }
+
+    // 3. Field units markers (for FieldUnitsScreen /dispatcher/field-units)
+    if (fieldUnits && fieldUnits.length > 0) {
+      const statusColor: Record<FieldUnitMarkerItem['status'], string> = {
+        idle: '#16a34a',
+        moving: '#f97316',
+        working: '#111111',
+      }
+      for (const u of fieldUnits) {
+        const wrap = document.createElement('button')
+        wrap.type = 'button'
+        wrap.setAttribute('aria-label', u.name)
+        wrap.style.opacity = u.dimmed ? '0.45' : '1'
+        wrap.className = 'group relative flex items-center justify-center cursor-pointer transition-transform hover:scale-110'
+        const badge = document.createElement('span')
+        badge.style.backgroundColor = statusColor[u.status]
+        badge.className = [
+          'flex size-9 items-center justify-center rounded-full text-white shadow-card ring-4',
+          u.highlighted ? 'ring-done scale-115' : u.selected ? 'ring-accent' : 'ring-white',
+        ].join(' ')
+        badge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>`
+
+        const tip = document.createElement('span')
+        tip.className = 'pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white shadow-card'
+        tip.textContent = u.name
+
+        wrap.appendChild(badge)
+        wrap.appendChild(tip)
+        wrap.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          onSelectFieldUnitRef.current?.(u.id)
+        })
+        const marker = new maplibregl.Marker({ element: wrap, anchor: 'center' }).setLngLat(u.lngLat).addTo(map)
+        markersRef.current.push(marker)
+      }
+    }
+
+    // 4. Incident pins
+    pins.forEach((p, idx) => {
+      const [lng, lat] = p.lng !== undefined && p.lat !== undefined ? [p.lng, p.lat] : xyToLngLat(p.x, p.y)
+      const isSel = selectedPin === idx
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.setAttribute('aria-label', p.label || 'Ghim sự cố')
+      el.className = 'relative flex items-center justify-center cursor-pointer transition-transform hover:scale-125'
+
+      if (p.label) {
+        const badge = document.createElement('span')
+        badge.style.backgroundColor = LEVEL_HEX[p.level] ?? '#111111'
+        badge.className = 'flex size-7 items-center justify-center rounded-full text-[12px] font-bold text-white shadow-card ring-4 ring-white'
+        badge.textContent = p.label
+        el.appendChild(badge)
+      } else {
+        const dot = document.createElement('span')
+        dot.style.backgroundColor = LEVEL_HEX[p.level] ?? '#e5251b'
+        dot.className = isSel
+          ? 'block size-6 rounded-full shadow-card ring-4 ring-ink transition-all'
+          : 'block size-4 rounded-full shadow-card ring-4 ring-white transition-all'
+        el.appendChild(dot)
+      }
+
+      if (onPinClickRef.current) {
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          onPinClickRef.current?.(idx)
+        })
+      }
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
+      markersRef.current.push(marker)
+    })
+
+    // 5. User / Selected Incident pin
+    if (userPin) {
+      const [lng, lat] =
+        userPin.lng !== undefined && userPin.lat !== undefined
+          ? [userPin.lng, userPin.lat]
+          : xyToLngLat(userPin.x, userPin.y)
+      const el = document.createElement('div')
+      el.className = 'relative flex items-center justify-center'
+      const badge = document.createElement('span')
+      badge.style.backgroundColor = userPin.bad ? '#e5251b' : '#111111'
+      badge.className = 'relative flex size-9 items-center justify-center rounded-full text-white shadow-card ring-4 ring-white'
+      if (userPin.label) {
+        badge.innerHTML = `<span class="text-[13px] font-bold">${userPin.label}</span>`
+      } else {
+        badge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>`
+      }
+      el.appendChild(badge)
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
+      markersRef.current.push(marker)
+
+      map.easeTo({ center: [lng, lat], duration: 500 })
+    }
+  }, [loaded, state, pins, selectedPin, userPin, heat, interactiveZones, selectedZoneId, fieldUnits])
+
+  const handleZoom = (dir: -1 | 0 | 1) => {
+    onZoom?.(dir)
+    const map = mapRef.current
+    if (!map) return
+    if (dir === 1) map.zoomIn({ duration: 300 })
+    else if (dir === -1) map.zoomOut({ duration: 300 })
+    else {
+      map.easeTo({
+        center: interactiveZones ? DANANG_ZONES_CENTER : DANANG_CENTER,
+        zoom: interactiveZones ? 10.4 : 12.6,
+        pitch: 0,
+        bearing: 0,
+        duration: 500,
+      })
+    }
+  }
+
+  const toggle3D = () => {
+    const map = mapRef.current
+    if (!map) return
+    const next = !is3D
+    setIs3D(next)
+    map.easeTo({
+      pitch: next ? 55 : 0,
+      bearing: next ? -15 : 0,
+      duration: 600,
+    })
+  }
+
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-card bg-surface',
+        fill ? 'absolute inset-0' : cn('relative', compact ? 'h-[200px]' : 'h-[320px]'),
+        onPick && 'cursor-crosshair',
+      )}
+    >
+      <div ref={containerRef} className="absolute inset-0 size-full" />
+
+      {state === 'normal' && (
+        <div
+          className={cn(
+            'absolute z-10 flex flex-col gap-2',
+            controls === 'top' ? 'top-3 right-3' : controls === 'bottom' ? 'right-3 bottom-3' : 'bottom-3 left-3',
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {([Plus, Minus, Navigation] as const).map((I, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => handleZoom(([1, -1, 0] as const)[i])}
+              className="flex size-10 items-center justify-center rounded-full bg-card text-ink shadow-card transition hover:-translate-y-0.5"
+            >
+              <I size={16} {...ic} />
+            </button>
+          ))}
+          {!compact && (
+            <button
+              type="button"
+              onClick={toggle3D}
+              title="Bật/tắt góc nhìn 3D Goong Map"
+              className={cn(
+                'flex size-10 items-center justify-center rounded-full text-[11px] font-bold shadow-card transition hover:-translate-y-0.5',
+                is3D ? 'bg-ink text-white' : 'bg-card text-ink',
+              )}
+            >
+              <Box size={15} {...ic} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {state !== 'normal' && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-card/80 backdrop-blur-sm">
+          {state === 'loading' && <div className="size-10 animate-spin rounded-full border-4 border-surface border-t-ink" />}
+          {state === 'empty' && <EmptyState icon={MapPin} text="Chưa có sự cố" />}
+          {state === 'error' && <ErrorState text="Không tải bản đồ" />}
+        </div>
+      )}
+    </div>
+  )
+}

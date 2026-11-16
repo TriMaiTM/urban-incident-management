@@ -72,7 +72,7 @@
 - **Lệnh kiểm tra:** `py backend/scripts/seed_data.py && py -m pytest backend/tests/test_zones.py`
 - **Commit 1:** `feat(gis): replace synthetic district cuts with real GADM level-2 administrative boundaries`
 
-### [ ] Bước 2: Xây Dựng `GoongBentoMap` & Tích Hợp Vào `MapBentoViewport` Cho Toàn Bộ Màn Hình Bản Đồ
+### [x] Bước 2: Xây Dựng `GoongBentoMap` & Tích Hợp Vào `MapBentoViewport` Cho Toàn Bộ Màn Hình Bản Đồ
 - Tạo `frontend/src/components/GoongBentoMap.tsx` đóng gói `maplibre-gl` + Goong Map Vector Style (`https://tiles.goong.io/assets/goong_map_web.json?api_key=...`) với cơ chế tự động fallback sang Carto Voyager @2x nếu tile Goong lỗi.
 - Hỗ trợ đầy đủ:
   - Lớp ranh giới Quận/Huyện Đà Nẵng đang mở tiếp nhận (tự động ẩn vùng bị Admin tắt).
