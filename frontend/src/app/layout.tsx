@@ -1,23 +1,13 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title:
-    "Hệ thống Quản lý Sự cố Đô thị Lõi Đà Nẵng | Da Nang Urban Incident Platform",
+  title: "Hệ thống Tiếp nhận & Điều phối Sự cố Đô thị Đà Nẵng",
   description:
-    "Nền tảng tiếp nhận, phân loại AI DeepSeek và điều phối xử lý phản ánh hiện trường đô thị lõi TP Đà Nẵng",
+    "Nền tảng tiếp nhận, phân loại AI DeepSeek và điều phối xử lý sự cố hạ tầng đô thị TP Đà Nẵng",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({
@@ -26,14 +16,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="vi"
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
-    >
-      <body className="min-h-full flex flex-col font-sans antialiased">
-        {children}
-        <Toaster position="top-right" />
-      </body>
+    <html lang="vi">
+      <body className="min-h-screen antialiased">{children}</body>
     </html>
   );
 }
