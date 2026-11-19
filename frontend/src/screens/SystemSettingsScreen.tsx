@@ -98,6 +98,10 @@ export default function SystemSettingsScreen() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [syncAdjacent, setSyncAdjacent] = useState(true)
+  const [borrowSourceId, setBorrowSourceId] = useState<string | null>(null)
+  const [borrowStartIdx, setBorrowStartIdx] = useState<number | null>(null)
+  const [borrowEndIdx, setBorrowEndIdx] = useState<number | null>(null)
+  const [borrowLongArc, setBorrowLongArc] = useState(false)
   const [showJsonModal, setShowJsonModal] = useState(false)
   const [jsonDraft, setJsonDraft] = useState('')
   const [toast, setToast] = useState<null | { kind: 'success' | 'info' | 'error'; text: string }>(null)
@@ -194,6 +198,58 @@ export default function SystemSettingsScreen() {
     () => zones.find((z) => z.id === selectedId) ?? zones[0],
     [zones, selectedId],
   )
+
+  const borrowSourceRing = useMemo<[number, number][]>(() => {
+    if (!borrowSourceId) return []
+    const srcZone = zones.find((z) => z.id === borrowSourceId)
+    return srcZone ? extractPrimaryRing(srcZone.geometry) : []
+  }, [borrowSourceId, zones])
+
+  const borrowArcPoints = useMemo<[number, number][]>(() => {
+    const n = borrowSourceRing.length
+    if (n === 0 || borrowStartIdx === null || borrowEndIdx === null) return []
+    if (borrowStartIdx === borrowEndIdx) return [borrowSourceRing[borrowStartIdx]]
+
+    const forward: [number, number][] = []
+    for (let i = borrowStartIdx; ; i = (i + 1) % n) {
+      forward.push(borrowSourceRing[i])
+      if (i === borrowEndIdx) break
+    }
+
+    const backward: [number, number][] = []
+    for (let i = borrowStartIdx; ; i = (i - 1 + n) % n) {
+      backward.push(borrowSourceRing[i])
+      if (i === borrowEndIdx) break
+    }
+
+    const shorter = forward.length <= backward.length ? forward : backward
+    const longer = forward.length > backward.length ? forward : backward
+    return borrowLongArc ? longer : shorter
+  }, [borrowSourceRing, borrowStartIdx, borrowEndIdx, borrowLongArc])
+
+  const handleSelectReferenceVertex = (idx: number) => {
+    if (borrowStartIdx === null || (borrowStartIdx !== null && borrowEndIdx !== null)) {
+      setBorrowStartIdx(idx)
+      setBorrowEndIdx(null)
+      setBorrowLongArc(false)
+    } else {
+      setBorrowEndIdx(idx)
+    }
+  }
+
+  const handleApplyBorrowedArc = (reverseOrder: boolean) => {
+    if (borrowArcPoints.length < 2) {
+      say('error', 'Hãy chọn đủ 2 điểm A và B trên biên quận nguồn')
+      return
+    }
+    const seg = reverseOrder ? [...borrowArcPoints].reverse() : borrowArcPoints
+    pushPoints([...points, ...seg])
+    setBorrowSourceId(null)
+    setBorrowStartIdx(null)
+    setBorrowEndIdx(null)
+    setBorrowLongArc(false)
+    say('success', `Đã nối ${seg.length} điểm biên chung vào ${selectedZone?.name ?? ''}`)
+  }
 
   // Load 100% of the exact saved vertices from PostGIS when selecting a zone (NEVER auto-simplify!)
   useEffect(() => {
@@ -429,74 +485,79 @@ export default function SystemSettingsScreen() {
                   onPolygonMoveVertex={handleMoveVertex}
                   onPolygonRemoveVertex={handleRemoveVertex}
                   onPolygonInsertVertex={handleInsertVertex}
+                  referenceRing={borrowSourceRing}
+                  referenceSelection={{
+                    startIdx: borrowStartIdx,
+                    endIdx: borrowEndIdx,
+                    arcPoints: borrowArcPoints,
+                  }}
+                  onSelectReferenceVertex={handleSelectReferenceVertex}
                 />
 
-                {/* Thanh công cụ nổi phía trên bản đồ */}
-                <div className="absolute top-3 right-3 left-3 z-10 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5 rounded-full bg-card/95 p-1.5 shadow-card backdrop-blur-sm">
+                {/* Thanh công cụ hợp nhất 1 hàng phía trên bản đồ */}
+                <div className="absolute top-3 right-3 left-3 z-10 flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1 rounded-full bg-card/95 p-1 shadow-card backdrop-blur-sm">
                     <button
                       type="button"
                       onClick={() => setMode('edit')}
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-semibold transition',
+                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
                         mode === 'edit' ? 'bg-ink text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
-                      <Edit3 size={14} {...ic} />
-                      Kéo chỉnh đỉnh ({points.length})
+                      <Edit3 size={13} {...ic} />
+                      Kéo chỉnh ({points.length})
                     </button>
                     <button
                       type="button"
                       onClick={handleStartFreshDraw}
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-semibold transition',
+                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
                         mode === 'draw' ? 'bg-accent text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
-                      <PenTool size={14} {...ic} />
-                      Vẽ mới từ đầu
+                      <PenTool size={13} {...ic} />
+                      Vẽ mới
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode('view')}
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-semibold transition',
+                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
                         mode === 'view' ? 'bg-ink text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
-                      <Layers size={14} {...ic} />
-                      Xem tổng thể
+                      <Layers size={13} {...ic} />
+                      Tổng thể
                     </button>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5 rounded-full bg-card/95 p-1.5 shadow-card backdrop-blur-sm">
+                    <span className="mx-0.5 h-4 w-px bg-surface" />
                     <button
                       type="button"
                       onClick={() => setSyncAdjacent((s) => !s)}
                       title="Khi lưu, tự động cắt chồng lấn & lấp khoảng trống ở các quận giáp ranh (Shared Border)"
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
+                        'inline-flex h-8 items-center gap-1 rounded-full px-3 text-[12px] font-semibold transition',
                         syncAdjacent ? 'bg-done text-white' : 'bg-surface text-muted hover:bg-page',
                       )}
                     >
                       <Check size={13} {...ic} />
-                      Khớp biên giới giáp ranh
+                      Khớp biên giới
                     </button>
                     <button
                       type="button"
                       disabled={history.length === 0}
                       onClick={handleUndo}
                       title="Hoàn tác thao tác vừa rồi"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-3 text-[12px] font-semibold text-ink transition hover:bg-page disabled:opacity-40"
+                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-ink transition hover:bg-page disabled:opacity-40"
                     >
-                      <Undo2 size={14} {...ic} />
+                      <Undo2 size={13} {...ic} />
                       Hoàn tác
                     </button>
                     <button
                       type="button"
                       onClick={() => handleSimplify(20)}
                       title="Rút gọn thành 20 điểm neo chính để dễ kéo chỉnh"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-3 text-[12px] font-semibold text-ink transition hover:bg-page"
+                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-ink transition hover:bg-page"
                     >
                       20 đỉnh
                     </button>
@@ -504,9 +565,9 @@ export default function SystemSettingsScreen() {
                       type="button"
                       onClick={handleResetDefault}
                       title="Khôi phục ranh giới mặc định ban đầu"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-3 text-[12px] font-semibold text-ink transition hover:bg-page"
+                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-ink transition hover:bg-page"
                     >
-                      <RotateCcw size={14} {...ic} />
+                      <RotateCcw size={13} {...ic} />
                       Mặc định
                     </button>
                   </div>
@@ -572,6 +633,93 @@ export default function SystemSettingsScreen() {
                   )
                 })}
               </div>
+            </div>
+
+            {/* 1.5. Mượn / Nối đoạn biên từ quận giáp ranh */}
+            <div className="rounded-card bg-card p-3.5 shadow-card">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[13px] font-semibold">Lấy đoạn biên từ quận khác</span>
+                  <p className="text-[11px] text-muted">
+                    Tái sử dụng mặt biên đã vẽ của quận giáp ranh
+                  </p>
+                </div>
+                {borrowSourceId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBorrowSourceId(null)
+                      setBorrowStartIdx(null)
+                      setBorrowEndIdx(null)
+                    }}
+                    className="rounded-full bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:bg-page"
+                  >
+                    Đóng
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-1">
+                {zones
+                  .filter((z) => z.id !== selectedId)
+                  .map((z) => (
+                    <button
+                      key={z.id}
+                      type="button"
+                      onClick={() => {
+                        setBorrowSourceId((cur) => (cur === z.id ? null : z.id))
+                        setBorrowStartIdx(null)
+                        setBorrowEndIdx(null)
+                        setBorrowLongArc(false)
+                      }}
+                      className={cn(
+                        'rounded-full px-2.5 py-1 text-[11px] font-semibold transition',
+                        borrowSourceId === z.id
+                          ? 'bg-[#2563eb] text-white'
+                          : 'bg-surface text-ink hover:bg-page',
+                      )}
+                    >
+                      {z.name.replace('Quận ', '').replace('Huyện ', '')}
+                    </button>
+                  ))}
+              </div>
+
+              {borrowSourceId && (
+                <div className="mt-2.5 space-y-2 rounded-tile bg-surface p-2.5 text-[11px]">
+                  <p className="text-ink">
+                    {borrowStartIdx === null
+                      ? 'Bước 1: Bấm vào 1 chấm xanh (A) trên bản đồ làm điểm đầu.'
+                      : borrowEndIdx === null
+                        ? `Đã chọn mốc A (#${borrowStartIdx + 1}). Bước 2: Bấm chấm xanh (B) làm điểm cuối.`
+                        : `Đã chọn đoạn gồm ${borrowArcPoints.length} điểm (#${borrowStartIdx + 1} → #${borrowEndIdx + 1}).`}
+                  </p>
+                  {borrowStartIdx !== null && borrowEndIdx !== null && (
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setBorrowLongArc((v) => !v)}
+                        className="rounded-full bg-card px-2.5 py-1 font-semibold text-ink shadow-card hover:bg-page"
+                      >
+                        Đổi cung ({borrowArcPoints.length}đ)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyBorrowedArc(false)}
+                        className="rounded-full bg-[#2563eb] px-2.5 py-1 font-semibold text-white shadow-card hover:opacity-90"
+                      >
+                        Nối A→B
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyBorrowedArc(true)}
+                        className="rounded-full bg-ink px-2.5 py-1 font-semibold text-white shadow-card hover:opacity-90"
+                      >
+                        Nối ngược B→A
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* 2. Danh sách các điểm đỉnh [lng, lat] của khu vực đang chọn */}

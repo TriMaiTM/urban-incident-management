@@ -375,6 +375,10 @@ export interface GoongBentoMapProps {
   onPolygonMoveVertex?: (index: number, pt: [number, number]) => void
   onPolygonRemoveVertex?: (index: number) => void
   onPolygonInsertVertex?: (afterIndex: number, pt: [number, number]) => void
+  /** Optional shared-border reference picker (borrow vertices from an adjacent zone) */
+  referenceRing?: [number, number][]
+  referenceSelection?: { startIdx: number | null; endIdx: number | null; arcPoints: [number, number][] }
+  onSelectReferenceVertex?: (index: number) => void
   initialZoom?: number
   initialCenter?: [number, number]
 }
@@ -421,6 +425,9 @@ export default function GoongBentoMap({
   onPolygonMoveVertex,
   onPolygonRemoveVertex,
   onPolygonInsertVertex,
+  referenceRing,
+  referenceSelection,
+  onSelectReferenceVertex,
   initialZoom,
   initialCenter,
 }: GoongBentoMapProps) {
@@ -442,6 +449,7 @@ export default function GoongBentoMap({
   const onPolygonMoveVertexRef = useRef(onPolygonMoveVertex)
   const onPolygonRemoveVertexRef = useRef(onPolygonRemoveVertex)
   const onPolygonInsertVertexRef = useRef(onPolygonInsertVertex)
+  const onSelectReferenceVertexRef = useRef(onSelectReferenceVertex)
 
   useEffect(() => {
     onPickRef.current = onPick
@@ -453,6 +461,7 @@ export default function GoongBentoMap({
     onPolygonMoveVertexRef.current = onPolygonMoveVertex
     onPolygonRemoveVertexRef.current = onPolygonRemoveVertex
     onPolygonInsertVertexRef.current = onPolygonInsertVertex
+    onSelectReferenceVertexRef.current = onSelectReferenceVertex
   }, [
     onPick,
     onSelectZone,
@@ -463,6 +472,7 @@ export default function GoongBentoMap({
     onPolygonMoveVertex,
     onPolygonRemoveVertex,
     onPolygonInsertVertex,
+    onSelectReferenceVertex,
   ])
 
   useEffect(() => {
@@ -826,13 +836,11 @@ export default function GoongBentoMap({
     editorMarkersRef.current = []
 
     const pts = polygonPoints ?? []
-    if (polygonMode === 'view' || pts.length === 0) {
-      src?.setData({ type: 'FeatureCollection', features: [] })
-      return
-    }
+    const refPts = referenceRing ?? []
+    const arcPts = referenceSelection?.arcPoints ?? []
 
     const features: GeoJSON.Feature[] = []
-    if (pts.length >= 3) {
+    if (polygonMode !== 'view' && pts.length >= 3) {
       const closed = [...pts, pts[0]]
       features.push({
         type: 'Feature',
@@ -842,7 +850,7 @@ export default function GoongBentoMap({
           coordinates: [closed],
         },
       })
-    } else if (pts.length === 2) {
+    } else if (polygonMode !== 'view' && pts.length === 2) {
       features.push({
         type: 'Feature',
         properties: {},
@@ -852,7 +860,49 @@ export default function GoongBentoMap({
         },
       })
     }
+    if (arcPts.length >= 2) {
+      features.push({
+        type: 'Feature',
+        properties: { isArc: true },
+        geometry: {
+          type: 'LineString',
+          coordinates: arcPts,
+        },
+      })
+    }
     src?.setData({ type: 'FeatureCollection', features })
+
+    // Reference zone vertices for borrowing a shared border segment (e.g. NHS left border -> CL right border)
+    if (refPts.length > 0 && onSelectReferenceVertexRef.current) {
+      refPts.forEach((pt, idx) => {
+        const isStart = referenceSelection?.startIdx === idx
+        const isEnd = referenceSelection?.endIdx === idx
+        const wrap = document.createElement('div')
+        wrap.className = 'flex items-center justify-center'
+        const dot = document.createElement('button')
+        dot.type = 'button'
+        dot.title = `Điểm nguồn #${idx + 1} · Bấm để chọn mốc A/B`
+        dot.className = isStart || isEnd
+          ? 'flex size-6 items-center justify-center rounded-full bg-[#2563eb] text-[10px] font-bold text-white shadow-card ring-2 ring-white cursor-pointer'
+          : 'flex size-3.5 items-center justify-center rounded-full bg-[#2563eb]/85 shadow-card ring-1 ring-white transition-transform duration-150 hover:scale-150 cursor-pointer'
+        if (isStart) dot.textContent = 'A'
+        else if (isEnd) dot.textContent = 'B'
+        dot.addEventListener('mousedown', (ev) => ev.stopPropagation())
+        dot.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          onSelectReferenceVertexRef.current?.(idx)
+        })
+        wrap.appendChild(dot)
+        const m = new maplibregl.Marker({ element: wrap, anchor: 'center' })
+          .setLngLat(pt)
+          .addTo(map)
+        editorMarkersRef.current.push(m)
+      })
+    }
+
+    if (polygonMode === 'view' || pts.length === 0) {
+      return
+    }
 
     // Midpoint '+' handles to insert a new vertex on any edge when >= 2 vertices exist
     // IMPORTANT: Never put CSS `transition` or `hover:scale-*` on the Marker root element, because MapLibre uses inline `transform: translate(...)` on the root!
@@ -925,7 +975,7 @@ export default function GoongBentoMap({
 
       editorMarkersRef.current.push(m)
     })
-  }, [loaded, polygonPoints, polygonMode])
+  }, [loaded, polygonPoints, polygonMode, referenceRing, referenceSelection])
 
   // Update route / dispatchRoute line
   useEffect(() => {
