@@ -356,7 +356,7 @@ export async function loginAsDemoRole(
   role: 'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN',
 ): Promise<ApiUserOut | null> {
   try {
-    const out = await apiLogin(ROLE_DEMO_EMAILS[role], 'Password123!')
+    const out = await apiLogin(ROLE_DEMO_EMAILS[role], 'Password123@')
     return out.user
   } catch {
     return null
@@ -373,7 +373,7 @@ export async function fetchDefaultTechnicianId(): Promise<string | null> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         username: ROLE_DEMO_EMAILS.TECHNICIAN,
-        password: 'Password123!',
+        password: 'Password123@',
       }),
     })
     if (!res.ok) return null

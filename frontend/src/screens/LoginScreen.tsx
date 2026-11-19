@@ -40,6 +40,7 @@ export default function LoginScreen() {
   const [errs, setErrs] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [busy, setBusy] = useState<'' | 'send' | 'login' | 'google'>('')
+  const [fillVer, setFillVer] = useState(0)
   const [left, start] = useCountdown()
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export default function LoginScreen() {
     if (Object.keys(e).length) return
     setBusy('login')
     try {
-      const auth = await apiLogin(ROLE_DEMO_EMAILS.CITIZEN, 'Password123!')
+      const auth = await apiLogin(ROLE_DEMO_EMAILS.CITIZEN, 'Password123@')
       setAuthSession(auth.access_token, { ...auth.user, phone })
     } catch {
       await wait(600)
@@ -108,7 +109,7 @@ export default function LoginScreen() {
       await apiGoogleLogin('mock_google_token:citizen@danang.gov.vn')
     } catch {
       try {
-        await apiLogin(ROLE_DEMO_EMAILS.CITIZEN, 'Password123!')
+        await apiLogin(ROLE_DEMO_EMAILS.CITIZEN, 'Password123@')
       } catch {
         await wait(500)
       }
@@ -120,7 +121,8 @@ export default function LoginScreen() {
   const quickFillStaff = (role: 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN') => {
     setTab('Cán bộ')
     setUser(ROLE_DEMO_EMAILS[role])
-    setPw('Password123!')
+    setPw('Password123@')
+    setFillVer((v) => v + 1)
     setErrs({})
     setBanner(null)
   }
@@ -158,7 +160,7 @@ export default function LoginScreen() {
           <Google loading={busy === 'google'} onClick={google} />
           <div className="flex items-center gap-3 text-[12px] text-muted"><span className="h-px flex-1 bg-surface" />hoặc dùng số điện thoại<span className="h-px flex-1 bg-surface" /></div>
           <div className="flex items-end gap-2">
-            <div className="min-w-0 flex-1"><InputField key={`phone-${phone}`} label="Số điện thoại" placeholder="09xx xxx xxx" value={phone} disabled={loading} error={errs.phone} onChange={setPhone} /></div>
+            <div className="min-w-0 flex-1"><InputField key="citizen-phone" label="Số điện thoại" placeholder="09xx xxx xxx" value={phone} disabled={loading} error={errs.phone} onChange={setPhone} /></div>
             <div className={errs.phone ? 'mb-6' : ''}><SendCode onSend={send} left={left} loading={busy === 'send'} disabled={loading} /></div>
           </div>
           {sent && (
@@ -181,8 +183,8 @@ export default function LoginScreen() {
               <button type="button" onClick={() => quickFillStaff('ADMIN')} className="rounded-full bg-card px-2.5 py-1 text-[11px] font-semibold text-ink shadow-card transition hover:bg-ink hover:text-white">Quản trị Admin</button>
             </div>
           </div>
-          <InputField key={`u-${user}`} label="Tên đăng nhập / Email công vụ" placeholder="vd: dispatcher@danang.gov.vn" value={user} disabled={loading} error={errs.user} onChange={setUser} />
-          <InputField key={`p-${user}`} kind="password" label="Mật khẩu" placeholder="Nhập mật khẩu" value={pw} disabled={loading} error={errs.pw} onChange={setPw} />
+          <InputField key={`u-${fillVer}`} label="Tên đăng nhập / Email công vụ" placeholder="vd: dispatcher@danang.gov.vn" value={user} disabled={loading} error={errs.user} onChange={setUser} />
+          <InputField key={`p-${fillVer}`} kind="password" label="Mật khẩu" placeholder="Nhập mật khẩu" value={pw} disabled={loading} error={errs.pw} onChange={setPw} />
           <div className="text-right"><a href="/auth/forgot-password" className="text-[12px] font-semibold underline">Quên mật khẩu?</a></div>
           <Primary loading={busy === 'login'} onClick={loginStaff}>Đăng nhập</Primary>
         </div>
