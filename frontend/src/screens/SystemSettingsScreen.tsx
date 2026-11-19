@@ -86,6 +86,43 @@ function ringToMultiPolygon(pts: [number, number][]): GeoJSON.MultiPolygon {
 }
 
 const TABS = ['Trình vẽ Đa giác GIS', 'Thông số Lõi Hệ thống']
+const GIS_DRAFT_KEY = 'urbana.gis_drafts.v1'
+
+type ZoneDraft = { points: [number, number][]; mode: 'view' | 'edit' | 'draw'; updatedAt: number }
+
+function loadAllDrafts(): Record<string, ZoneDraft> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(GIS_DRAFT_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, ZoneDraft>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveZoneDraft(zoneId: string, draft: ZoneDraft): void {
+  if (typeof window === 'undefined') return
+  try {
+    const all = loadAllDrafts()
+    all[zoneId] = draft
+    localStorage.setItem(GIS_DRAFT_KEY, JSON.stringify(all))
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearZoneDraft(zoneId: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    const all = loadAllDrafts()
+    if (all[zoneId]) {
+      delete all[zoneId]
+      localStorage.setItem(GIS_DRAFT_KEY, JSON.stringify(all))
+    }
+  } catch {
+    // ignore
+  }
+}
 
 export default function SystemSettingsScreen() {
   const ticketVer = useTicketVersion()
@@ -104,8 +141,10 @@ export default function SystemSettingsScreen() {
   const [borrowLongArc, setBorrowLongArc] = useState(false)
   const [showJsonModal, setShowJsonModal] = useState(false)
   const [jsonDraft, setJsonDraft] = useState('')
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
   const [toast, setToast] = useState<null | { kind: 'success' | 'info' | 'error'; text: string }>(null)
   const timer = useRef<number | undefined>(undefined)
+  const isDirtyRef = useRef(false)
 
   // Core Engine Settings state (persisted in localStorage)
   const [coreConfig, setCoreConfig] = useState({
@@ -251,15 +290,33 @@ export default function SystemSettingsScreen() {
     say('success', `Đã nối ${seg.length} điểm biên chung vào ${selectedZone?.name ?? ''}`)
   }
 
-  // Load 100% of the exact saved vertices from PostGIS when selecting a zone (NEVER auto-simplify!)
+  // Load 100% of the exact saved vertices from PostGIS (or auto-restore unfinished localStorage draft!)
   useEffect(() => {
     if (!selectedZone) return
     if (loadedZoneIdRef.current === selectedZone.id) return
     loadedZoneIdRef.current = selectedZone.id
+    isDirtyRef.current = false
+    const draft = loadAllDrafts()[selectedZone.id]
+    if (draft && Array.isArray(draft.points)) {
+      setPoints(draft.points)
+      setMode(draft.mode ?? 'draw')
+      setDraftSavedAt(draft.updatedAt)
+      setHistory([])
+      return
+    }
     const rawPts = extractPrimaryRing(selectedZone.geometry)
     setPoints(rawPts)
+    setDraftSavedAt(null)
     setHistory([])
   }, [selectedZone])
+
+  // Auto-save progress to localStorage whenever user edits or draws points so they can close & resume anytime
+  useEffect(() => {
+    if (!selectedZone || !isDirtyRef.current) return
+    const now = Date.now()
+    saveZoneDraft(selectedZone.id, { points, mode, updatedAt: now })
+    setDraftSavedAt(now)
+  }, [points, mode, selectedZone])
 
   const say = (kind: 'success' | 'info' | 'error', text: string) => {
     setToast({ kind, text })
@@ -268,6 +325,7 @@ export default function SystemSettingsScreen() {
   }
 
   const pushPoints = (next: [number, number][]) => {
+    isDirtyRef.current = true
     setHistory((h) => [...h.slice(-25), points])
     setPoints(next)
   }
@@ -302,10 +360,32 @@ export default function SystemSettingsScreen() {
     setPoints(prev)
   }
 
-  const handleStartFreshDraw = () => {
+  const handleEnterDrawMode = () => {
+    isDirtyRef.current = true
+    setMode('draw')
+    say(
+      'info',
+      points.length > 0
+        ? `Tiếp tục vẽ nối tiếp từ điểm #${points.length} cho ${selectedZone?.name ?? ''} (tự động lưu nháp)`
+        : `Chế độ vẽ mới: Hãy chấm từng điểm trên bản đồ cho ${selectedZone?.name ?? ''}`,
+    )
+  }
+
+  const handleClearPoints = () => {
     setMode('draw')
     pushPoints([])
-    say('info', `Chế độ vẽ mới: Hãy chấm từng điểm trên bản đồ để vẽ ranh giới ${selectedZone?.name ?? ''}`)
+    say('info', `Đã xóa các điểm đang vẽ của ${selectedZone?.name ?? ''} — sẵn sàng vẽ mới từ đầu`)
+  }
+
+  const handleDiscardDraft = () => {
+    if (!selectedZone) return
+    clearZoneDraft(selectedZone.id)
+    isDirtyRef.current = false
+    setDraftSavedAt(null)
+    setPoints(extractPrimaryRing(selectedZone.geometry))
+    setMode('edit')
+    setHistory([])
+    say('info', `Đã hủy bản nháp và khôi phục dữ liệu PostGIS của ${selectedZone.name}`)
   }
 
   const handleSimplify = (targetCount: number) => {
@@ -359,6 +439,9 @@ export default function SystemSettingsScreen() {
           prev.map((z) => (z.id === selectedZone.id ? { ...z, geometry: newGeom } : z)),
         )
       }
+      clearZoneDraft(selectedZone.id)
+      isDirtyRef.current = false
+      setDraftSavedAt(null)
       setMode('edit')
       say(
         'success',
@@ -412,6 +495,9 @@ export default function SystemSettingsScreen() {
         pushPoints(ring)
       }
       setShowJsonModal(false)
+      clearZoneDraft(selectedZone.id)
+      isDirtyRef.current = false
+      setDraftSavedAt(null)
       setMode('edit')
       say('success', 'Đã nạp tọa độ từ JSON')
     } catch (err) {
@@ -510,14 +596,24 @@ export default function SystemSettingsScreen() {
                     </button>
                     <button
                       type="button"
-                      onClick={handleStartFreshDraw}
+                      onClick={handleEnterDrawMode}
+                      title="Chấm tiếp điểm mới nối vào cuối đa giác hiện tại (tự động lưu nháp)"
                       className={cn(
                         'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
                         mode === 'draw' ? 'bg-accent text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
                       <PenTool size={13} {...ic} />
-                      Vẽ mới
+                      {points.length > 0 ? 'Vẽ tiếp' : 'Vẽ mới'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearPoints}
+                      title="Xóa toàn bộ điểm hiện tại để vẽ lại từ điểm số 1"
+                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-urgent transition hover:bg-urgent/10"
+                    >
+                      <Trash2 size={13} {...ic} />
+                      Vẽ lại từ đầu
                     </button>
                     <button
                       type="button"
@@ -570,6 +666,16 @@ export default function SystemSettingsScreen() {
                       <RotateCcw size={13} {...ic} />
                       Mặc định
                     </button>
+                    {draftSavedAt && (
+                      <button
+                        type="button"
+                        onClick={handleDiscardDraft}
+                        title={`Đã tự lưu nháp lúc ${new Date(draftSavedAt).toLocaleTimeString('vi-VN')} · Bấm để hủy nháp về bản PostGIS`}
+                        className="inline-flex h-8 items-center gap-1 rounded-full bg-high/15 px-2.5 text-[11px] font-semibold text-high transition hover:bg-high/25"
+                      >
+                        Nháp ({points.length}đ) · Hủy
+                      </button>
+                    )}
                   </div>
                 </div>
 
