@@ -85,6 +85,126 @@ export function findDistrictAtLngLat(
   return null
 }
 
+const LOCAL_DANANG_STREETS: { lng: number; lat: number; street: string; ward: string; district: string }[] = [
+  { lng: 108.2208, lat: 16.0712, street: '124 Lê Duẩn', ward: 'Thạch Thang', district: 'Hải Châu' },
+  { lng: 108.2242, lat: 16.0685, street: '36 Bạch Đằng', ward: 'Hải Châu 1', district: 'Hải Châu' },
+  { lng: 108.2165, lat: 16.0605, street: '254 Nguyễn Văn Linh', ward: 'Thạc Gián', district: 'Hải Châu' },
+  { lng: 108.2215, lat: 16.0468, street: '180 Đường 2 Tháng 9', ward: 'Hòa Cường Bắc', district: 'Hải Châu' },
+  { lng: 108.2145, lat: 16.0365, street: '85 Núi Thành', ward: 'Hòa Thuận Đông', district: 'Hải Châu' },
+  { lng: 108.1985, lat: 16.0658, street: '120 Điện Biên Phủ', ward: 'Chính Gián', district: 'Thanh Khê' },
+  { lng: 108.1855, lat: 16.0732, street: '450 Nguyễn Tất Thành', ward: 'Xuân Hà', district: 'Thanh Khê' },
+  { lng: 108.1912, lat: 16.0615, street: '72 Hà Huy Tập', ward: 'Thanh Khê Đông', district: 'Thanh Khê' },
+  { lng: 108.2345, lat: 16.0725, street: '412 Ngô Quyền', ward: 'An Hải Bắc', district: 'Sơn Trà' },
+  { lng: 108.2455, lat: 16.0688, street: '168 Võ Nguyên Giáp', ward: 'Phước Mỹ', district: 'Sơn Trà' },
+  { lng: 108.2395, lat: 16.0885, street: '92 Lê Đức Thọ', ward: 'Thọ Quang', district: 'Sơn Trà' },
+  { lng: 108.1985, lat: 16.0185, street: '56 Nguyễn Hữu Thọ', ward: 'Hòa Thọ Đông', district: 'Cẩm Lệ' },
+  { lng: 108.1845, lat: 16.0245, street: '210 Cách Mạng Tháng 8', ward: 'Khuê Trung', district: 'Cẩm Lệ' },
+  { lng: 108.2125, lat: 16.0125, street: 'KĐT Hòa Xuân', ward: 'Hòa Xuân', district: 'Cẩm Lệ' },
+  { lng: 108.2515, lat: 16.0345, street: '12 Trường Sa', ward: 'Khuê Mỹ', district: 'Ngũ Hành Sơn' },
+  { lng: 108.2615, lat: 16.0045, street: '145 Lê Văn Hiến', ward: 'Hòa Hải', district: 'Ngũ Hành Sơn' },
+  { lng: 108.1525, lat: 16.0745, street: '301 Tôn Đức Thắng', ward: 'Hòa Minh', district: 'Liên Chiểu' },
+  { lng: 108.1385, lat: 16.0925, street: '68 Nguyễn Lương Bằng', ward: 'Hòa Khánh Bắc', district: 'Liên Chiểu' },
+  { lng: 108.0825, lat: 16.0155, street: 'Quốc lộ 14B', ward: 'Hòa Phong', district: 'Hòa Vang' },
+  { lng: 108.1245, lat: 15.9965, street: 'Đường Phạm Hùng', ward: 'Hòa Phước', district: 'Hòa Vang' },
+]
+
+export function fallbackStreetAddress(lng: number, lat: number, districtName: string): string {
+  const inDistrict = LOCAL_DANANG_STREETS.filter((s) => s.district === districtName)
+  const pool = inDistrict.length > 0 ? inDistrict : LOCAL_DANANG_STREETS
+  let best = pool[0]
+  let bestDist = Infinity
+  for (const item of pool) {
+    const d = Math.hypot(item.lng - lng, item.lat - lat)
+    if (d < bestDist) {
+      bestDist = d
+      best = item
+    }
+  }
+  return `${best.street}, ${best.ward}, ${districtName}`
+}
+
+export async function reverseGeocodeDaNang(
+  lng: number,
+  lat: number,
+): Promise<{ address: string; district: string | null; inside: boolean }> {
+  const dist = findDistrictAtLngLat(lng, lat)
+  if (!dist || !dist.on) {
+    return { address: '', district: null, inside: false }
+  }
+  const fallback = fallbackStreetAddress(lng, lat, dist.name)
+  try {
+    const ctrl = new AbortController()
+    const timer = window.setTimeout(() => ctrl.abort(), 3200)
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}&accept-language=vi&zoom=18`,
+      { signal: ctrl.signal },
+    )
+    window.clearTimeout(timer)
+    if (res.ok) {
+      const data = (await res.json()) as {
+        name?: string
+        address?: Record<string, string | undefined>
+      }
+      const a = data.address ?? {}
+      const house = a.house_number ? `${a.house_number} ` : ''
+      const road = a.road || a.pedestrian || a.residential || data.name || ''
+      const ward = a.suburb || a.quarter || a.neighbourhood || a.village || a.town || ''
+      const parts = [
+        road ? `${house}${road}`.trim() : '',
+        ward && !ward.includes(dist.name) ? ward : '',
+        dist.name,
+      ].filter(Boolean)
+      if (parts.length >= 2) {
+        return { address: parts.join(', '), district: dist.name, inside: true }
+      }
+    }
+  } catch {
+    // Fallback to local street database
+  }
+  return { address: fallback, district: dist.name, inside: true }
+}
+
+/**
+ * Request the browser's real GPS position via Web Geolocation API.
+ * If inside Da Nang's active districts, returns the exact GPS position.
+ * Otherwise falls back to 124 Lê Duẩn, Hải Châu (108.2208, 16.0712).
+ */
+export function requestBrowserGpsInDaNang(): Promise<{
+  lng: number
+  lat: number
+  x: number
+  y: number
+  isRealGps: boolean
+}> {
+  // Default: 124 Lê Duẩn, Hải Châu (Center of Da Nang, NOT the airport)
+  const defaultLng = 108.2208
+  const defaultLat = 16.0712
+  const defXY = lngLatToXY(defaultLng, defaultLat)
+
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      resolve({ lng: defaultLng, lat: defaultLat, x: defXY.x, y: defXY.y, isRealGps: false })
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { longitude: lng, latitude: lat } = pos.coords
+        const dist = findDistrictAtLngLat(lng, lat)
+        if (dist && dist.on) {
+          const xy = lngLatToXY(lng, lat)
+          resolve({ lng: +lng.toFixed(6), lat: +lat.toFixed(6), x: xy.x, y: xy.y, isRealGps: true })
+        } else {
+          resolve({ lng: defaultLng, lat: defaultLat, x: defXY.x, y: defXY.y, isRealGps: false })
+        }
+      },
+      () => {
+        resolve({ lng: defaultLng, lat: defaultLat, x: defXY.x, y: defXY.y, isRealGps: false })
+      },
+      { enableHighAccuracy: true, timeout: 4500, maximumAge: 30000 },
+    )
+  })
+}
+
 function createFallbackRasterStyle(): maplibregl.StyleSpecification {
   const qp = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : ''
   return {
@@ -759,7 +879,7 @@ export default function GoongBentoMap({
       markersRef.current.push(marker)
     })
 
-    // 5. User / Selected Incident pin
+    // 5. User / Selected Incident pin (draggable when onPick is provided)
     if (userPin) {
       const [lng, lat] =
         userPin.lng !== undefined && userPin.lat !== undefined
@@ -776,7 +896,27 @@ export default function GoongBentoMap({
         badge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>`
       }
       el.appendChild(badge)
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
+      const marker = new maplibregl.Marker({
+        element: el,
+        anchor: 'center',
+        draggable: Boolean(onPickRef.current),
+      })
+        .setLngLat([lng, lat])
+        .addTo(map)
+
+      if (onPickRef.current) {
+        marker.on('dragend', () => {
+          const pos = marker.getLngLat()
+          const xy = lngLatToXY(pos.lng, pos.lat)
+          const dist = findDistrictAtLngLat(pos.lng, pos.lat)
+          onPickRef.current?.(xy.x, xy.y, {
+            lng: +pos.lng.toFixed(6),
+            lat: +pos.lat.toFixed(6),
+            district: dist && dist.on ? dist.name : null,
+          })
+        })
+      }
+
       markersRef.current.push(marker)
 
       map.easeTo({ center: [lng, lat], duration: 500 })
@@ -790,6 +930,24 @@ export default function GoongBentoMap({
     if (dir === 1) map.zoomIn({ duration: 300 })
     else if (dir === -1) map.zoomOut({ duration: 300 })
     else {
+      if (onPickRef.current) {
+        requestBrowserGpsInDaNang().then((gps) => {
+          const dist = findDistrictAtLngLat(gps.lng, gps.lat)
+          onPickRef.current?.(gps.x, gps.y, {
+            lng: gps.lng,
+            lat: gps.lat,
+            district: dist && dist.on ? dist.name : null,
+          })
+          map.easeTo({
+            center: [gps.lng, gps.lat],
+            zoom: 15.2,
+            pitch: 0,
+            bearing: 0,
+            duration: 600,
+          })
+        })
+        return
+      }
       map.easeTo({
         center: interactiveZones ? DANANG_ZONES_CENTER : DANANG_CENTER,
         zoom: interactiveZones ? 10.4 : 12.6,

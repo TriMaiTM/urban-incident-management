@@ -88,16 +88,16 @@ export default function VerifyScreen() {
     <div className="flex flex-1 items-center justify-center"><div className="rounded-card bg-card p-8 text-center shadow-card"><EmptyState icon={CheckCircle2} tone="done" text="Đã nghiệm thu hết" /><Button variant="subtle" onClick={reload}>Nạp lại</Button></div></div>
   ) : (
     <>
-      <section className="animate-rise rounded-card bg-card p-2 shadow-card">
+      <section className="animate-rise shrink-0 rounded-card bg-card p-2 shadow-card">
         {loading ? (
-          <div className="grid grid-cols-2 gap-3"><Skeleton className="h-[300px]" /><Skeleton className="h-[300px]" /></div>
+          <div className="grid grid-cols-2 gap-3"><Skeleton className="h-[220px]" /><Skeleton className="h-[220px]" /></div>
         ) : (
-          <CompareEvidence photos chipMiddle height={300} gps={{ text: gpsOk ? `GPS: ${c.gps}m Đạt` : `GPS lệch ${c.gps}m`, ok: gpsOk }} />
+          <CompareEvidence photos chipMiddle height={220} gps={{ text: gpsOk ? `GPS: ${c.gps}m Đạt` : `GPS lệch ${c.gps}m`, ok: gpsOk }} />
         )}
       </section>
 
-      <div className="grid grid-cols-[1fr_380px_320px] gap-4">
-        <section className="relative min-h-[360px] overflow-hidden rounded-card shadow-card">
+      <div className="grid min-h-0 flex-1 grid-cols-[1fr_380px_320px] gap-4">
+        <section className="relative min-h-[260px] overflow-hidden rounded-card shadow-card">
           <MapBentoViewport
             fill
             detailed
@@ -167,7 +167,7 @@ export default function VerifyScreen() {
   return (
     <div className="fixed inset-0 overflow-auto bg-page">
       {toast && <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 animate-rise"><Toast kind={toast.kind} text={toast.text} /></div>}
-      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] gap-4 p-4">
+      <div className="mx-auto flex h-dvh min-h-[680px] w-full max-w-[1440px] gap-4 p-4">
         <div className="shrink-0"><DispatcherRail /></div>
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <header className="flex items-center justify-between">

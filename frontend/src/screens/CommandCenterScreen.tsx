@@ -148,7 +148,7 @@ export default function CommandCenterScreen() {
   return (
     <div className="fixed inset-0 overflow-auto bg-page">
       {toast && <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 animate-rise"><Toast kind={toast.kind} text={toast.text} /></div>}
-      <div className="mx-auto flex h-screen min-h-[760px] w-full max-w-[1440px] gap-4 p-4">
+      <div className="mx-auto flex h-dvh min-h-[680px] w-full max-w-[1440px] gap-4 p-4">
         <div className="shrink-0"><DispatcherRail /></div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -241,8 +241,8 @@ export default function CommandCenterScreen() {
                 <section className="flex flex-1 items-center justify-center rounded-card bg-card p-6 shadow-card"><EmptyState icon={CheckCircle2} tone="done" text="Đã xử lý hết" /></section>
               ) : (
                 <>
-                  <section className="rounded-card bg-card p-2 shadow-card">
-                    <EvidenceUploadCard state={photoState} height={300} onChoose={() => cur && setFixed((f) => [...f, cur.id])} />
+                  <section className="shrink-0 rounded-card bg-card p-2 shadow-card">
+                    <EvidenceUploadCard state={photoState} height={220} onChoose={() => cur && setFixed((f) => [...f, cur.id])} />
                   </section>
 
                   <section

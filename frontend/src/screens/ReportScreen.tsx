@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, CheckCircle2, ChevronUp, Plus, Clock, Construction, Droplets, Lightbulb, Send, Sparkles, Trash2, TreeDeciduous, Users, Wrench } from 'lucide-react'
 import {
   Button,
-  EmptyState,
   IconChip,
   PillTab,
   Skeleton,
@@ -23,12 +22,18 @@ import {
   Timeline,
 } from '../components/data'
 import { CitizenTabBar, TopPillNav } from '../components/nav'
-import { findDistrictAtLngLat, xyToLngLat } from '../components/GoongBentoMap'
+import {
+  fallbackStreetAddress,
+  findDistrictAtLngLat,
+  requestBrowserGpsInDaNang,
+  reverseGeocodeDaNang,
+  xyToLngLat,
+} from '../components/GoongBentoMap'
 import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident, useTicketVersion } from '../data/tickets'
-import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, ensureRoleToken, loadSampleFieldPhotoFile } from '../lib/backend-api'
+import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, getStoredUser, loadSampleFieldPhotoFile } from '../lib/backend-api'
 
 type Photo = 'empty' | 'scanning' | 'done'
-type Pt = { x: number; y: number }
+type Pt = { x: number; y: number; lng?: number; lat?: number }
 
 const TYPES = ['Đường', 'Ngập úng', 'Cây đổ', 'Rác', 'Đèn', 'Khác']
 const kindOf: Record<string, 'road' | 'flood' | 'tree' | 'trash' | 'light'> = {
@@ -43,51 +48,41 @@ const LEVELS: { label: string; level: Level; hours: number }[] = [
 const M_PER_PCT = 15
 
 type ExistingPin = {
-  x: number; y: number; level: Level; title: string; address: string; time: string; kind: 'road' | 'flood' | 'tree' | 'trash' | 'light'; code: string
+  x: number; y: number; lat?: number; lng?: number; level: Level; title: string; address: string; time: string; kind: 'road' | 'flood' | 'tree' | 'trash' | 'light'; code: string
 }
 const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t) && t.id !== DEMO_ID).map((t) => ({
-  x: t.x, y: t.y, level: t.priority as Level, title: t.title, address: `${t.district}, Đà Nẵng`, time: agoText(t.submittedAt), kind: t.kind, code: t.id,
+  x: t.x, y: t.y, lat: t.gps.lat, lng: t.gps.lng, level: t.priority as Level, title: t.title, address: `${t.district}, Đà Nẵng`, time: agoText(t.submittedAt), kind: t.kind, code: t.id,
 }))
 
-const DISTRICT_STREETS: Record<string, string> = {
-  'Hải Châu': 'Lê Duẩn, Hải Châu',
-  'Thanh Khê': 'Điện Biên Phủ, Thanh Khê',
-  'Sơn Trà': 'Ngô Quyền, Sơn Trà',
-  'Cẩm Lệ': 'Nguyễn Hữu Thọ, Cẩm Lệ',
-  'Ngũ Hành Sơn': 'Trường Sa, Ngũ Hành Sơn',
-  'Liên Chiểu': 'Tôn Đức Thắng, Liên Chiểu',
-  'Hòa Vang': 'Quốc lộ 14B, Hòa Vang',
-}
-function addressAt({ x, y }: Pt) {
-  const [lng, lat] = xyToLngLat(x, y)
+function resolveSyncAddress(p: Pt): { address: string | null; district: string | null } {
+  const [lng, lat] = p.lng !== undefined && p.lat !== undefined ? [p.lng, p.lat] : xyToLngLat(p.x, p.y)
   const dist = findDistrictAtLngLat(lng, lat)
-  if (!dist || !dist.on) return null
-  return DISTRICT_STREETS[dist.name] ?? `${dist.name}, Đà Nẵng`
+  if (!dist || !dist.on) return { address: null, district: null }
+  return {
+    address: fallbackStreetAddress(lng, lat, dist.name),
+    district: dist.name,
+  }
 }
+
 function nearest(p: Pt, list: ExistingPin[]) {
   let best = { i: -1, m: Infinity }
+  const [pLng, pLat] = p.lng !== undefined && p.lat !== undefined ? [p.lng, p.lat] : xyToLngLat(p.x, p.y)
   list.forEach((e, i) => {
-    const m = Math.hypot(e.x - p.x, e.y - p.y) * M_PER_PCT
+    const m =
+      e.lng !== undefined && e.lat !== undefined
+        ? Math.hypot((e.lng - pLng) * 106000, (e.lat - pLat) * 111320)
+        : Math.hypot(e.x - p.x, e.y - p.y) * M_PER_PCT
     if (m < best.m) best = { i, m }
   })
   return best
 }
 
-function Card({ title, className, children, delay = 0 }: { title: string; className?: string; children: ReactNode; delay?: number }) {
-  return (
-    <section className={cn('animate-rise rounded-card bg-card p-4 shadow-card transition hover:-translate-y-0.5 md:p-6', className)} style={{ animationDelay: `${delay}ms` }}>
-      <h2 className="mb-4 text-[16px] font-semibold">{title}</h2>
-      {children}
-    </section>
-  )
-}
-
 function ScreenFrame({ title, sub, children }: { title: string; sub: string; children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-page pb-32 md:pb-8">
-      <div className="mx-auto w-full max-w-[1440px] p-4 md:p-8">
+    <div className="min-h-screen bg-page pb-32 md:pb-6">
+      <div className="mx-auto w-full max-w-[1440px] p-4 md:px-6 md:py-4">
         <div className="hidden md:block"><TopPillNav active={1} /></div>
-        <header className="animate-rise mt-2 mb-6 md:mt-8">
+        <header className="animate-rise mt-2 mb-4 md:mt-4">
           <h1 className="text-[24px] font-bold">{title}</h1>
           <p className="mt-1 text-[12px] text-muted">{sub}</p>
         </header>
@@ -120,18 +115,18 @@ function AiSuggestCard({ photo, type, level, address, onType, onLevel }: {
   photo: Photo; type: string; level: (typeof LEVELS)[number]; address: string; onType: () => void; onLevel: () => void
 }) {
   const TI = typeIcon[type]
-  const chip = 'flex items-center gap-2 rounded-full bg-white/10 p-1 pr-4 text-[14px] font-semibold text-white transition hover:bg-white/20'
+  const chip = 'flex items-center gap-2 rounded-full bg-white/10 p-1 pr-3.5 text-[13px] font-semibold text-white transition hover:bg-white/20'
   return (
     <section
-      className="animate-rise relative overflow-hidden rounded-card p-4 text-white shadow-card transition hover:-translate-y-0.5 md:p-6"
+      className="animate-rise relative shrink-0 overflow-hidden rounded-card p-3.5 text-white shadow-card transition hover:-translate-y-0.5 md:p-4"
       style={{ background: 'radial-gradient(120% 140% at 100% 100%, rgba(229,37,27,0.6) 0%, rgba(229,37,27,0) 60%), #111111' }}
     >
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-[16px] font-semibold">AI gợi ý</h2>
+      <div className="mb-2.5 flex items-center justify-between">
+        <h2 className="text-[15px] font-semibold">AI gợi ý</h2>
         <IconChip icon={Sparkles} size={32} />
       </div>
       {photo === 'empty' && (
-        <div className="flex flex-wrap gap-2 opacity-40">
+        <div className="flex flex-wrap gap-1.5 opacity-40">
           <span className={chip}><IconChip icon={Droplets} size={32} />Ngập úng</span>
           <StatusPill level="high" />
           <span className={chip}><IconChip icon={Users} size={32} />Đội thoát nước</span>
@@ -139,17 +134,17 @@ function AiSuggestCard({ photo, type, level, address, onType, onLevel }: {
       )}
       {photo === 'scanning' && (
         <div className="flex flex-wrap gap-2">
-          <Skeleton dark className="h-10 w-32 rounded-full" /><Skeleton dark className="h-10 w-24 rounded-full" /><Skeleton dark className="h-10 w-40 rounded-full" />
+          <Skeleton dark className="h-8 w-28 rounded-full" /><Skeleton dark className="h-8 w-20 rounded-full" /><Skeleton dark className="h-8 w-36 rounded-full" />
         </div>
       )}
       {photo === 'done' && (
-        <div className="animate-rise space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="animate-rise space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={onType} title="Đổi loại" className={chip}><IconChip icon={TI} tone="neutral" size={32} />{type}</button>
             <button onClick={onLevel} title="Đổi mức" className="transition active:scale-95"><StatusPill level={level.level} /></button>
             <span className={chip}><IconChip icon={Users} size={32} />Đội {unitOf[type]}</span>
           </div>
-          <p className="flex items-center gap-1 text-[12px] text-white/60"><Clock size={14} {...ic} />{level.hours} giờ · {address}</p>
+          <p className="flex items-center gap-1 truncate text-[12px] text-white/70"><Clock size={13} {...ic} />{level.hours} giờ · {address || 'Đang xác định địa chỉ…'}</p>
         </div>
       )}
     </section>
@@ -175,16 +170,27 @@ function DuplicateAlert({ meters, item, onJoin, onNew }: {
 }
 
 export default function ReportScreen() {
+  // ALL HOOKS MUST RUN UNCONDITIONALLY AT THE TOP (Before any early return!)
   const version = useTicketVersion()
   const existing = useMemo(buildExisting, [version])
+  const allTickets = useMemo(getTickets, [version])
+  const stat = useMemo(() => ({
+    total: allTickets.length,
+    working: allTickets.filter((t) => ['ASSIGNED', 'IN_PROGRESS', 'REOPENED'].includes(t.status)).length,
+    done: allTickets.filter((t) => ['RESOLVED', 'CONFIRMED', 'CLOSED'].includes(t.status)).length,
+  }), [allTickets])
+
   const desktop = useMedia('(min-width: 768px)')
   const [photo, setPhoto] = useState<Photo>('empty')
   const [type, setType] = useState('Ngập úng')
   const [levelLabel, setLevelLabel] = useState('Cao')
   const [pin, setPin] = useState<Pt | null>(null)
+  const [liveAddress, setLiveAddress] = useState<string | null>(null)
+  const [liveDistrict, setLiveDistrict] = useState<string | null>(null)
+  const [isOutside, setIsOutside] = useState(false)
   const [dupHandled, setDupHandled] = useState(false)
   const [note, setNote] = useState('')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState(() => getStoredUser()?.phone || '0905123456')
   const [sending, setSending] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -193,10 +199,44 @@ export default function ReportScreen() {
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const applyPinAndGeocode = (nextPin: Pt) => {
+    setPin(nextPin)
+    setDupHandled(false)
+    const sync = resolveSyncAddress(nextPin)
+    if (!sync.address) {
+      setIsOutside(true)
+      setLiveAddress(null)
+      setLiveDistrict(null)
+      return
+    }
+    setIsOutside(false)
+    setLiveAddress(sync.address)
+    setLiveDistrict(sync.district)
+    const [lng, lat] =
+      nextPin.lng !== undefined && nextPin.lat !== undefined
+        ? [nextPin.lng, nextPin.lat]
+        : xyToLngLat(nextPin.x, nextPin.y)
+    reverseGeocodeDaNang(lng, lat)
+      .then((geo) => {
+        if (!geo.inside) {
+          setIsOutside(true)
+          setLiveAddress(null)
+          setLiveDistrict(null)
+        } else {
+          setIsOutside(false)
+          setLiveAddress(geo.address)
+          setLiveDistrict(geo.district)
+        }
+      })
+      .catch(() => {})
+  }
+
   const startUpload = (file?: File) => {
     if (photo === 'scanning') return
     setPhoto('scanning')
     setPin(null)
+    setLiveAddress(null)
+    setIsOutside(false)
     setDupHandled(false)
     const runAnalyze = (f: File) => {
       setSelectedFile(f)
@@ -220,21 +260,28 @@ export default function ReportScreen() {
       loadSampleFieldPhotoFile().then(runAnalyze).catch(() => {})
     }
   }
+
   useEffect(() => {
     if (photo !== 'scanning') return
+    let active = true
     const t = setTimeout(() => {
-      setPhoto('done')
-      setType('Ngập úng')
-      setLevelLabel('Cao')
-      setPin({ x: 46.5, y: 60.5 }) // vị trí GPS từ ảnh
-      setSheetOpen(true)
-    }, 1800)
-    return () => clearTimeout(t)
+      requestBrowserGpsInDaNang().then((gps) => {
+        if (!active) return
+        setPhoto('done')
+        applyPinAndGeocode({ x: gps.x, y: gps.y, lng: gps.lng, lat: gps.lat })
+        setSheetOpen(true)
+      })
+    }, 1200)
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo])
 
   const lv = LEVELS.find((l) => l.label === levelLabel)!
-  const addr = pin ? addressAt(pin) : null
-  const outside = !!pin && !addr
+  const addr = liveAddress
+  const outside = !!pin && isOutside
   const near = pin && !outside ? nearest(pin, existing) : null
   const dup = near && near.m <= 50 && !dupHandled ? { ...existing[near.i], m: Math.round(near.m) } : null
   const phoneBad = phone.length > 0 && !/^0\d{9}$/.test(phone)
@@ -245,7 +292,8 @@ export default function ReportScreen() {
   const submit = async () => {
     setSending(true)
     if (pin) {
-      const [lon, lat] = xyToLngLat(pin.x, pin.y)
+      const [lon, lat] =
+        pin.lng !== undefined && pin.lat !== undefined ? [pin.lng, pin.lat] : xyToLngLat(pin.x, pin.y)
       const catCode =
         type === 'Ngập úng'
           ? 'FLOODING'
@@ -259,9 +307,8 @@ export default function ReportScreen() {
                   ? 'OTHER'
                   : 'ROAD_DAMAGE'
       const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
-      const distName = addr?.split(',')[1]?.trim() || addr || 'Hải Châu'
+      const distName = liveDistrict || addr?.split(',').pop()?.trim() || 'Hải Châu'
       try {
-        await ensureRoleToken('CITIZEN')
         const fileToUpload = selectedFile ?? (await loadSampleFieldPhotoFile())
         const created = await apiCreateIncident({
           title: note.trim() ? `${type}: ${note.trim().slice(0, 48)}` : `${type} tại ${addr ?? 'Đà Nẵng'}`,
@@ -287,10 +334,11 @@ export default function ReportScreen() {
       setSending(false)
       submitDemoTicket()
       setResult({ code: DEMO_ID, merged: false })
-    }, 1200)
+    }, 1000)
   }
+
   const reset = () => {
-    setPhoto('empty'); setPin(null); setDupHandled(false); setNote(''); setPhone(''); setResult(null); setSheetOpen(false); setSelectedFile(null)
+    setPhoto('empty'); setPin(null); setLiveAddress(null); setLiveDistrict(null); setIsOutside(false); setDupHandled(false); setNote(''); setResult(null); setSheetOpen(false); setSelectedFile(null)
   }
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -309,13 +357,13 @@ export default function ReportScreen() {
 
   const photoCard = (
     <section
-      className="animate-rise rounded-card bg-card p-2 shadow-card transition hover:-translate-y-0.5"
+      className="animate-rise shrink-0 rounded-card bg-card p-1.5 shadow-card transition hover:-translate-y-0.5"
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) startUpload(f) }}
     >
       <EvidenceUploadCard
-        height={desktop ? 240 : 190}
+        height={desktop ? 172 : 185}
         state={photo}
         dragging={dragging}
         onCapture={() => camRef.current?.click()}
@@ -326,11 +374,11 @@ export default function ReportScreen() {
   )
   const aiCard = <AiSuggestCard photo={photo} type={type} level={lv} address={addr ?? ''} onType={cycleType} onLevel={cycleLevel} />
   const formCard = (
-    <section className="animate-rise rounded-card bg-card p-4 shadow-card md:p-6" style={{ animationDelay: '120ms' }}>
-      <div className="grid gap-3">
-        <InputField kind="textarea" height={72} placeholder="Mô tả hiện trường" onChange={setNote} value={note} />
+    <section className="animate-rise shrink-0 rounded-card bg-card p-3.5 shadow-card md:p-4" style={{ animationDelay: '120ms' }}>
+      <div className="grid gap-2.5">
+        <InputField kind="textarea" height={54} placeholder="Mô tả hiện trường" onChange={setNote} value={note} />
         <InputField placeholder="Số điện thoại" value={phone} onChange={setPhone} error={phoneBad ? 'Số điện thoại chưa đúng' : undefined} />
-        <Button variant="hero" size="lg" icon={Send} loading={sending} disabled={!ready} onClick={submit}>Gửi phản ánh</Button>
+        <Button variant="hero" size="md" icon={Send} loading={sending} disabled={!ready} onClick={submit}>Gửi phản ánh</Button>
       </div>
     </section>
   )
@@ -341,8 +389,8 @@ export default function ReportScreen() {
   const mapOverlay = (
     <>
       <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div className="pointer-events-auto rounded-full shadow-card md:w-[360px]">
-          <InputField key={addr ?? 'x'} kind="search" placeholder="Chạm bản đồ" value={addr ?? ''} error={undefined} onChange={() => {}} />
+        <div className="pointer-events-auto rounded-full shadow-card md:w-[380px]">
+          <InputField key={addr ?? 'x'} kind="search" placeholder="Chạm hoặc kéo ghim trên bản đồ" value={addr ?? ''} error={undefined} onChange={() => {}} />
         </div>
         <div className="pointer-events-auto self-start rounded-full shadow-card md:self-auto">
           <PillTab tone="ink" items={steps} value={steps[current]} onChange={() => {}} />
@@ -350,10 +398,10 @@ export default function ReportScreen() {
       </div>
       {outside && (
         <div className="absolute inset-x-3 bottom-3 z-10 flex justify-center md:bottom-4 md:justify-start">
-          <Toast kind="error" text="Ngoài ranh giới Đà Nẵng" />
+          <Toast kind="error" text="Ngoài ranh giới Đà Nẵng hoặc vùng đang tạm dừng" />
         </div>
       )}
-      {desktop && dupAlert && <div className="absolute bottom-4 left-4 z-10 w-[460px]">{dupAlert}</div>}
+      {desktop && dupAlert && <div className="absolute bottom-4 left-4 z-10 w-[440px]">{dupAlert}</div>}
     </>
   )
   const mapNode = (
@@ -362,18 +410,14 @@ export default function ReportScreen() {
       detailed
       controls="bottom"
       pins={existing}
-      userPin={pin ? { ...pin, level: lv.level, bad: outside, radius: 28 } : undefined}
-      onPick={(x, y) => { setPin({ x, y }); setDupHandled(false) }}
+      userPin={pin ? { ...pin, level: lv.level, bad: outside, radius: 50 } : undefined}
+      onPick={(x, y, info) => {
+        applyPinAndGeocode({ x, y, lng: info?.lng, lat: info?.lat })
+      }}
     />
   )
-  const allTickets = useMemo(getTickets, [version])
-  const stat = useMemo(() => ({
-    total: allTickets.length,
-    working: allTickets.filter((t) => ['ASSIGNED', 'IN_PROGRESS', 'REOPENED'].includes(t.status)).length,
-    done: allTickets.filter((t) => ['RESOLVED', 'CONFIRMED', 'CLOSED'].includes(t.status)).length,
-  }), [allTickets])
   const metrics = (
-    <div className="grid grid-cols-3 gap-2 md:gap-4">
+    <div className="grid grid-cols-3 gap-2 md:gap-3">
       <MetricBentoCard compact title="Tiếp nhận" value={stat.total} icon={Plus} chart="bars" series={[3, 5, 4, 7, 6, 9, 12]} />
       <MetricBentoCard compact title="Đang xử lý" value={stat.working} icon={Wrench} tone="high" chart="spark" series={[4, 6, 5, 8, 7, 9, 10]} />
       <MetricBentoCard compact title="Đã hoàn tất" value={stat.done} icon={CheckCircle2} tone="done" chart="bars" series={[2, 3, 5, 4, 6, 7, 9]} />
@@ -381,27 +425,27 @@ export default function ReportScreen() {
   )
 
   return (
-    <div className="min-h-screen bg-page pb-28 md:pb-8">
+    <div className="min-h-screen bg-page pb-28 md:h-dvh md:overflow-hidden md:pb-0">
       <input ref={camRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
       <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
-      <div className="mx-auto w-full max-w-[1440px] p-4 md:p-8">
-        <div className="hidden md:block"><TopPillNav active={1} /></div>
-        <header className="mt-2 mb-4 flex flex-col gap-4 md:mt-6 md:mb-4 md:flex-row md:items-end md:justify-between">
+      <div className="mx-auto flex h-full w-full max-w-[1440px] flex-col p-4 md:px-6 md:py-3">
+        <div className="hidden shrink-0 md:block"><TopPillNav active={1} /></div>
+        <header className="mt-2 mb-3 flex shrink-0 flex-col gap-3 md:mt-2.5 md:mb-2.5 md:flex-row md:items-center md:justify-between">
           <div className="animate-rise">
-            <h1 className="text-[24px] font-bold">Báo cáo hiện trường</h1>
-            <p className="mt-1 text-[12px] text-muted">Ảnh, vị trí, gửi: dưới một phút</p>
+            <h1 className="text-[22px] leading-tight font-bold md:text-[24px]">Báo cáo hiện trường</h1>
+            <p className="mt-0.5 text-[12px] text-muted">Ảnh, định vị GPS, gửi: dưới một phút</p>
           </div>
-          <div className="md:w-[640px]">{metrics}</div>
+          <div className="md:w-[600px]">{metrics}</div>
         </header>
 
         {desktop ? (
-          <div className="grid grid-cols-5 gap-4">
-            <div className="col-span-2 flex flex-col gap-4">
+          <div className="grid min-h-0 flex-1 grid-cols-12 gap-3.5">
+            <div className="col-span-4 flex min-h-0 flex-col justify-between gap-2.5 overflow-y-auto pr-0.5">
               {photoCard}
               {aiCard}
               {formCard}
             </div>
-            <section className="relative col-span-3 min-h-[760px] overflow-hidden rounded-card shadow-card">
+            <section className="relative col-span-8 h-full min-h-0 overflow-hidden rounded-card shadow-card">
               {mapNode}
               {mapOverlay}
             </section>
@@ -444,7 +488,7 @@ function ResultView({ code, merged, type, level, hours, address, pin, existing, 
   const [copied, setCopied] = useState(false)
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-      <section className="animate-rise relative flex flex-col justify-between gap-8 overflow-hidden rounded-card bg-ink p-6 text-white shadow-card md:col-span-7 md:min-h-[320px] md:p-8">
+      <section className="animate-rise relative flex flex-col justify-between gap-8 overflow-hidden rounded-card bg-ink p-6 text-white shadow-card md:col-span-7 md:min-h-[260px] md:p-8">
         <div className="pointer-events-none absolute -top-24 -right-24 size-72 rounded-full bg-accent/60 blur-3xl" />
         <div className="relative flex items-center justify-between">
           <span className="flex size-12 animate-bounce items-center justify-center rounded-tile bg-done text-white"><CheckCircle2 size={24} {...ic} /></span>
@@ -462,9 +506,9 @@ function ResultView({ code, merged, type, level, hours, address, pin, existing, 
 
       <div className="grid gap-4 md:col-span-5">
         <MetricBentoCard title={merged ? 'Người cùng gặp' : 'Hạn xử lý'} value={merged ? 4 : hours} suffix={merged ? '' : ' giờ'} icon={merged ? Users : Clock} tone="high" />
-        <section className="animate-rise rounded-card bg-card p-4 shadow-card md:p-6" style={{ animationDelay: '120ms' }}>
-          <h2 className="mb-4 text-[16px] font-semibold">Vị trí</h2>
-          <MapBentoViewport compact detailed pins={existing} userPin={{ ...pin, level, radius: 28 }} />
+        <section className="animate-rise rounded-card bg-card p-4 shadow-card md:p-5" style={{ animationDelay: '120ms' }}>
+          <h2 className="mb-3 text-[16px] font-semibold">Vị trí</h2>
+          <MapBentoViewport compact detailed pins={existing} userPin={{ ...pin, level, radius: 50 }} />
         </section>
       </div>
 
