@@ -85,7 +85,7 @@ export default function AnalyticsScreen() {
         <MetricBentoCard title="Hài lòng" value={liveSat ?? (pi ? 90 : 92)} suffix="/100" icon={Smile} tone="done" chart="bars" series={[6, 7, 7, 8, 8, 9, 9]} caption={period} state={loading ? 'loading' : empty ? 'empty' : 'normal'} />
       </div>
 
-      <div className="grid min-h-[560px] flex-1 grid-cols-[1fr_440px] gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[1fr_440px] gap-4">
         <section className="relative overflow-hidden rounded-card shadow-card">
           <MapBentoViewport
             fill
@@ -154,7 +154,7 @@ export default function AnalyticsScreen() {
 
   return (
     <div className="fixed inset-0 overflow-auto bg-page">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] gap-4 p-4">
+      <div className="mx-auto flex h-dvh min-h-[660px] w-full max-w-[1440px] gap-4 p-4">
         <div className="shrink-0"><AdminRail /></div>
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <header className="flex items-center justify-between">

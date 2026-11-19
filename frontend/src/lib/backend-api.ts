@@ -264,6 +264,8 @@ export interface ApiOpen311RequestItemOut {
   media_url: string | null
 }
 
+export const AUTH_CHANGE_EVENT = 'urbana-auth-changed'
+
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem(TOKEN_KEY)
@@ -274,12 +276,15 @@ export function setAuthSession(token: string, user: ApiUserOut): void {
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(USER_KEY, JSON.stringify(user))
   localStorage.setItem('urbana.role', user.role.toLowerCase())
+  window.dispatchEvent(new Event(AUTH_CHANGE_EVENT))
 }
 
 export function clearAuthSession(): void {
   if (typeof window === 'undefined') return
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  localStorage.removeItem('urbana.role')
+  window.dispatchEvent(new Event(AUTH_CHANGE_EVENT))
 }
 
 export function getStoredUser(): ApiUserOut | null {
@@ -328,7 +333,7 @@ async function requestJson<T>(
   return (await res.json()) as T
 }
 
-const ROLE_DEMO_EMAILS: Record<'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN', string> = {
+export const ROLE_DEMO_EMAILS: Record<'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN', string> = {
   CITIZEN: 'citizen@danang.gov.vn',
   DISPATCHER: 'dispatcher@danang.gov.vn',
   TECHNICIAN: 'technician@danang.gov.vn',
@@ -344,19 +349,38 @@ export function normalizeLoginIdentifier(raw: string): string {
   return raw.trim()
 }
 
-export async function ensureRoleToken(
+/**
+ * Explicitly switch to a demo role session (used only when user clicks a Quick Demo Login button).
+ */
+export async function loginAsDemoRole(
   role: 'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN',
 ): Promise<ApiUserOut | null> {
-  const curUser = getStoredUser()
-  const curToken = getAuthToken()
-  if (curUser && curToken && curUser.role === role) {
-    return curUser
-  }
   try {
     const out = await apiLogin(ROLE_DEMO_EMAILS[role], 'Password123!')
     return out.user
   } catch {
-    return curUser
+    return null
+  }
+}
+
+/**
+ * Look up the seeded Technician UUID without mutating the current user's auth session in localStorage.
+ */
+export async function fetchDefaultTechnicianId(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: ROLE_DEMO_EMAILS.TECHNICIAN,
+        password: 'Password123!',
+      }),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as ApiTokenOut
+    return data.user?.id ?? null
+  } catch {
+    return null
   }
 }
 
@@ -665,7 +689,6 @@ export async function apiSubmitIncidentFeedback(
 /* ==================== Analytics, Zones, Admin & Open311 ==================== */
 
 export async function apiGetAnalyticsSummary(): Promise<ApiAnalyticsSummaryOut> {
-  await ensureRoleToken('ADMIN')
   return requestJson<ApiAnalyticsSummaryOut>('/api/v1/incidents/analytics/summary')
 }
 
@@ -677,7 +700,6 @@ export async function apiUpdateZone(
   zoneId: string,
   payload: { is_active?: boolean; name?: string; description?: string },
 ): Promise<ApiZoneOut> {
-  await ensureRoleToken('ADMIN')
   return requestJson<ApiZoneOut>(
     `/api/v1/zones/${encodeURIComponent(zoneId)}`,
     {
@@ -700,7 +722,6 @@ export async function apiUpdateCategory(
     is_active?: boolean
   },
 ): Promise<ApiCategoryOut> {
-  await ensureRoleToken('ADMIN')
   return requestJson<ApiCategoryOut>(
     `/api/v1/categories/${encodeURIComponent(categoryId)}`,
     {
@@ -721,7 +742,6 @@ export async function apiCreateDepartment(payload: {
   contact_email?: string
   contact_phone?: string
 }): Promise<ApiDepartmentOut> {
-  await ensureRoleToken('ADMIN')
   return requestJson<ApiDepartmentOut>('/api/v1/departments', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -734,7 +754,6 @@ export async function apiListUsers(params?: {
   role?: string
   q?: string
 }): Promise<ApiUserListOut> {
-  await ensureRoleToken('ADMIN')
   const sp = new URLSearchParams()
   if (params?.page) sp.set('page', String(params.page))
   if (params?.page_size) sp.set('page_size', String(params.page_size))
@@ -752,7 +771,6 @@ export async function apiCreateUserByAdmin(payload: {
   role: 'CITIZEN' | 'DISPATCHER' | 'TECHNICIAN' | 'ADMIN'
   department_id?: string
 }): Promise<ApiUserOut> {
-  await ensureRoleToken('ADMIN')
   return requestJson<ApiUserOut>('/api/v1/users', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -769,7 +787,6 @@ export async function apiUpdateUserByAdmin(
     is_locked?: boolean
   },
 ): Promise<ApiUserOut> {
-  await ensureRoleToken('ADMIN')
   return requestJson<ApiUserOut>(
     `/api/v1/users/${encodeURIComponent(userId)}`,
     {
@@ -785,7 +802,6 @@ export async function apiListAuditLogs(params?: {
   ticket_code?: string
   to_status?: string
 }): Promise<ApiAuditLogListOut> {
-  await ensureRoleToken('ADMIN')
   const sp = new URLSearchParams()
   if (params?.page) sp.set('page', String(params.page))
   if (params?.page_size) sp.set('page_size', String(params.page_size))

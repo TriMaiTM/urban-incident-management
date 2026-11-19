@@ -108,7 +108,7 @@ export default function FieldUnitsScreen() {
       }
     >
       <div className="grid grid-cols-[1fr_380px] gap-4">
-        <section className="relative h-[760px] overflow-hidden rounded-card shadow-card">
+        <section className="relative h-[calc(100dvh-104px)] min-h-[480px] overflow-hidden rounded-card shadow-card">
           <GoongBentoMap
             fill
             controls="bottom"
@@ -148,7 +148,7 @@ export default function FieldUnitsScreen() {
           )}
         </section>
 
-        <aside className="flex h-[760px] flex-col gap-3 overflow-auto rounded-card bg-surface p-3">
+        <aside className="flex h-[calc(100dvh-104px)] min-h-[480px] flex-col gap-3 overflow-auto rounded-card bg-surface p-3">
           <div className="flex items-center justify-between px-2 pt-1">
             <h2 className="text-[16px] font-semibold">Danh sách đội</h2>
             <span className="text-[12px] text-muted">Sắp theo khoảng cách</span>
