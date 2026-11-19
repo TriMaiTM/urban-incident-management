@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.functions import ST_AsGeoJSON, ST_Contains, ST_MakePoint, ST_SetSRID
+from geoalchemy2.shape import from_shape, to_shape
+from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 
 from app.api.deps import require_roles
 from app.core.database import get_db
@@ -101,9 +103,40 @@ async def update_zone(
     if body.is_active is not None:
         zone.is_active = body.is_active
 
+    updated_geojson = None
+    if body.geojson_geometry is not None:
+        try:
+            geom = shape(body.geojson_geometry)
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            if isinstance(geom, Polygon):
+                geom = MultiPolygon([geom])
+            if not isinstance(geom, MultiPolygon) or geom.is_empty:
+                raise ValueError("Hình học phải là Polygon hoặc MultiPolygon hợp lệ, không rỗng.")
+            min_lon, min_lat, max_lon, max_lat = geom.bounds
+            zone.boundary = from_shape(geom, srid=4326)
+            zone.bounding_box = {
+                "min_lon": round(float(min_lon), 6),
+                "min_lat": round(float(min_lat), 6),
+                "max_lon": round(float(max_lon), 6),
+                "max_lat": round(float(max_lat), 6),
+            }
+            updated_geojson = dict(mapping(geom))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Dữ liệu hình học GeoJSON không hợp lệ: {exc}",
+            ) from exc
+
     db.add(zone)
     await db.commit()
     await db.refresh(zone)
+
+    if updated_geojson is None and getattr(zone, "boundary", None) is not None:
+        try:
+            updated_geojson = dict(mapping(to_shape(zone.boundary)))
+        except Exception:
+            updated_geojson = None
 
     return ZoneOut(
         id=zone.id,
@@ -112,7 +145,7 @@ async def update_zone(
         open_incident_count=0,
         bounding_box=zone.bounding_box,
         description=zone.description,
-        geojson_geometry=None,
+        geojson_geometry=updated_geojson,
     )
 
 

@@ -30,4 +30,8 @@ class ZoneUpdateIn(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=255)
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    geojson_geometry: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Cập nhật hình học đa giác ranh giới mới (GeoJSON Polygon hoặc MultiPolygon, WGS84 SRID 4326)",
+    )
 

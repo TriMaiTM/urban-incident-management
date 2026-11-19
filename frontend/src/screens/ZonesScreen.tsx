@@ -1,12 +1,17 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { Download, MapPin } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Download, MapPin, Settings } from 'lucide-react'
 import { Button, Skeleton, cn, ic } from '../components/primitives'
-import GoongBentoMap, { type InteractiveZoneItem } from '../components/GoongBentoMap'
+import GoongBentoMap, {
+  ensureLiveZonesLoaded,
+  invalidateLiveZonesCache,
+  type InteractiveZoneItem,
+} from '../components/GoongBentoMap'
 import AdminShell from './AdminShell'
 import districtsGeoJsonRaw from '../data/danang_districts_boundary.json'
 import { apiListZones, apiUpdateZone, type ApiZoneOut } from '../lib/backend-api'
+import { getTickets, isOpen, useTicketVersion } from '../data/tickets'
 
 export type Zone = InteractiveZoneItem
 
@@ -20,16 +25,6 @@ const LABEL_LNG_LAT: Record<string, [number, number]> = {
   hv: [108.015, 16.035],
 }
 
-const DEFAULT_OPEN: Record<string, number> = {
-  hc: 24,
-  tk: 18,
-  st: 11,
-  cl: 9,
-  nhs: 6,
-  lc: 7,
-  hv: 3,
-}
-
 export const zoneSeed: Zone[] = (
   districtsGeoJsonRaw.features as unknown as Array<{
     properties: { zone_id: string; name: string; is_active?: boolean }
@@ -41,7 +36,7 @@ export const zoneSeed: Zone[] = (
     id,
     backendId: f.properties.zone_id,
     name: f.properties.name,
-    open: DEFAULT_OPEN[id] ?? 5,
+    open: 0,
     on: f.properties.is_active !== false,
     labelLngLat: LABEL_LNG_LAT[id] ?? [108.2, 16.06],
     geometry: f.geometry,
@@ -64,18 +59,25 @@ export function zonesGeoJson(zones: Zone[]) {
   }
 }
 
-function mergeApiZones(apiZones: ApiZoneOut[]): Zone[] {
+function mergeApiZones(apiZones: ApiZoneOut[], realOpenByDistrict: Record<string, number>): Zone[] {
   const districts = apiZones.filter((z) => z.id.toUpperCase() !== 'DANANG_CORE')
-  if (districts.length === 0) return zoneSeed
+  if (districts.length === 0) {
+    return zoneSeed.map((s) => ({
+      ...s,
+      open: realOpenByDistrict[s.name.toLowerCase()] ?? 0,
+    }))
+  }
 
   return zoneSeed.map((seed) => {
     const match = districts.find((d) => d.id.toLowerCase() === seed.id)
-    if (!match) return seed
+    const name = match?.name || seed.name
+    const realOpen = realOpenByDistrict[name.toLowerCase()] ?? 0
+    if (!match) return { ...seed, open: realOpen }
     return {
       ...seed,
       backendId: match.id,
-      name: match.name || seed.name,
-      open: match.open_incident_count ?? seed.open,
+      name,
+      open: realOpen,
       on: match.is_active,
       geometry: (match.geojson_geometry as unknown as GeoJSON.Geometry) ?? seed.geometry,
     }
@@ -83,11 +85,24 @@ function mergeApiZones(apiZones: ApiZoneOut[]): Zone[] {
 }
 
 export default function ZonesScreen() {
+  const ticketVer = useTicketVersion()
   const [zones, setZones] = useState<Zone[]>(zoneSeed)
   const [sel, setSel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<null | { kind: 'success' | 'info'; text: string }>(null)
   const timer = useRef<number | undefined>(undefined)
+
+  const realOpenByDistrict = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const t of getTickets()) {
+      if (isOpen(t)) {
+        const k = t.district.trim().toLowerCase()
+        map[k] = (map[k] ?? 0) + 1
+      }
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticketVer])
 
   useEffect(() => {
     let active = true
@@ -97,7 +112,7 @@ export default function ZonesScreen() {
     apiListZones()
       .then((list) => {
         if (!active) return
-        setZones(mergeApiZones(list))
+        setZones(mergeApiZones(list, realOpenByDistrict))
         setLoading(false)
       })
       .catch(() => {})
@@ -105,7 +120,7 @@ export default function ZonesScreen() {
       active = false
       clearTimeout(t)
     }
-  }, [])
+  }, [realOpenByDistrict])
 
   const say = (kind: 'success' | 'info', text: string) => {
     setToast({ kind, text })
@@ -117,7 +132,12 @@ export default function ZonesScreen() {
     const nextOn = !z.on
     setZones((l) => l.map((x) => (x.id === z.id ? { ...x, on: nextOn } : x)))
     say(z.on ? 'info' : 'success', z.on ? `Đã ngừng tiếp nhận tại ${z.name}` : `Đã mở tiếp nhận tại ${z.name}`)
-    apiUpdateZone(z.backendId ?? z.id.toUpperCase(), { is_active: nextOn }).catch(() => {})
+    apiUpdateZone(z.backendId ?? z.id.toUpperCase(), { is_active: nextOn })
+      .then(() => {
+        invalidateLiveZonesCache()
+        void ensureLiveZonesLoaded(true)
+      })
+      .catch(() => {})
   }
 
   const download = () => {
@@ -135,9 +155,21 @@ export default function ZonesScreen() {
       subtitle={`${zones.filter((z) => z.on).length}/${zones.length} vùng đang tiếp nhận phản ánh`}
       toast={toast}
       actions={
-        <Button size="lg" icon={Download} onClick={download}>
-          Tải GeoJSON
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="lg"
+            variant="secondary"
+            icon={Settings}
+            onClick={() => {
+              window.location.href = '/admin/system-settings'
+            }}
+          >
+            Vẽ lại đa giác (Cài đặt)
+          </Button>
+          <Button size="lg" icon={Download} onClick={download}>
+            Tải GeoJSON
+          </Button>
+        </div>
       }
     >
       <div className="grid grid-cols-[1fr_380px] gap-4">

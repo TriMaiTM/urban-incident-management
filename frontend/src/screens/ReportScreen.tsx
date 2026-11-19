@@ -22,6 +22,8 @@ import {
 } from '../components/data'
 import { CitizenTabBar, TopPillNav } from '../components/nav'
 import {
+  ZONES_UPDATED_EVENT,
+  ensureLiveZonesLoaded,
   fallbackStreetAddress,
   findDistrictAtLngLat,
   requestBrowserGpsInDaNang,
@@ -193,6 +195,34 @@ export default function ReportScreen() {
   const [submitErr, setSubmitErr] = useState<string | null>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    void ensureLiveZonesLoaded(true)
+    const onFocus = () => {
+      void ensureLiveZonesLoaded(true)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
+  useEffect(() => {
+    const onZonesChange = () => {
+      if (pin) {
+        const sync = resolveSyncAddress(pin)
+        if (!sync.address) {
+          setIsOutside(true)
+          setLiveAddress(null)
+          setLiveDistrict(null)
+        } else {
+          setIsOutside(false)
+          setLiveAddress(sync.address)
+          setLiveDistrict(sync.district)
+        }
+      }
+    }
+    window.addEventListener(ZONES_UPDATED_EVENT, onZonesChange)
+    return () => window.removeEventListener(ZONES_UPDATED_EVENT, onZonesChange)
+  }, [pin])
 
   const applyAiResult = (ai: { category_code: string; priority: string }) => {
     const c = ai.category_code.toUpperCase()

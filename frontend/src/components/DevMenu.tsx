@@ -41,6 +41,7 @@ import {
   UserRound,
   ChevronDown,
   LogOut,
+  Settings,
   type LucideProps,
 } from 'lucide-react'
 import { cn, ic } from './primitives'
@@ -194,7 +195,7 @@ export default function DevMenu() {
     {
       id: 'admin',
       title: '4. Quản trị hệ thống',
-      badge: '6 màn',
+      badge: '7 màn',
       role: 'ADMIN',
       items: [
         { path: '/admin/analytics', label: 'Bảng chỉ số (Analytics)', icon: BarChart3 },
@@ -203,6 +204,7 @@ export default function DevMenu() {
         { path: '/admin/settings', label: 'Cấu hình SLA & Đơn vị', icon: SlidersHorizontal },
         { path: '/admin/integrations', label: 'Giám sát tích hợp', icon: Plug },
         { path: '/admin/audit-logs', label: 'Nhật ký kiểm toán', icon: ScrollText },
+        { path: '/admin/system-settings', label: 'Cài đặt lõi & Vẽ GIS', icon: Settings },
       ],
     },
     {
