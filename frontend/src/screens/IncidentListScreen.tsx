@@ -1,22 +1,23 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Clock, FilterX, LayoutGrid, Map as MapIcon, MapPin, Users, X } from 'lucide-react'
+import { Clock, FilterX, Image as ImageIcon, LayoutGrid, Map as MapIcon, MapPin, Users, X } from 'lucide-react'
 import { Button, Dropdown, EmptyState, ErrorState, Skeleton, StatusPill, cn, ic } from '../components/primitives'
 import { MapBentoViewport } from '../components/data'
-import SamplePhoto from '../components/SamplePhoto'
 import CitizenShell from './CitizenShell'
 import { districts, getIncidents, kindLabel, kinds, statuses, type Incident } from './HomeScreen'
-import { useTicketVersion } from '../data/tickets'
-
-const photoFx = ['', 'saturate-75', 'brightness-95', 'contrast-95']
-const fx = (i: Incident) => photoFx[i.code.charCodeAt(i.code.length - 1) % photoFx.length]
+import { getTicket, useTicketVersion } from '../data/tickets'
 
 function Card({ i, top }: { i: Incident; top: boolean }) {
+  const imgUrl = getTicket(i.code).imageUrl
   return (
     <a href={`/tracking/${i.code}`} className={cn('group animate-rise block overflow-hidden rounded-card p-2 shadow-card transition hover:-translate-y-1', top ? 'bg-ink text-white' : 'bg-card')}>
-      <div className="relative h-40 overflow-hidden rounded-tile">
-        <SamplePhoto className={cn('size-full transition duration-500 group-hover:scale-105', fx(i))} />
+      <div className="relative h-40 overflow-hidden rounded-tile bg-surface">
+        {imgUrl ? (
+          <img src={imgUrl} alt={i.title} className="size-full object-cover transition duration-500 group-hover:scale-105" />
+        ) : (
+          <div className="flex size-full items-center justify-center text-muted"><ImageIcon size={28} {...ic} /></div>
+        )}
         <div className="absolute top-2 left-2 flex gap-1.5"><StatusPill level={i.level} /></div>
         <span className="absolute right-2 bottom-2 rounded-full bg-card px-2.5 py-1 text-[12px] font-semibold text-ink">{kindLabel[i.kind]}</span>
       </div>
@@ -70,7 +71,13 @@ export default function IncidentListScreen() {
       {picked && (
         <div key={picked.code} className={cn('absolute inset-x-3 bottom-3 animate-rise rounded-card p-2 shadow-card md:inset-x-auto md:bottom-4 md:left-4 md:w-[360px]', picked.code === topCode && list.length > 1 ? 'bg-ink text-white' : 'bg-card')}>
           <div className="flex gap-3">
-            <div className="h-24 w-28 shrink-0 overflow-hidden rounded-tile"><SamplePhoto className={cn('size-full', fx(picked))} /></div>
+            <div className="h-24 w-28 shrink-0 overflow-hidden rounded-tile bg-surface">
+              {getTicket(picked.code).imageUrl ? (
+                <img src={getTicket(picked.code).imageUrl} alt={picked.title} className="size-full object-cover" />
+              ) : (
+                <div className="flex size-full items-center justify-center text-muted"><ImageIcon size={22} {...ic} /></div>
+              )}
+            </div>
             <div className="min-w-0 flex-1 py-1 pr-1">
               <div className="flex items-start justify-between gap-2">
                 <StatusPill level={picked.level} />

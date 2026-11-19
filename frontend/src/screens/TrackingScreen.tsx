@@ -1,10 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Check, Clock, Construction, Droplets, Lightbulb, Search, Send, Star, Trash2, TreeDeciduous, Users } from 'lucide-react'
+import { Check, Clock, Construction, Droplets, Image as ImageIcon, Lightbulb, Send, Star, Trash2, TreeDeciduous, Users } from 'lucide-react'
 import { Avatar, Button, EmptyState, ErrorState, IconChip, Skeleton, StatusPill, Toast, cn, ic, type Level } from '../components/primitives'
 import { CompareEvidence, EvidenceUploadCard, InputField, Timeline } from '../components/data'
-import SamplePhoto from '../components/SamplePhoto'
 import { CitizenTabBar, TopPillNav } from '../components/nav'
 import { fmtClock, useTick } from './technicianData'
 import { citizenStep, clock, deadlineOf, getTickets, gpsDeviation, levelOf, remainingSec, timesOf, useTicketVersion, type Ticket } from '../data/tickets'
@@ -13,6 +12,7 @@ type Kind = 'flood' | 'road' | 'tree' | 'trash' | 'light'
 type Track = {
   code: string; title: string; address: string; kind: Kind; level: Level
   step: number; remaining: number; unit: string; ktv: string; promise: string; note: string; times: string[]; gpsDev?: number
+  imageUrl?: string; afterImageUrl?: string
 }
 const kindIcon = { flood: Droplets, road: Construction, tree: TreeDeciduous, trash: Trash2, light: Lightbulb }
 const steps = ['Tiếp nhận', 'Phân loại', 'Giao việc', 'Đang xử lý', 'Đã khắc phục']
@@ -21,24 +21,14 @@ const noteOf = (t: Ticket) =>
 const trackOf = (t: Ticket): Track => ({
   code: t.id, title: t.title, address: t.address, kind: t.kind, level: levelOf(t), step: citizenStep(t.status), remaining: remainingSec(t),
   unit: t.unit, ktv: t.ktv ?? 'Chờ phân công', promise: `Trước ${clock(deadlineOf(t))}`, note: noteOf(t), times: timesOf(t), gpsDev: gpsDeviation(t),
+  imageUrl: t.imageUrl, afterImageUrl: t.afterImageUrl,
 })
 const allTracks = () => getTickets().map(trackOf)
 
 export default function TrackingScreen({ code }: { code: string }) {
-  const track: Track | undefined =
-    allTracks().find((t) => t.code === code) ??
-    (/^DN-\d{6}-\d{4}$/.test(code)
-      ? (() => {
-          const n = Number(code.slice(-4)) % 4
-          return {
-            code, title: 'Phiếu sự cố đô thị', address: 'Đà Nẵng', kind: 'road', level: (['high', 'normal', 'low', 'urgent'] as Level[])[n],
-            step: n, remaining: 20000 + n * 9000, unit: 'Trung tâm IOC Đà Nẵng', ktv: n < 2 ? 'Chờ phân công' : 'Lê Văn Hùng',
-            promise: 'Trước 17:00', note: n === 3 ? 'Đang xử lý tại hiện trường.' : '', times: ['08:00', n >= 1 ? '08:05' : '--:--', n >= 2 ? '08:30' : '--:--', n >= 3 ? '09:10' : '--:--', '--:--'],
-          } as Track
-        })()
-      : undefined)
   useTick()
   useTicketVersion()
+  const track: Track | undefined = allTracks().find((t) => t.code === code) ?? allTracks()[0]
   const [loading, setLoading] = useState(true)
   const [stars, setStars] = useState(0)
   const [hoverStar, setHoverStar] = useState(0)
@@ -145,12 +135,22 @@ export default function TrackingScreen({ code }: { code: string }) {
     <section className="animate-rise rounded-card bg-card p-4 shadow-card md:p-6" style={{ animationDelay: '160ms' }}>
       <h2 className="mb-4 text-[16px] font-semibold">Trước và sau</h2>
       {resolved ? (
-        <CompareEvidence photos height={160} gps={{ text: `GPS: ${track.gpsDev ?? 12}m Đạt`, ok: (track.gpsDev ?? 12) < 50 }} />
+        <CompareEvidence
+          photos
+          beforeUrl={track.imageUrl}
+          afterUrl={track.afterImageUrl}
+          height={160}
+          gps={{ text: `GPS: ${track.gpsDev ?? 12}m Đạt`, ok: (track.gpsDev ?? 12) < 50 }}
+        />
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <div className="relative flex h-40 items-end overflow-hidden rounded-tile p-3">
-            <SamplePhoto className="absolute inset-0 size-full" />
-            <span className="relative inline-flex h-6 items-center rounded-full bg-card px-3 text-[12px] font-semibold">Trước</span>
+          <div className="relative flex h-40 items-end overflow-hidden rounded-tile bg-surface p-3">
+            {track.imageUrl ? (
+              <img src={track.imageUrl} alt="Ảnh trước xử lý" className="absolute inset-0 size-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-muted"><ImageIcon size={24} {...ic} /></div>
+            )}
+            <span className="relative inline-flex h-6 items-center rounded-full bg-card px-3 text-[12px] font-semibold shadow-card">Trước</span>
           </div>
           <div className="flex h-40 items-center justify-center rounded-tile bg-surface"><EmptyState icon={Clock} text="Chờ ảnh sau" /></div>
         </div>
@@ -187,7 +187,7 @@ export default function TrackingScreen({ code }: { code: string }) {
             <div className="overflow-hidden">
               <div className="space-y-3 rounded-card bg-surface p-3">
                 <div className="flex items-center gap-2 text-[14px] font-semibold"><IconChip icon={Construction} tone="urgent" size={32} />Khiếu nại làm lại</div>
-                <EvidenceUploadCard height={170} state={proof} onChoose={() => setProof('scanning')} onCapture={() => setProof('scanning')} onSample={() => setProof('scanning')} />
+                <EvidenceUploadCard height={170} state={proof} imageUrl={track.afterImageUrl ?? track.imageUrl} onChoose={() => setProof('scanning')} onCapture={() => setProof('scanning')} />
               </div>
             </div>
           </div>

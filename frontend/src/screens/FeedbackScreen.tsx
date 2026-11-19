@@ -6,11 +6,12 @@ import { Avatar, Button, EmptyState, ErrorState, IconChip, StatusPill, cn } from
 import { CompareEvidence, EvidenceUploadCard, InputField } from '../components/data'
 import CitizenShell from './CitizenShell'
 import { getReports } from './citizenData'
-import { setStatus, useTicketVersion } from '../data/tickets'
+import { getTicket, setStatus, useTicketVersion } from '../data/tickets'
 
 export default function FeedbackScreen({ code }: { code: string }) {
   useTicketVersion()
   const r = getReports().find((x) => x.id === code)
+  const tk = getTicket(code)
   const [loading, setLoading] = useState(true)
   const [stars, setStars] = useState(0)
   const [hover, setHover] = useState(0)
@@ -58,7 +59,15 @@ export default function FeedbackScreen({ code }: { code: string }) {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
           <section className="animate-rise rounded-card bg-card p-4 shadow-card md:col-span-7 md:p-6" style={{ animationDelay: '60ms' }}>
             <h2 className="mb-4 text-[16px] font-semibold">Trước và sau</h2>
-            <CompareEvidence photos height={300} chipMiddle state={loading ? 'loading' : 'normal'} gps={{ text: `GPS: ${r.gpsDev}m ${r.gpsDev < 50 ? 'Đạt' : 'Lệch'}`, ok: r.gpsDev < 50 }} />
+            <CompareEvidence
+              photos
+              beforeUrl={tk.imageUrl}
+              afterUrl={tk.afterImageUrl}
+              height={300}
+              chipMiddle
+              state={loading ? 'loading' : 'normal'}
+              gps={{ text: `GPS: ${r.gpsDev}m ${r.gpsDev < 50 ? 'Đạt' : 'Lệch'}`, ok: r.gpsDev < 50 }}
+            />
             {r.note && (
               <div className="mt-4 flex items-center gap-3 rounded-tile bg-surface p-3"><Avatar name={r.ktv ?? 'KTV'} size={32} /><p className="text-[14px]">{r.note}</p></div>
             )}
@@ -80,7 +89,7 @@ export default function FeedbackScreen({ code }: { code: string }) {
                   <div className="space-y-3 rounded-card bg-surface p-3">
                     <div className="flex items-center gap-2 text-[14px] font-semibold"><IconChip icon={Construction} tone="urgent" size={32} />Khiếu nại làm lại</div>
                     <InputField kind="textarea" height={72} placeholder="Nêu lý do" value={reason} onChange={setReason} />
-                    <EvidenceUploadCard height={170} state={proof} onChoose={() => setProof('scanning')} onCapture={() => setProof('scanning')} onSample={() => setProof('scanning')} />
+                    <EvidenceUploadCard height={170} state={proof} imageUrl={tk.afterImageUrl ?? tk.imageUrl} onChoose={() => setProof('scanning')} onCapture={() => setProof('scanning')} />
                   </div>
                 </div>
               </div>

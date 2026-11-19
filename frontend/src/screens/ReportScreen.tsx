@@ -29,8 +29,8 @@ import {
   reverseGeocodeDaNang,
   xyToLngLat,
 } from '../components/GoongBentoMap'
-import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident, useTicketVersion } from '../data/tickets'
-import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, getStoredUser, loadSampleFieldPhotoFile } from '../lib/backend-api'
+import { agoText, getTickets, isOpen, upsertBackendIncident, useTicketVersion } from '../data/tickets'
+import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, getStoredUser } from '../lib/backend-api'
 
 type Photo = 'empty' | 'scanning' | 'done'
 type Pt = { x: number; y: number; lng?: number; lat?: number }
@@ -50,7 +50,7 @@ const M_PER_PCT = 15
 type ExistingPin = {
   x: number; y: number; lat?: number; lng?: number; level: Level; title: string; address: string; time: string; kind: 'road' | 'flood' | 'tree' | 'trash' | 'light'; code: string
 }
-const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t) && t.id !== DEMO_ID).map((t) => ({
+const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t)).map((t) => ({
   x: t.x, y: t.y, lat: t.gps.lat, lng: t.gps.lng, level: t.priority as Level, title: t.title, address: `${t.district}, Đà Nẵng`, time: agoText(t.submittedAt), kind: t.kind, code: t.id,
 }))
 
@@ -196,8 +196,25 @@ export default function ReportScreen() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [result, setResult] = useState<null | { code: string; merged: boolean }>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined)
+  const [submitErr, setSubmitErr] = useState<string | null>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const applyAiResult = (ai: { category_code: string; priority: string }) => {
+    const c = ai.category_code.toUpperCase()
+    if (c.includes('FLOOD')) setType('Ngập úng')
+    else if (c.includes('TREE')) setType('Cây đổ')
+    else if (c.includes('WASTE') || c.includes('TRASH') || c.includes('GARBAGE')) setType('Rác')
+    else if (c.includes('LIGHT')) setType('Đèn')
+    else if (c.includes('OTHER')) setType('Khác')
+    else setType('Đường')
+    const p = ai.priority.toUpperCase()
+    if (p === 'URGENT' || p === 'EMERGENCY' || p === 'CRITICAL') setLevelLabel('Khẩn cấp')
+    else if (p === 'HIGH') setLevelLabel('Cao')
+    else if (p === 'LOW') setLevelLabel('Thấp')
+    else setLevelLabel('Trung bình')
+  }
 
   const applyPinAndGeocode = (nextPin: Pt) => {
     setPin(nextPin)
@@ -231,35 +248,34 @@ export default function ReportScreen() {
       .catch(() => {})
   }
 
-  const startUpload = (file?: File) => {
+  const startUpload = (file: File) => {
     if (photo === 'scanning') return
+    setSubmitErr(null)
+    setSelectedFile(file)
+    setPreviewUrl((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
     setPhoto('scanning')
     setPin(null)
     setLiveAddress(null)
     setIsOutside(false)
     setDupHandled(false)
-    const runAnalyze = (f: File) => {
-      setSelectedFile(f)
-      apiAnalyzeImage(f, note).then((ai) => {
-        const c = ai.category_code.toUpperCase()
-        if (c.includes('FLOOD')) setType('Ngập úng')
-        else if (c.includes('TREE')) setType('Cây đổ')
-        else if (c.includes('WASTE') || c.includes('TRASH') || c.includes('GARBAGE')) setType('Rác')
-        else if (c.includes('LIGHT')) setType('Đèn')
-        else setType('Đường')
-        const p = ai.priority.toUpperCase()
-        if (p === 'URGENT' || p === 'EMERGENCY' || p === 'CRITICAL') setLevelLabel('Khẩn cấp')
-        else if (p === 'HIGH') setLevelLabel('Cao')
-        else if (p === 'LOW') setLevelLabel('Thấp')
-        else setLevelLabel('Trung bình')
-      }).catch(() => {})
-    }
-    if (file) {
-      runAnalyze(file)
-    } else {
-      loadSampleFieldPhotoFile().then(runAnalyze).catch(() => {})
-    }
+    apiAnalyzeImage(file, note)
+      .then(applyAiResult)
+      .catch(() => {})
   }
+
+  useEffect(() => {
+    if (!selectedFile || photo !== 'done' || !note.trim()) return
+    const t = setTimeout(() => {
+      apiAnalyzeImage(selectedFile, note)
+        .then(applyAiResult)
+        .catch(() => {})
+    }, 450)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note, selectedFile, photo])
 
   useEffect(() => {
     if (photo !== 'scanning') return
@@ -285,60 +301,57 @@ export default function ReportScreen() {
   const near = pin && !outside ? nearest(pin, existing) : null
   const dup = near && near.m <= 50 && !dupHandled ? { ...existing[near.i], m: Math.round(near.m) } : null
   const phoneBad = phone.length > 0 && !/^0\d{9}$/.test(phone)
-  const ready = photo === 'done' && !!pin && !outside && /^0\d{9}$/.test(phone)
+  const ready = photo === 'done' && !!selectedFile && !!pin && !outside && /^0\d{9}$/.test(phone)
   const current = photo === 'empty' ? 0 : photo === 'scanning' ? 1 : !pin || outside ? 2 : 3
   const steps = ['Ảnh', 'AI', 'Ghim', 'Gửi']
 
   const submit = async () => {
-    setSending(true)
-    if (pin) {
-      const [lon, lat] =
-        pin.lng !== undefined && pin.lat !== undefined ? [pin.lng, pin.lat] : xyToLngLat(pin.x, pin.y)
-      const catCode =
-        type === 'Ngập úng'
-          ? 'FLOODING'
-          : type === 'Cây đổ'
-            ? 'FALLEN_TREE'
-            : type === 'Đèn'
-              ? 'STREETLIGHT'
-              : type === 'Rác'
-                ? 'GARBAGE'
-                : type === 'Khác'
-                  ? 'OTHER'
-                  : 'ROAD_DAMAGE'
-      const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
-      const distName = liveDistrict || addr?.split(',').pop()?.trim() || 'Hải Châu'
-      try {
-        const fileToUpload = selectedFile ?? (await loadSampleFieldPhotoFile())
-        const created = await apiCreateIncident({
-          title: note.trim() ? `${type}: ${note.trim().slice(0, 48)}` : `${type} tại ${addr ?? 'Đà Nẵng'}`,
-          description: note.trim() || `${type} tại ${addr ?? 'Đà Nẵng'}`,
-          latitude: lat,
-          longitude: lon,
-          address_text: addr ?? 'Đà Nẵng',
-          district: distName,
-          category_code: catCode,
-          priority: prio,
-          citizen_contact: phone,
-          image: fileToUpload,
-        })
-        upsertBackendIncident(created)
-        setSending(false)
-        setResult({ code: created.ticket_code, merged: false })
-        return
-      } catch {
-        // Fallback to demo ticket if backend is unreachable
-      }
+    if (!selectedFile || !pin) {
+      setSubmitErr('Vui lòng tải ảnh hiện trường thực tế và chọn vị trí trước khi gửi.')
+      return
     }
-    setTimeout(() => {
+    setSending(true)
+    setSubmitErr(null)
+    const [lon, lat] =
+      pin.lng !== undefined && pin.lat !== undefined ? [pin.lng, pin.lat] : xyToLngLat(pin.x, pin.y)
+    const catCode =
+      type === 'Ngập úng'
+        ? 'FLOODING'
+        : type === 'Cây đổ'
+          ? 'FALLEN_TREE'
+          : type === 'Đèn'
+            ? 'STREETLIGHT'
+            : type === 'Rác'
+              ? 'GARBAGE'
+              : type === 'Khác'
+                ? 'OTHER'
+                : 'ROAD_DAMAGE'
+    const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
+    const distName = liveDistrict || addr?.split(',').pop()?.trim() || 'Hải Châu'
+    try {
+      const created = await apiCreateIncident({
+        title: note.trim() ? `${type}: ${note.trim().slice(0, 48)}` : `${type} tại ${addr ?? 'Đà Nẵng'}`,
+        description: note.trim() || `${type} tại ${addr ?? 'Đà Nẵng'}`,
+        latitude: lat,
+        longitude: lon,
+        address_text: addr ?? 'Đà Nẵng',
+        district: distName,
+        category_code: catCode,
+        priority: prio,
+        citizen_contact: phone,
+        image: selectedFile,
+      })
+      upsertBackendIncident(created)
       setSending(false)
-      submitDemoTicket()
-      setResult({ code: DEMO_ID, merged: false })
-    }, 1000)
+      setResult({ code: created.ticket_code, merged: false })
+    } catch (err) {
+      setSending(false)
+      setSubmitErr(err instanceof Error ? err.message : 'Không thể gửi phản ánh lên hệ thống.')
+    }
   }
 
   const reset = () => {
-    setPhoto('empty'); setPin(null); setLiveAddress(null); setLiveDistrict(null); setIsOutside(false); setDupHandled(false); setNote(''); setResult(null); setSheetOpen(false); setSelectedFile(null)
+    setPhoto('empty'); setPin(null); setLiveAddress(null); setLiveDistrict(null); setIsOutside(false); setDupHandled(false); setNote(''); setResult(null); setSheetOpen(false); setSelectedFile(null); setPreviewUrl(undefined); setSubmitErr(null)
   }
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -365,10 +378,10 @@ export default function ReportScreen() {
       <EvidenceUploadCard
         height={desktop ? 172 : 185}
         state={photo}
+        imageUrl={previewUrl}
         dragging={dragging}
         onCapture={() => camRef.current?.click()}
         onChoose={() => fileRef.current?.click()}
-        onSample={() => startUpload()}
       />
     </section>
   )
@@ -378,6 +391,7 @@ export default function ReportScreen() {
       <div className="grid gap-2.5">
         <InputField kind="textarea" height={54} placeholder="Mô tả hiện trường" onChange={setNote} value={note} />
         <InputField placeholder="Số điện thoại" value={phone} onChange={setPhone} error={phoneBad ? 'Số điện thoại chưa đúng' : undefined} />
+        {submitErr && <p className="text-[12px] text-urgent">{submitErr}</p>}
         <Button variant="hero" size="md" icon={Send} loading={sending} disabled={!ready} onClick={submit}>Gửi phản ánh</Button>
       </div>
     </section>

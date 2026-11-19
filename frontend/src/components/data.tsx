@@ -24,7 +24,6 @@ import {
 } from 'lucide-react'
 import { useState, type ComponentType, type ReactNode } from 'react'
 import GoongBentoMap from './GoongBentoMap'
-import SamplePhoto from './SamplePhoto'
 import {
   Button,
   Dropdown,
@@ -126,6 +125,7 @@ export function IncidentListItem({
   time,
   level,
   kind,
+  imageUrl,
   layout = 'row',
   status = 'default',
   state = 'normal',
@@ -135,6 +135,7 @@ export function IncidentListItem({
   time: string
   level: Level
   kind: keyof typeof typeIcon
+  imageUrl?: string
   layout?: 'row' | 'card'
   status?: 'default' | 'selected' | 'overdue'
   state?: DataState
@@ -154,11 +155,16 @@ export function IncidentListItem({
     status === 'selected' ? 'bg-ink text-white' : 'bg-surface',
     status === 'overdue' && 'ring-1 ring-urgent',
   )
-  const thumb = (cls: string) => (
-    <div className={cn('flex items-center justify-center rounded-tile bg-gradient-to-br text-white', typeBg[kind], cls)}>
-      <I size={22} {...ic} />
-    </div>
-  )
+  const thumb = (cls: string) =>
+    imageUrl ? (
+      <div className={cn('relative overflow-hidden rounded-tile bg-surface', cls)}>
+        <img src={imageUrl} alt={title} className="size-full object-cover" />
+      </div>
+    ) : (
+      <div className={cn('flex items-center justify-center rounded-tile bg-gradient-to-br text-white', typeBg[kind], cls)}>
+        <I size={22} {...ic} />
+      </div>
+    )
   const sub = status === 'selected' ? 'text-white/60' : 'text-muted'
   if (layout === 'card')
     return (
@@ -250,6 +256,7 @@ export function InputField({
 /* 7. EvidenceUploadCard */
 export function EvidenceUploadCard({
   state,
+  imageUrl,
   onCapture,
   onChoose,
   onSample,
@@ -258,29 +265,49 @@ export function EvidenceUploadCard({
 }: {
   height?: number
   state: 'empty' | 'scanning' | 'done' | 'error'
+  imageUrl?: string
   onCapture?: () => void
   onChoose?: () => void
   onSample?: () => void
   dragging?: boolean
 }) {
-  const photo = state === 'empty' || state === 'scanning' || state === 'done'
+  const showImage = (state === 'scanning' || state === 'done') && !!imageUrl
   return (
     <div
-      className={cn('flex h-full min-h-[220px] flex-col rounded-card bg-surface p-3 transition', dragging && 'bg-card shadow-[0_0_0_3px_#111111,0_0_32px_rgba(17,17,17,0.18)]')}
+      className={cn(
+        'flex h-full min-h-[200px] flex-col rounded-card bg-surface p-3 transition',
+        dragging && 'bg-card shadow-[0_0_0_3px_#111111,0_0_32px_rgba(17,17,17,0.18)]',
+      )}
       style={height ? { height } : undefined}
     >
       <div
         className={cn(
-          'relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-tile',
+          'relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-tile bg-card',
+          state === 'empty' && 'border-2 border-dashed border-low/70 bg-surface/60',
           state === 'error' && 'border-2 border-dashed border-low',
           dragging && 'ring-2 ring-ink',
         )}
       >
-        {photo && <SamplePhoto className={cn('absolute inset-0 size-full object-cover transition duration-700', state === 'empty' && 'scale-110 blur-[6px]', dragging && 'animate-pulse')} />}
+        {showImage && (
+          <img
+            src={imageUrl}
+            alt="Ảnh hiện trường"
+            className={cn(
+              'absolute inset-0 size-full object-cover transition duration-500',
+              dragging && 'animate-pulse',
+            )}
+          />
+        )}
+        {!showImage && (state === 'scanning' || state === 'done') && (
+          <div className="flex flex-col items-center gap-2 text-muted">
+            <ImageIcon size={28} {...ic} />
+            <span className="text-[12px]">Ảnh hiện trường</span>
+          </div>
+        )}
         {state === 'empty' && (
           <>
-            <div className="absolute inset-0 bg-card/55" />
             <IconChip icon={dragging ? ImageIcon : Camera} tone="ink" size={48} />
+            <p className="text-[12px] text-muted">Tải lên hoặc kéo thả ảnh hiện trường thật</p>
             <div className="relative flex flex-wrap justify-center gap-2">
               <Button size="sm" icon={Camera} onClick={onCapture}>Chụp ảnh</Button>
               <Button size="sm" variant="secondary" icon={ImageIcon} onClick={onChoose}>Chọn ảnh</Button>
@@ -291,13 +318,23 @@ export function EvidenceUploadCard({
         {state === 'scanning' && (
           <>
             <div className="absolute inset-x-0 top-0 bottom-0"><div className="animate-scan absolute inset-x-0 h-1 bg-white shadow-[0_0_16px_#fff]" /></div>
-            <span className="absolute bottom-3 inline-flex h-6 items-center gap-1 rounded-full bg-card px-3 text-[12px] font-semibold"><Sparkles size={12} {...ic} />Đang quét AI</span>
+            <span className="absolute bottom-3 inline-flex h-6 items-center gap-1 rounded-full bg-card px-3 text-[12px] font-semibold shadow-card"><Sparkles size={12} {...ic} />Đang quét AI</span>
           </>
         )}
         {state === 'done' && (
           <>
-            <span className="absolute bottom-3 left-3 inline-flex h-6 items-center gap-1 rounded-full bg-done px-3 text-[12px] font-semibold text-white"><ShieldCheck size={12} {...ic} />NĐ13 Đã mờ</span>
-            <span className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-full bg-card"><Check size={16} {...ic} /></span>
+            <span className="absolute bottom-3 left-3 inline-flex h-6 items-center gap-1 rounded-full bg-done px-3 text-[12px] font-semibold text-white shadow-card"><ShieldCheck size={12} {...ic} />NĐ13 Đã mờ</span>
+            {onChoose ? (
+              <button
+                type="button"
+                onClick={onChoose}
+                className="absolute top-3 right-3 inline-flex h-7 items-center gap-1.5 rounded-full bg-card/95 px-3 text-[12px] font-semibold text-ink shadow-card transition hover:bg-card"
+              >
+                <ImageIcon size={13} {...ic} />Đổi ảnh
+              </button>
+            ) : (
+              <span className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-full bg-card shadow-card"><Check size={16} {...ic} /></span>
+            )}
           </>
         )}
         {state === 'error' && (
@@ -400,23 +437,35 @@ export function CompareEvidence({
   state = 'normal',
   gps,
   photos,
+  beforeUrl,
+  afterUrl,
   height = 160,
   chipMiddle,
 }: {
   state?: DataState
   gps: { text: string; ok: boolean }
   photos?: boolean
+  beforeUrl?: string
+  afterUrl?: string
   height?: number
   chipMiddle?: boolean
 }) {
+  void photos
   if (state === 'loading')
     return <div className="grid grid-cols-2 gap-3"><Skeleton className="h-40" /><Skeleton className="h-40" /></div>
   if (state === 'empty') return <div className="rounded-tile bg-surface"><EmptyState icon={ImageIcon} text="Chưa có ảnh" /></div>
   if (state === 'error') return <div className="rounded-tile bg-surface"><ErrorState text="Không tải ảnh" /></div>
-  const pane = (label: string, _grad: string, after?: boolean) => (
-    <div className="relative flex items-end overflow-hidden rounded-tile p-3" style={{ height }}>
-      <SamplePhoto className={cn('absolute inset-0 size-full', after && 'brightness-110 saturate-75')} />
-      <span className="relative inline-flex h-6 items-center rounded-full bg-card px-3 text-[12px] font-semibold">{label}</span>
+  const pane = (label: string, url?: string) => (
+    <div className="relative flex items-end overflow-hidden rounded-tile bg-surface p-3" style={{ height }}>
+      {url ? (
+        <img src={url} alt={label} className="absolute inset-0 size-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-muted">
+          <ImageIcon size={24} {...ic} />
+          <span className="text-[12px]">Chưa có ảnh {label.toLowerCase()}</span>
+        </div>
+      )}
+      <span className="relative inline-flex h-6 items-center rounded-full bg-card px-3 text-[12px] font-semibold shadow-card">{label}</span>
     </div>
   )
   const chip = (
@@ -427,8 +476,8 @@ export function CompareEvidence({
   return (
     <div className="relative">
       <div className="grid grid-cols-2 gap-3">
-        {pane('Trước', 'from-ink to-muted')}
-        {pane('Sau', 'from-done to-low', true)}
+        {pane('Trước', beforeUrl)}
+        {pane('Sau', afterUrl ?? beforeUrl)}
       </div>
       {chipMiddle ? (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">{chip}</div>

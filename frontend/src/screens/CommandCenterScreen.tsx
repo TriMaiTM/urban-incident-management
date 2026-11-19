@@ -193,7 +193,7 @@ export default function CommandCenterScreen() {
                         onClick={() => setSel(t.id)}
                         className={cn('animate-rise cursor-pointer rounded-card transition', isSel ? 'bg-ink' : 'bg-surface')}
                       >
-                        <IncidentListItem kind={t.kind} title={t.title} address={t.address.split(', ')[1]} time={t.time} level={t.level} status={isSel ? 'selected' : 'default'} />
+                        <IncidentListItem kind={t.kind} imageUrl={t._t.imageUrl} title={t.title} address={t.address.split(', ')[1]} time={t.time} level={t.level} status={isSel ? 'selected' : 'default'} />
                         <SlaStrip remaining={t.remaining} level={t.level} selected={isSel} />
                       </div>
                     </div>
@@ -242,7 +242,7 @@ export default function CommandCenterScreen() {
               ) : (
                 <>
                   <section className="shrink-0 rounded-card bg-card p-2 shadow-card">
-                    <EvidenceUploadCard state={photoState} height={220} onChoose={() => cur && setFixed((f) => [...f, cur.id])} />
+                    <EvidenceUploadCard state={photoState} imageUrl={cur?._t.imageUrl} height={220} onChoose={cur?.badPhoto ? () => cur && setFixed((f) => [...f, cur.id]) : undefined} />
                   </section>
 
                   <section

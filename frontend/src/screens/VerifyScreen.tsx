@@ -12,6 +12,7 @@ type Case = {
   id: string; title: string; address: string; gps: number; ax: number; ay: number; bx: number; by: number
   lat: number; lng: number; latB: number; lngB: number
   measure: string; material: string; time: string; minutes: number; hash: string; onTime: boolean
+  imageUrl?: string; afterImageUrl?: string
 }
 /** Phiếu chờ nghiệm thu (trạng thái RESOLVED) lấy từ nguồn dữ liệu chung (phiếu mới nhất lên đầu). */
 const buildCases = (): Case[] =>
@@ -29,6 +30,7 @@ const buildCases = (): Case[] =>
         lngB: t.gpsAfter?.lng ?? t.gps.lng + 0.0001,
         measure: plan[t.kind].steps.join(', '), material: plan[t.kind].materials.join(', '), time: `${clock(start)} – ${clock(end)}`,
         minutes: Math.max(1, Math.round((end - start) / 60000)), hash: shortHash(t.hash), onTime: end <= deadlineOf(t),
+        imageUrl: t.imageUrl, afterImageUrl: t.afterImageUrl,
       }
     })
 const emptyCase: Case = {
@@ -105,7 +107,14 @@ export default function VerifyScreen() {
         {loading ? (
           <div className="grid grid-cols-2 gap-3"><Skeleton className="h-[180px]" /><Skeleton className="h-[180px]" /></div>
         ) : (
-          <CompareEvidence photos chipMiddle height={180} gps={{ text: gpsOk ? `GPS: ${c.gps}m Đạt` : `GPS lệch ${c.gps}m`, ok: gpsOk }} />
+          <CompareEvidence
+            photos
+            beforeUrl={c.imageUrl}
+            afterUrl={c.afterImageUrl}
+            chipMiddle
+            height={180}
+            gps={{ text: gpsOk ? `GPS: ${c.gps}m Đạt` : `GPS lệch ${c.gps}m`, ok: gpsOk }}
+          />
         )}
       </section>
 

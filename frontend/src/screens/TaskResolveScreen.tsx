@@ -4,10 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, CheckCircle2, MapPin, Package, RotateCcw, ShieldCheck, Sparkles, TrafficCone, Wrench } from 'lucide-react'
 import { Avatar, Button, ErrorState, IconChip, PillTab, StatusPill, Toast, cn, ic } from '../components/primitives'
 import { EvidenceUploadCard, InputField, MetricBentoCard, Timeline } from '../components/data'
-import SamplePhoto from '../components/SamplePhoto'
 import { TechnicianNav } from '../components/nav'
 import { getTask, plan, useMedia } from './technicianData'
-import { isInitialBackendSyncDone, setStatus, shortHash, useTicketVersion } from '../data/tickets'
+import { getTicket, isInitialBackendSyncDone, setStatus, shortHash, useTicketVersion } from '../data/tickets'
 
 type Photo = 'empty' | 'scanning' | 'done'
 const STEPS = ['Ảnh', 'Biên bản', 'Gửi']
@@ -30,6 +29,7 @@ export default function TaskResolveScreen({ id }: { id: string }) {
   const [sent, setSent] = useState(false)
   const [copied, setCopied] = useState(false)
   const [proofFile, setProofFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined)
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const back = () => { window.location.href = `/technician/tasks/${id}` }
@@ -76,6 +76,10 @@ export default function TaskResolveScreen({ id }: { id: string }) {
     const f = e.target.files?.[0]
     if (f) {
       setProofFile(f)
+      setPreviewUrl((prev) => {
+        if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
+        return URL.createObjectURL(f)
+      })
       pick(Math.min(35, (f.size % 30) + 5))
     }
     e.target.value = ''
@@ -106,14 +110,16 @@ export default function TaskResolveScreen({ id }: { id: string }) {
     </div>
   )
 
+  const activeImageUrl = previewUrl ?? getTicket(task.id).afterImageUrl ?? getTicket(task.id).imageUrl
+
   const photoBlock = (
     <section className="animate-rise rounded-card bg-card p-2 shadow-card">
       <EvidenceUploadCard
         height={desktop ? 400 : 260}
         state={photo}
+        imageUrl={activeImageUrl}
         onCapture={() => camRef.current?.click()}
         onChoose={() => fileRef.current?.click()}
-        onSample={() => pick(task.gpsDev)}
       />
       <div className="flex min-h-[48px] items-center justify-between gap-2 px-3 py-2">
         <div className="flex flex-wrap gap-2">{gpsChip}{!desktop && ndChip}</div>
@@ -140,7 +146,9 @@ export default function TaskResolveScreen({ id }: { id: string }) {
   const review = (
     <section className="animate-rise rounded-card bg-card p-4 shadow-card">
       <div className="mb-4 flex items-center gap-3">
-        <div className="size-20 shrink-0 overflow-hidden rounded-tile"><SamplePhoto className="size-full" /></div>
+        <div className="size-20 shrink-0 overflow-hidden rounded-tile bg-surface">
+          {activeImageUrl && <img src={activeImageUrl} alt="Ảnh nghiệm thu" className="size-full object-cover" />}
+        </div>
         <div className="flex flex-wrap gap-2">{gpsChip}{ndChip}</div>
       </div>
       <div className="space-y-3 text-[14px]">

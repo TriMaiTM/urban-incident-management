@@ -87,7 +87,7 @@
 - **Lệnh kiểm tra:** `py backend/scripts/seed_data.py && py -m pytest backend/tests/test_zones.py`
 - **Commit 1:** `feat(gis): upgrade 7 district boundaries to high-resolution OpenStreetMap geometry matching Goong Map`
 
-### [ ] Bước 2: Xóa Toàn Bộ Dữ Liệu & Ảnh Mock, Hiển Thị 100% Ảnh/Phiếu Thật & Bổ Sung Phân Tích Thị Giác OpenCV (Hạng mục 2)
+### [x] Bước 2: Xóa Toàn Bộ Dữ Liệu & Ảnh Mock, Hiển Thị 100% Ảnh/Phiếu Thật & Bổ Sung Phân Tích Thị Giác OpenCV (Hạng mục 2)
 - Trong `backend/app/services/deepseek_vision.py`: bổ sung bộ phân tích đặc trưng hình ảnh OpenCV (`_analyze_image_visual_features`) kết hợp mô tả văn bản khi `DEEPSEEK_API_KEY` trống.
 - Trong `frontend/src/data/tickets.ts`: xóa hoàn toàn 15 phiếu mock `specs`/`base` và `submitDemoTicket()`; ánh xạ `imageUrl` (`BEFORE_ANONYMIZED`) và `afterImageUrl` (`AFTER_PROOF`) thật từ Backend (`http://localhost:8000/uploads/public/...`).
 - Cập nhật `EvidenceUploadCard`, `CompareEvidence`, `IncidentListItem`, `IncidentListScreen`, `TrackingScreen`, `ReportDetailScreen`, `CommandCenterScreen`, `TaskResolveScreen`, `VerifyScreen`, `FeedbackScreen` để hiển thị ảnh thật do người dùng tải lên và xóa nút "Ảnh mẫu".
