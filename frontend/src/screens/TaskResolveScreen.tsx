@@ -7,15 +7,17 @@ import { EvidenceUploadCard, InputField, MetricBentoCard, Timeline } from '../co
 import SamplePhoto from '../components/SamplePhoto'
 import { TechnicianNav } from '../components/nav'
 import { getTask, plan, useMedia } from './technicianData'
-import { setStatus, shortHash } from '../data/tickets'
+import { isInitialBackendSyncDone, setStatus, shortHash, useTicketVersion } from '../data/tickets'
 
 type Photo = 'empty' | 'scanning' | 'done'
 const STEPS = ['Ảnh', 'Biên bản', 'Gửi']
 const chipBase = 'inline-flex h-6 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-white'
 
 export default function TaskResolveScreen({ id }: { id: string }) {
+  useTicketVersion()
   const desktop = useMedia('(min-width: 768px)')
   const task = getTask(id)
+  const syncDone = isInitialBackendSyncDone()
   const hash = task ? shortHash(task.hash) : ''
   const p = task ? plan[task.kind] : plan.road
   const [photo, setPhoto] = useState<Photo>('empty')
@@ -33,10 +35,26 @@ export default function TaskResolveScreen({ id }: { id: string }) {
   const back = () => { window.location.href = `/technician/tasks/${id}` }
 
   useEffect(() => {
+    if (task) {
+      const tp = plan[task.kind]
+      setMeasure(tp.steps.join(', '))
+      setMaterial(tp.materials.join(', '))
+      setMeters(task.gpsDev ?? 12)
+    }
+  }, [task?.id, task?.kind])
+
+  useEffect(() => {
     if (photo !== 'scanning') return
     const t = setTimeout(() => setPhoto('done'), 1500)
     return () => clearTimeout(t)
   }, [photo])
+
+  if (!task && !syncDone)
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-page p-4">
+        <div className="size-10 animate-spin rounded-full border-4 border-surface border-t-ink" />
+      </div>
+    )
 
   if (!task)
     return (
