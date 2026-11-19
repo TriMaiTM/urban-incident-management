@@ -580,14 +580,14 @@ export default function SystemSettingsScreen() {
                   onSelectReferenceVertex={handleSelectReferenceVertex}
                 />
 
-                {/* Thanh công cụ hợp nhất 1 hàng phía trên bản đồ */}
-                <div className="absolute top-3 right-3 left-3 z-10 flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1 rounded-full bg-card/95 p-1 shadow-card backdrop-blur-sm">
+                {/* Thanh công cụ 1 hàng gọn gàng phía trên bản đồ */}
+                <div className="pointer-events-none absolute top-3 right-3 left-3 z-10 flex items-center justify-start">
+                  <div className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-card/95 p-1 shadow-card backdrop-blur-sm">
                     <button
                       type="button"
                       onClick={() => setMode('edit')}
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
+                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold whitespace-nowrap transition',
                         mode === 'edit' ? 'bg-ink text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
@@ -599,7 +599,7 @@ export default function SystemSettingsScreen() {
                       onClick={handleEnterDrawMode}
                       title="Chấm tiếp điểm mới nối vào cuối đa giác hiện tại (tự động lưu nháp)"
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
+                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold whitespace-nowrap transition',
                         mode === 'draw' ? 'bg-accent text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
@@ -610,58 +610,50 @@ export default function SystemSettingsScreen() {
                       type="button"
                       onClick={handleClearPoints}
                       title="Xóa toàn bộ điểm hiện tại để vẽ lại từ điểm số 1"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-urgent transition hover:bg-urgent/10"
+                      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold whitespace-nowrap text-urgent transition hover:bg-urgent/10"
                     >
                       <Trash2 size={13} {...ic} />
-                      Vẽ lại từ đầu
+                      Xóa vẽ
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode('view')}
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
+                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-semibold whitespace-nowrap transition',
                         mode === 'view' ? 'bg-ink text-white' : 'text-ink hover:bg-surface',
                       )}
                     >
                       <Layers size={13} {...ic} />
                       Tổng thể
                     </button>
-                    <span className="mx-0.5 h-4 w-px bg-surface" />
+                    <span className="mx-0.5 h-4 w-px shrink-0 bg-surface" />
                     <button
                       type="button"
                       onClick={() => setSyncAdjacent((s) => !s)}
                       title="Khi lưu, tự động cắt chồng lấn & lấp khoảng trống ở các quận giáp ranh (Shared Border)"
                       className={cn(
-                        'inline-flex h-8 items-center gap-1 rounded-full px-3 text-[12px] font-semibold transition',
+                        'inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-semibold whitespace-nowrap transition',
                         syncAdjacent ? 'bg-done text-white' : 'bg-surface text-muted hover:bg-page',
                       )}
                     >
                       <Check size={13} {...ic} />
-                      Khớp biên giới
+                      Khớp biên
                     </button>
                     <button
                       type="button"
                       disabled={history.length === 0}
                       onClick={handleUndo}
                       title="Hoàn tác thao tác vừa rồi"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-ink transition hover:bg-page disabled:opacity-40"
+                      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold whitespace-nowrap text-ink transition hover:bg-page disabled:opacity-40"
                     >
                       <Undo2 size={13} {...ic} />
                       Hoàn tác
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleSimplify(20)}
-                      title="Rút gọn thành 20 điểm neo chính để dễ kéo chỉnh"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-ink transition hover:bg-page"
-                    >
-                      20 đỉnh
-                    </button>
-                    <button
-                      type="button"
                       onClick={handleResetDefault}
                       title="Khôi phục ranh giới mặc định ban đầu"
-                      className="inline-flex h-8 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold text-ink transition hover:bg-page"
+                      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-surface px-2.5 text-[12px] font-semibold whitespace-nowrap text-ink transition hover:bg-page"
                     >
                       <RotateCcw size={13} {...ic} />
                       Mặc định
@@ -671,9 +663,9 @@ export default function SystemSettingsScreen() {
                         type="button"
                         onClick={handleDiscardDraft}
                         title={`Đã tự lưu nháp lúc ${new Date(draftSavedAt).toLocaleTimeString('vi-VN')} · Bấm để hủy nháp về bản PostGIS`}
-                        className="inline-flex h-8 items-center gap-1 rounded-full bg-high/15 px-2.5 text-[11px] font-semibold text-high transition hover:bg-high/25"
+                        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-high/15 px-2.5 text-[12px] font-semibold whitespace-nowrap text-high transition hover:bg-high/25"
                       >
-                        Nháp ({points.length}đ) · Hủy
+                        Hủy nháp
                       </button>
                     )}
                   </div>
