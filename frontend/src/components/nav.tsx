@@ -32,7 +32,6 @@ import {
   type LucideProps,
 } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
-import SamplePhoto from './SamplePhoto'
 import { Avatar, Button, IconChip, StatusPill, cn, ic } from './primitives'
 
 type Icon = ComponentType<LucideProps>
@@ -85,7 +84,7 @@ export function TopPillNav(_: { active?: number }) {
         ))}
       </nav>
       <div className={cn(pill, 'gap-2')}>
-        <a href="/tracking/DN-202610-0129" aria-label="Tra cứu" className="flex size-10 items-center justify-center rounded-full bg-surface transition hover:bg-page"><Search size={16} {...ic} /></a>
+        <a href="/incidents" aria-label="Tra cứu" className="flex size-10 items-center justify-center rounded-full bg-surface transition hover:bg-page"><Search size={16} {...ic} /></a>
         <a href="/citizen/notifications" aria-label="Thông báo" className={cn('flex size-10 items-center justify-center rounded-full transition', cur === '/citizen/notifications' ? 'bg-ink text-white' : 'bg-surface hover:bg-page')}><Bell size={16} {...ic} /></a>
         <a href="/profile" aria-label="Hồ sơ" className={cn('rounded-full', cur === '/profile' && 'ring-2 ring-ink')}><Avatar name="Nguyễn Minh" /></a>
       </div>
@@ -145,7 +144,7 @@ export function SideSheet() {
           <StatusPill level="urgent" />
           <span className="inline-flex h-6 items-center gap-1 rounded-full bg-surface px-3 text-[12px] font-semibold"><Sparkles size={12} {...ic} />AI gợi ý</span>
         </div>
-        <div className="h-28 overflow-hidden rounded-tile"><SamplePhoto className="size-full" /></div>
+        <div className="flex h-28 items-center justify-center overflow-hidden rounded-tile bg-surface text-[12px] text-muted">Ảnh hiện trường NĐ13</div>
         <div className="space-y-3 text-[14px]">
           <div className="flex items-center gap-3"><IconChip icon={MapPin} size={32} />Nguyễn Văn Linh, Hải Châu</div>
           <div className="flex items-center gap-3"><IconChip icon={Clock} tone="urgent" size={32} />Còn 1 giờ 20 phút</div>
@@ -191,6 +190,7 @@ const adminItems: NavItem[] = [
   { icon: Layers, label: 'Phân vùng', path: '/admin/zones', match: (p) => p === '/admin/zones' },
   { icon: SlidersHorizontal, label: 'Cấu hình', path: '/admin/settings', match: (p) => p === '/admin/settings' },
   { icon: Plug, label: 'Tích hợp', path: '/admin/integrations', match: (p) => p === '/admin/integrations' },
+  { icon: Settings, label: 'Cài đặt', path: '/admin/system-settings', match: (p) => p === '/admin/system-settings' },
   profileItem,
 ]
 const roleItems: Record<Role, NavItem[]> = { citizen: citizenItems, dispatcher: dispatcherItems, technician: technicianItems, admin: adminItems }

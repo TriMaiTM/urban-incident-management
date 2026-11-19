@@ -55,6 +55,40 @@ function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
   return inside
 }
 
+let cachedLiveZones: ApiZoneOut[] | null = null
+let liveZonesPromise: Promise<ApiZoneOut[] | null> | null = null
+export const ZONES_UPDATED_EVENT = 'urbana-zones-updated'
+
+export async function ensureLiveZonesLoaded(force = false): Promise<ApiZoneOut[] | null> {
+  if (!force && cachedLiveZones) return cachedLiveZones
+  if (!force && liveZonesPromise) return liveZonesPromise
+  liveZonesPromise = apiListZones()
+    .then((zs) => {
+      cachedLiveZones = zs
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(ZONES_UPDATED_EVENT))
+      }
+      return zs
+    })
+    .catch(() => cachedLiveZones)
+    .finally(() => {
+      liveZonesPromise = null
+    })
+  return liveZonesPromise
+}
+
+export function invalidateLiveZonesCache(nextZones?: ApiZoneOut[]): void {
+  if (nextZones) {
+    cachedLiveZones = nextZones
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(ZONES_UPDATED_EVENT))
+    }
+    return
+  }
+  cachedLiveZones = null
+  void ensureLiveZonesLoaded(true)
+}
+
 export function findDistrictAtLngLat(
   lng: number,
   lat: number,
@@ -65,15 +99,20 @@ export function findDistrictAtLngLat(
     (districtsGeoJsonRaw.features as unknown as Array<{
       properties: { zone_id: string; name: string; is_active?: boolean }
       geometry: GeoJSON.Geometry
-    }>).map((f) => ({
-      id: f.properties.zone_id.toLowerCase(),
-      name: f.properties.name,
-      on: f.properties.is_active !== false,
-      geometry: f.geometry,
-    }))
+    }>).map((f) => {
+      const zid = String(f.properties.zone_id ?? '').toUpperCase()
+      const live = cachedLiveZones?.find((lz) => lz.id.toUpperCase() === zid)
+      return {
+        id: zid.toLowerCase(),
+        name: live?.name ?? f.properties.name,
+        on: live ? live.is_active : f.properties.is_active !== false,
+        geometry: (live?.geojson_geometry as unknown as GeoJSON.Geometry) ?? f.geometry,
+      }
+    })
 
   for (const z of list) {
     const g = z.geometry
+    if (!g) continue
     if (g.type === 'Polygon') {
       if (pointInRing(lng, lat, g.coordinates[0])) return { id: z.id, name: z.name, on: z.on }
     } else if (g.type === 'MultiPolygon') {
@@ -127,6 +166,7 @@ export async function reverseGeocodeDaNang(
   lng: number,
   lat: number,
 ): Promise<{ address: string; district: string | null; inside: boolean }> {
+  await ensureLiveZonesLoaded()
   const dist = findDistrictAtLngLat(lng, lat)
   if (!dist || !dist.on) {
     return { address: '', district: null, inside: false }
@@ -169,16 +209,22 @@ export async function reverseGeocodeDaNang(
  * If inside Da Nang's active districts, returns the exact GPS position.
  * Otherwise falls back to 124 Lê Duẩn, Hải Châu (108.2208, 16.0712).
  */
-export function requestBrowserGpsInDaNang(): Promise<{
+export async function requestBrowserGpsInDaNang(): Promise<{
   lng: number
   lat: number
   x: number
   y: number
   isRealGps: boolean
 }> {
-  // Default: 124 Lê Duẩn, Hải Châu (Center of Da Nang, NOT the airport)
-  const defaultLng = 108.2208
-  const defaultLat = 16.0712
+  await ensureLiveZonesLoaded()
+  // Pick the first street in LOCAL_DANANG_STREETS that belongs to an active zone; fall back to 124 Lê Duẩn
+  const activeStreet =
+    LOCAL_DANANG_STREETS.find((s) => {
+      const d = findDistrictAtLngLat(s.lng, s.lat)
+      return d && d.on
+    }) ?? LOCAL_DANANG_STREETS[0]
+  const defaultLng = activeStreet.lng
+  const defaultLat = activeStreet.lat
   const defXY = lngLatToXY(defaultLng, defaultLat)
 
   return new Promise((resolve) => {
@@ -322,6 +368,13 @@ export interface GoongBentoMapProps {
   fieldUnits?: FieldUnitMarkerItem[]
   onSelectFieldUnit?: (id: string) => void
   dispatchRoute?: { from: [number, number]; to: [number, number] } | null
+  /** Optional interactive GIS Polygon Studio mode for /admin/system-settings */
+  polygonPoints?: [number, number][]
+  polygonMode?: 'view' | 'draw' | 'edit'
+  onPolygonMapClick?: (pt: [number, number]) => void
+  onPolygonMoveVertex?: (index: number, pt: [number, number]) => void
+  onPolygonRemoveVertex?: (index: number) => void
+  onPolygonInsertVertex?: (afterIndex: number, pt: [number, number]) => void
   initialZoom?: number
   initialCenter?: [number, number]
 }
@@ -331,6 +384,10 @@ const LAYER_DISTRICTS_FILL = 'bento-gadm-districts-fill'
 const LAYER_DISTRICTS_ACTIVE_LINE = 'bento-gadm-districts-active-line'
 const LAYER_DISTRICTS_PAUSED_LINE = 'bento-gadm-districts-paused-line'
 
+const SOURCE_EDITOR_POLY = 'bento-editor-poly'
+const LAYER_EDITOR_FILL = 'bento-editor-poly-fill'
+const LAYER_EDITOR_LINE = 'bento-editor-poly-line'
+
 const SOURCE_RADIUS = 'bento-user-radius'
 const LAYER_RADIUS_FILL = 'bento-user-radius-fill'
 const LAYER_RADIUS_LINE = 'bento-user-radius-line'
@@ -338,8 +395,6 @@ const LAYER_RADIUS_LINE = 'bento-user-radius-line'
 const SOURCE_ROUTE = 'bento-route-line'
 const LAYER_ROUTE_CASING = 'bento-route-casing'
 const LAYER_ROUTE_MAIN = 'bento-route-main'
-
-let cachedLiveZones: ApiZoneOut[] | null = null
 
 export default function GoongBentoMap({
   pins = [],
@@ -360,6 +415,12 @@ export default function GoongBentoMap({
   fieldUnits,
   onSelectFieldUnit,
   dispatchRoute,
+  polygonPoints,
+  polygonMode = 'view',
+  onPolygonMapClick,
+  onPolygonMoveVertex,
+  onPolygonRemoveVertex,
+  onPolygonInsertVertex,
   initialZoom,
   initialCenter,
 }: GoongBentoMapProps) {
@@ -371,26 +432,50 @@ export default function GoongBentoMap({
   const fallbackAppliedRef = useRef(false)
 
   const markersRef = useRef<maplibregl.Marker[]>([])
+  const editorMarkersRef = useRef<maplibregl.Marker[]>([])
   const onPickRef = useRef(onPick)
   const onSelectZoneRef = useRef(onSelectZone)
   const onPinClickRef = useRef(onPinClick)
   const onSelectFieldUnitRef = useRef(onSelectFieldUnit)
+  const polygonModeRef = useRef(polygonMode)
+  const onPolygonMapClickRef = useRef(onPolygonMapClick)
+  const onPolygonMoveVertexRef = useRef(onPolygonMoveVertex)
+  const onPolygonRemoveVertexRef = useRef(onPolygonRemoveVertex)
+  const onPolygonInsertVertexRef = useRef(onPolygonInsertVertex)
 
   useEffect(() => {
     onPickRef.current = onPick
     onSelectZoneRef.current = onSelectZone
     onPinClickRef.current = onPinClick
     onSelectFieldUnitRef.current = onSelectFieldUnit
-  }, [onPick, onSelectZone, onPinClick, onSelectFieldUnit])
+    polygonModeRef.current = polygonMode
+    onPolygonMapClickRef.current = onPolygonMapClick
+    onPolygonMoveVertexRef.current = onPolygonMoveVertex
+    onPolygonRemoveVertexRef.current = onPolygonRemoveVertex
+    onPolygonInsertVertexRef.current = onPolygonInsertVertex
+  }, [
+    onPick,
+    onSelectZone,
+    onPinClick,
+    onSelectFieldUnit,
+    polygonMode,
+    onPolygonMapClick,
+    onPolygonMoveVertex,
+    onPolygonRemoveVertex,
+    onPolygonInsertVertex,
+  ])
 
   useEffect(() => {
-    if (interactiveZones || cachedLiveZones) return
-    apiListZones()
-      .then((zs) => {
-        cachedLiveZones = zs
-        setLiveZones(zs)
-      })
-      .catch(() => {})
+    const onUpdated = () => {
+      setLiveZones(cachedLiveZones)
+    }
+    window.addEventListener(ZONES_UPDATED_EVENT, onUpdated)
+    if (!interactiveZones && !cachedLiveZones) {
+      void ensureLiveZonesLoaded()
+    }
+    return () => {
+      window.removeEventListener(ZONES_UPDATED_EVENT, onUpdated)
+    }
   }, [interactiveZones])
 
   const buildDistrictsFeatureCollection = (): GeoJSON.FeatureCollection => {
@@ -517,12 +602,7 @@ export default function GoongBentoMap({
                   0.32,
                   0.14,
                 ],
-                [
-                  'case',
-                  ['!', ['boolean', ['get', 'on'], true]],
-                  0.2,
-                  0,
-                ],
+                0,
               ],
             },
           },
@@ -569,11 +649,43 @@ export default function GoongBentoMap({
                 2,
               ],
               'line-dasharray': [3, 2],
-              'line-opacity': 0.85,
+              'line-opacity': [
+                'case',
+                ['boolean', ['get', 'interactive'], false],
+                0.85,
+                0,
+              ],
             },
           },
           firstSymbolId,
         )
+      }
+
+      if (!map.getSource(SOURCE_EDITOR_POLY)) {
+        map.addSource(SOURCE_EDITOR_POLY, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+        map.addLayer({
+          id: LAYER_EDITOR_FILL,
+          type: 'fill',
+          source: SOURCE_EDITOR_POLY,
+          filter: ['==', '$type', 'Polygon'],
+          paint: {
+            'fill-color': '#e5251b',
+            'fill-opacity': 0.25,
+          },
+        })
+        map.addLayer({
+          id: LAYER_EDITOR_LINE,
+          type: 'line',
+          source: SOURCE_EDITOR_POLY,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#111111',
+            'line-width': 3,
+          },
+        })
       }
 
       if (!map.getSource(SOURCE_RADIUS)) {
@@ -642,6 +754,13 @@ export default function GoongBentoMap({
     })
 
     map.on('click', (e) => {
+      if (polygonModeRef.current === 'draw' && onPolygonMapClickRef.current) {
+        onPolygonMapClickRef.current([+e.lngLat.lng.toFixed(6), +e.lngLat.lat.toFixed(6)])
+        return
+      }
+      if (polygonModeRef.current === 'edit') {
+        return
+      }
       if (onSelectZoneRef.current && map.getLayer(LAYER_DISTRICTS_FILL)) {
         const feats = map.queryRenderedFeatures(e.point, { layers: [LAYER_DISTRICTS_FILL] })
         if (feats.length > 0) {
@@ -668,6 +787,8 @@ export default function GoongBentoMap({
       setLoaded(false)
       markersRef.current.forEach((m) => m.remove())
       markersRef.current = []
+      editorMarkersRef.current.forEach((m) => m.remove())
+      editorMarkersRef.current = []
       map.remove()
       mapRef.current = null
     }
@@ -694,6 +815,107 @@ export default function GoongBentoMap({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, interactiveZones, selectedZoneId, liveZones])
+
+  // Update interactive Polygon Editor layer & draggable vertex handles (GIS Polygon Studio)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+    const src = map.getSource(SOURCE_EDITOR_POLY) as maplibregl.GeoJSONSource | undefined
+
+    editorMarkersRef.current.forEach((m) => m.remove())
+    editorMarkersRef.current = []
+
+    const pts = polygonPoints ?? []
+    if (polygonMode === 'view' || pts.length === 0) {
+      src?.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    const features: GeoJSON.Feature[] = []
+    if (pts.length >= 3) {
+      const closed = [...pts, pts[0]]
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [closed],
+        },
+      })
+    } else if (pts.length === 2) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: pts,
+        },
+      })
+    }
+    src?.setData({ type: 'FeatureCollection', features })
+
+    // Midpoint '+' handles to insert a new vertex on any edge when >= 2 vertices exist
+    if (pts.length >= 2 && onPolygonInsertVertexRef.current) {
+      const edgeCount = pts.length >= 3 ? pts.length : pts.length - 1
+      for (let i = 0; i < edgeCount; i++) {
+        const a = pts[i]
+        const b = pts[(i + 1) % pts.length]
+        const mid: [number, number] = [
+          +((a[0] + b[0]) / 2).toFixed(6),
+          +((a[1] + b[1]) / 2).toFixed(6),
+        ]
+        const midEl = document.createElement('button')
+        midEl.type = 'button'
+        midEl.title = 'Chèn thêm điểm đỉnh tại cạnh này'
+        midEl.className =
+          'flex size-5 items-center justify-center rounded-full bg-white text-[12px] font-bold text-ink shadow-card ring-2 ring-ink/70 transition hover:scale-125 hover:bg-ink hover:text-white cursor-pointer'
+        midEl.textContent = '+'
+        midEl.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          onPolygonInsertVertexRef.current?.(i, mid)
+        })
+        const midMarker = new maplibregl.Marker({ element: midEl, anchor: 'center' })
+          .setLngLat(mid)
+          .addTo(map)
+        editorMarkersRef.current.push(midMarker)
+      }
+    }
+
+    // Draggable vertex handles
+    pts.forEach((pt, idx) => {
+      const el = document.createElement('div')
+      el.title = `Đỉnh #${idx + 1} (${pt[1].toFixed(4)}, ${pt[0].toFixed(4)}) · Kéo để di chuyển, nhấp đúp/chuột phải để xóa`
+      el.className =
+        'flex size-6 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white shadow-card ring-2 ring-white transition hover:scale-125 cursor-grab active:cursor-grabbing'
+      el.textContent = String(idx + 1)
+
+      el.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        onPolygonRemoveVertexRef.current?.(idx)
+      })
+      el.addEventListener('dblclick', (ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        onPolygonRemoveVertexRef.current?.(idx)
+      })
+
+      const m = new maplibregl.Marker({
+        element: el,
+        anchor: 'center',
+        draggable: true,
+      })
+        .setLngLat(pt)
+        .addTo(map)
+
+      m.on('dragend', () => {
+        const p = m.getLngLat()
+        onPolygonMoveVertexRef.current?.(idx, [+p.lng.toFixed(6), +p.lat.toFixed(6)])
+      })
+
+      editorMarkersRef.current.push(m)
+    })
+  }, [loaded, polygonPoints, polygonMode])
 
   // Update route / dispatchRoute line
   useEffect(() => {
@@ -973,7 +1195,7 @@ export default function GoongBentoMap({
       className={cn(
         'overflow-hidden rounded-card bg-surface',
         fill ? 'absolute inset-0' : cn('relative', compact ? 'h-[200px]' : 'h-[320px]'),
-        onPick && 'cursor-crosshair',
+        (onPick || polygonMode === 'draw') && 'cursor-crosshair',
       )}
     >
       <div ref={containerRef} className="absolute inset-0 size-full" />

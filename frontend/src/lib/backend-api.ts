@@ -698,7 +698,15 @@ export async function apiListZones(): Promise<ApiZoneOut[]> {
 
 export async function apiUpdateZone(
   zoneId: string,
-  payload: { is_active?: boolean; name?: string; description?: string },
+  payload: {
+    is_active?: boolean
+    name?: string
+    description?: string
+    geojson_geometry?: {
+      type: string
+      coordinates: unknown
+    }
+  },
 ): Promise<ApiZoneOut> {
   return requestJson<ApiZoneOut>(
     `/api/v1/zones/${encodeURIComponent(zoneId)}`,
