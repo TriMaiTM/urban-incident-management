@@ -532,8 +532,8 @@ export const agoText = (ms: number) => {
 export const dateText = (ms: number) => new Date(ms).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 /** Mức hiển thị trên StatusPill: phiếu đã xác nhận/đóng hiện "Hoàn tất". */
 export const levelOf = (t: Ticket): Priority | 'done' => (t.status === 'CONFIRMED' || t.status === 'CLOSED' ? 'done' : t.priority)
-/** Timeline công dân 5 mốc: Tiếp nhận, Phân loại, Giao việc, Đang xử lý, Đã khắc phục. */
-export const citizenStep = (s: Status) => ({ SUBMITTED: 0, TRIAGED: 1, ASSIGNED: 2, REJECTED: 2, IN_PROGRESS: 3, REOPENED: 3, RESOLVED: 4, CONFIRMED: 4, CLOSED: 4 })[s]
+/** Timeline công dân 5 mốc: Tiếp nhận, Phân loại, Giao việc, Đang xử lý, Đã khắc phục (CONFIRMED/CLOSED = 5 -> xanh cả 5 mốc). */
+export const citizenStep = (s: Status) => ({ SUBMITTED: 0, TRIAGED: 1, ASSIGNED: 2, REJECTED: 2, IN_PROGRESS: 3, REOPENED: 3, RESOLVED: 4, CONFIRMED: 5, CLOSED: 5 })[s]
 export const timesOf = (t: Ticket): string[] => {
   const k: Status[] = ['SUBMITTED', 'TRIAGED', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED']
   const step = citizenStep(t.status)

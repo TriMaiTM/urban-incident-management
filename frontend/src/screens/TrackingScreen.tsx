@@ -88,7 +88,7 @@ export default function TrackingScreen({ code }: { code: string }) {
       </div>,
     )
 
-  const resolved = track.step === 4
+  const resolved = track.step >= 4
   const I = kindIcon[track.kind]
   const remaining = track.remaining
 
