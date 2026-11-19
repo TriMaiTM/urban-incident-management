@@ -706,6 +706,7 @@ export async function apiUpdateZone(
       type: string
       coordinates: unknown
     }
+    sync_adjacent?: boolean
   },
 ): Promise<ApiZoneOut> {
   return requestJson<ApiZoneOut>(

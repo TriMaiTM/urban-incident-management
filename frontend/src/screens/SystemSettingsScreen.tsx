@@ -97,6 +97,7 @@ export default function SystemSettingsScreen() {
   const [history, setHistory] = useState<[number, number][][]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [syncAdjacent, setSyncAdjacent] = useState(true)
   const [showJsonModal, setShowJsonModal] = useState(false)
   const [jsonDraft, setJsonDraft] = useState('')
   const [toast, setToast] = useState<null | { kind: 'success' | 'info' | 'error'; text: string }>(null)
@@ -283,14 +284,32 @@ export default function SystemSettingsScreen() {
       const zoneCode = selectedZone.backendId ?? selectedZone.id.toUpperCase()
       await apiUpdateZone(zoneCode, {
         geojson_geometry: newGeom as unknown as { type: string; coordinates: unknown },
+        sync_adjacent: syncAdjacent,
       })
-      setZones((prev) =>
-        prev.map((z) => (z.id === selectedZone.id ? { ...z, geometry: newGeom } : z)),
-      )
       invalidateLiveZonesCache()
-      await ensureLiveZonesLoaded(true)
+      const freshApiZones = await ensureLiveZonesLoaded(true)
+      if (freshApiZones) {
+        const districts = freshApiZones.filter((z) => z.id.toUpperCase() !== 'DANANG_CORE')
+        setZones((prev) =>
+          prev.map((z) => {
+            const match = districts.find((d) => d.id.toLowerCase() === z.id)
+            return match && match.geojson_geometry
+              ? { ...z, geometry: match.geojson_geometry as unknown as GeoJSON.Geometry }
+              : z
+          }),
+        )
+      } else {
+        setZones((prev) =>
+          prev.map((z) => (z.id === selectedZone.id ? { ...z, geometry: newGeom } : z)),
+        )
+      }
       setMode('edit')
-      say('success', `Đã lưu ranh giới mới của ${selectedZone.name} vào PostGIS (${points.length} đỉnh)`)
+      say(
+        'success',
+        syncAdjacent
+          ? `Đã lưu ${selectedZone.name} (${points.length} đỉnh) & tự động khớp biên giới các quận giáp ranh`
+          : `Đã lưu ranh giới mới của ${selectedZone.name} vào PostGIS (${points.length} đỉnh)`,
+      )
     } catch (err) {
       say('error', err instanceof Error ? err.message : 'Không thể lưu ranh giới vào PostGIS')
     } finally {
@@ -451,6 +470,18 @@ export default function SystemSettingsScreen() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 rounded-full bg-card/95 p-1.5 shadow-card backdrop-blur-sm">
+                    <button
+                      type="button"
+                      onClick={() => setSyncAdjacent((s) => !s)}
+                      title="Khi lưu, tự động cắt chồng lấn & lấp khoảng trống ở các quận giáp ranh (Shared Border)"
+                      className={cn(
+                        'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition',
+                        syncAdjacent ? 'bg-done text-white' : 'bg-surface text-muted hover:bg-page',
+                      )}
+                    >
+                      <Check size={13} {...ic} />
+                      Khớp biên giới giáp ranh
+                    </button>
                     <button
                       type="button"
                       disabled={history.length === 0}

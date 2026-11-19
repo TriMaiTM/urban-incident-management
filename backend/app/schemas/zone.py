@@ -34,4 +34,8 @@ class ZoneUpdateIn(BaseModel):
         None,
         description="Cập nhật hình học đa giác ranh giới mới (GeoJSON Polygon hoặc MultiPolygon, WGS84 SRID 4326)",
     )
+    sync_adjacent: bool = Field(
+        False,
+        description="Tự động đồng bộ ranh giới các quận/huyện giáp ranh (cắt chồng lấn & lấp khoảng hở)",
+    )
 

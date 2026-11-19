@@ -855,6 +855,7 @@ export default function GoongBentoMap({
     src?.setData({ type: 'FeatureCollection', features })
 
     // Midpoint '+' handles to insert a new vertex on any edge when >= 2 vertices exist
+    // IMPORTANT: Never put CSS `transition` or `hover:scale-*` on the Marker root element, because MapLibre uses inline `transform: translate(...)` on the root!
     if (pts.length >= 2 && onPolygonInsertVertexRef.current) {
       const edgeCount = pts.length >= 3 ? pts.length : pts.length - 1
       for (let i = 0; i < edgeCount; i++) {
@@ -864,29 +865,37 @@ export default function GoongBentoMap({
           +((a[0] + b[0]) / 2).toFixed(6),
           +((a[1] + b[1]) / 2).toFixed(6),
         ]
+        const midWrap = document.createElement('div')
+        midWrap.className = 'flex items-center justify-center'
         const midEl = document.createElement('button')
         midEl.type = 'button'
         midEl.title = 'Chèn thêm điểm đỉnh tại cạnh này'
         midEl.className =
-          'flex size-5 items-center justify-center rounded-full bg-white text-[12px] font-bold text-ink shadow-card ring-2 ring-ink/70 transition hover:scale-125 hover:bg-ink hover:text-white cursor-pointer'
+          'flex size-5 items-center justify-center rounded-full bg-white text-[12px] font-bold text-ink shadow-card ring-2 ring-ink/70 transition-transform duration-150 hover:scale-125 hover:bg-ink hover:text-white cursor-pointer'
         midEl.textContent = '+'
+        midEl.addEventListener('mousedown', (ev) => {
+          ev.stopPropagation()
+        })
         midEl.addEventListener('click', (ev) => {
           ev.stopPropagation()
           onPolygonInsertVertexRef.current?.(i, mid)
         })
-        const midMarker = new maplibregl.Marker({ element: midEl, anchor: 'center' })
+        midWrap.appendChild(midEl)
+        const midMarker = new maplibregl.Marker({ element: midWrap, anchor: 'center' })
           .setLngLat(mid)
           .addTo(map)
         editorMarkersRef.current.push(midMarker)
       }
     }
 
-    // Draggable vertex handles
+    // Draggable vertex handles (wrapper stays transform-free for MapLibre; inner badge handles hover scale)
     pts.forEach((pt, idx) => {
+      const wrap = document.createElement('div')
+      wrap.className = 'flex items-center justify-center'
       const el = document.createElement('div')
       el.title = `Đỉnh #${idx + 1} (${pt[1].toFixed(4)}, ${pt[0].toFixed(4)}) · Kéo để di chuyển, nhấp đúp/chuột phải để xóa`
       el.className =
-        'flex size-6 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white shadow-card ring-2 ring-white transition hover:scale-125 cursor-grab active:cursor-grabbing'
+        'flex size-6 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white shadow-card ring-2 ring-white transition-transform duration-150 hover:scale-125 cursor-grab active:cursor-grabbing'
       el.textContent = String(idx + 1)
 
       el.addEventListener('contextmenu', (ev) => {
@@ -900,8 +909,9 @@ export default function GoongBentoMap({
         onPolygonRemoveVertexRef.current?.(idx)
       })
 
+      wrap.appendChild(el)
       const m = new maplibregl.Marker({
-        element: el,
+        element: wrap,
         anchor: 'center',
         draggable: true,
       })
