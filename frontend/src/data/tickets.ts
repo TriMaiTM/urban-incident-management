@@ -171,9 +171,12 @@ const KEY = 'urbana.tickets'
 const EVT = 'urbana-tickets'
 const liveTicketsById = new Map<string, Ticket>()
 let hasLiveBackendData = false
+let initialBackendSyncCompleted = false
 let cachedCategories: ApiCategoryOut[] | null = null
 let cachedDepartments: ApiDepartmentOut[] | null = null
 let cachedTechId: string | null = null
+
+export const isInitialBackendSyncDone = () => initialBackendSyncCompleted
 
 export function toXY(lat: number, lng: number): { x: number; y: number } {
   const x = Math.max(6, Math.min(94, +(((lng - 108.1) / 0.2) * 100).toFixed(1)))
@@ -299,9 +302,11 @@ export async function syncTicketsFromBackend(): Promise<void> {
       const mapped = mapApiIncidentToTicket(item)
       liveTicketsById.set(mapped.id, mapped)
     }
-    window.dispatchEvent(new Event(EVT))
   } catch {
     // Graceful fallback to local base tickets when backend is offline
+  } finally {
+    initialBackendSyncCompleted = true
+    window.dispatchEvent(new Event(EVT))
   }
 }
 
