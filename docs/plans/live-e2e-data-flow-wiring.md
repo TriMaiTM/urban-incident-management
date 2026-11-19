@@ -25,6 +25,7 @@ Qua rà soát trực tiếp mã nguồn `frontend/src/`, có **4 điểm nghẽn
 ## 2. Phạm Vi & Vùng Cấm (Scope & Non-goals)
 
 ### 2.1. Phạm vi thực hiện
+
 1. **Tự động xác thực đúng vai trò (`ensureRoleToken`) & Hỗ trợ tên đăng nhập ngắn (`backend-api.ts`, `LoginScreen.tsx`):**
    - Bổ sung `ensureRoleToken(role)` trong `frontend/src/lib/backend-api.ts` để tự động lấy JWT thật từ `/api/v1/auth/login` ứng với 4 tài khoản chuẩn trong PostgreSQL (`citizen@danang.gov.vn`, `dispatcher@danang.gov.vn`, `technician@danang.gov.vn`, `admin@danang.gov.vn`) khi thực hiện thao tác của vai trò đó.
    - Hỗ trợ đăng nhập nhanh trên `/auth/login` bằng cả tên ngắn (`admin`, `ioc`, `dispatcher`, `kt`, `kt.hung`, `citizen`) lẫn email đầy đủ.
@@ -38,6 +39,7 @@ Qua rà soát trực tiếp mã nguồn `frontend/src/`, có **4 điểm nghẽn
    - Khi IOC bấm **"Duyệt nghiệm thu"** (`CONFIRMED`) / **"Yêu cầu làm lại"** (`REOPENED`) và khi Công dân bấm **"Xác nhận hài lòng"** (`CLOSED`) / **"Gửi khiếu nại"** (`REOPENED`): gọi thật lên Backend và cập nhật lại từ PostgreSQL.
 
 ### 2.2. Vùng cấm tuyệt đối (Non-goals)
+
 - **KHÔNG** sửa `ui-prototype/`.
 - **KHÔNG** thay đổi giao diện hay bố cục Bento V2.
 
@@ -60,6 +62,7 @@ Qua rà soát trực tiếp mã nguồn `frontend/src/`, có **4 điểm nghẽn
 ## 4. Các Bước Thực Hiện Tuần Tự (2 Commits)
 
 ### [x] Bước 1: Nâng Cấp `backend-api.ts`, `tickets.ts`, `citizenData.ts` Để Đồng Bộ 100% Vòng Đời Thật Với PostgreSQL
+
 - Thêm `ensureRoleToken(role)` và helper nạp ảnh mẫu `/field-photo.jpg` trong `frontend/src/lib/backend-api.ts`.
 - Nâng cấp `setStatus()` và `syncTicketsFromBackend()` trong `frontend/src/data/tickets.ts`:
   - Xử lý đầy đủ `ASSIGNED` (`/triage` + `/assign`), `IN_PROGRESS`, `RESOLVED` (kèm `after_image` + GPS), `CONFIRMED`, `REOPENED`, `REJECTED`, `CLOSED` (`/feedback`) trực tiếp với FastAPI + PostgreSQL.
@@ -69,6 +72,7 @@ Qua rà soát trực tiếp mã nguồn `frontend/src/`, có **4 điểm nghẽn
 - **Commit 1:** `feat(frontend): wire full 9-state incident lifecycle mutations to PostgreSQL backend`
 
 ### [x] Bước 2: Kết Nối Tạo Phiếu Thật Trên `ReportScreen` & Đồng Bộ Tức Thì Sang IOC / KTV / Nghiệm Thu
+
 - Cập nhật `ReportScreen.tsx`: cả nút "Ảnh mẫu" lẫn tải ảnh từ máy đều tạo phiếu thật trong PostgreSQL qua `POST /api/v1/incidents`, nhận mã phiếu thật và đồng bộ tức thì sang hàng đợi IOC.
 - Cập nhật `CommandCenterScreen.tsx`, `TaskResolveScreen.tsx`, `VerifyScreen.tsx`, `LoginScreen.tsx` để chờ (`await`) phản hồi từ Backend và chọn ngay phiếu mới nhất vừa chuyển sang ở từng bước.
 - Kiểm thử luồng End-to-End thực tế: tạo phiếu mới $\rightarrow$ kiểm tra xuất hiện tại IOC $\rightarrow$ giao việc $\rightarrow$ KTV xử lý $\rightarrow$ IOC nghiệm thu $\rightarrow$ Công dân đánh giá đóng phiếu.
@@ -78,4 +82,5 @@ Qua rà soát trực tiếp mã nguồn `frontend/src/`, có **4 điểm nghẽn
 ---
 
 ## 5. Rủi Ro & Giải Pháp
+
 - **Rủi ro thiếu phòng ban / danh mục khi giao việc (`ASSIGNED`):** Hàm `setStatus(id, 'ASSIGNED')` tự động truy vấn danh sách `departments` và `categories` thật từ `/api/v1/departments` và `/api/v1/categories` (có cache) để truyền đúng UUID `department_id` và `category_id` vào `/triage` và `/assign`.

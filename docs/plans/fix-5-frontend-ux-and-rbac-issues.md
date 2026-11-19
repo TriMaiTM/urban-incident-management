@@ -95,7 +95,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`)
 - **Commit 2:** `feat(auth): enforce strict role-based access control and login guards across all routes`
 
-### [ ] Bước 3: Phân Nhóm Menu Demo (3 Gạch Tròn) Theo Từng Role & Kiểm Thử Build Toàn Diện (Lỗi 5)
+### [x] Bước 3: Phân Nhóm Menu Demo (3 Gạch Tròn) Theo Từng Role & Kiểm Thử Build Toàn Diện (Lỗi 5)
 - Thiết kế lại `DevMenu.tsx` thành 5 nhóm rõ ràng theo từng Role (`Công dân`, `Điều phối IOC`, `Kỹ thuật viên`, `Quản trị`, `Xác thực & Ngoại lệ`) kèm bộ chuyển đổi nhanh phiên đăng nhập Demo ở đầu menu.
 - Chạy `npx tsc --noEmit && npm run build` để kiểm chứng toàn bộ 34 route.
 - **Lệnh kiểm tra:** `npx tsc --noEmit && npm run build` (trong `frontend/`)
