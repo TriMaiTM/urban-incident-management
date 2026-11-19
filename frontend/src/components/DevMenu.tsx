@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ComponentType } from 'react'
+import { useEffect, useRef, useState, type ComponentType } from 'react'
 import {
   LayoutGrid,
   Menu,
@@ -70,10 +70,21 @@ const ROLE_LABELS: Record<RoleKey, string> = {
   ADMIN: 'Quản trị',
 }
 
+const POS_KEY = 'urbana.devmenu.pos'
+
 export default function DevMenu() {
   const [open, setOpen] = useState(false)
   const [user, setUser] = useState<ApiUserOut | null>(null)
   const [switchingRole, setSwitchingRole] = useState<string | null>(null)
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef<{
+    startX: number
+    startY: number
+    origX: number
+    origY: number
+    moved: boolean
+  } | null>(null)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     citizen: true,
     dispatcher: true,
@@ -99,6 +110,43 @@ export default function DevMenu() {
       window.removeEventListener('storage', sync)
     }
   }, [version])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const clamp = (x: number, y: number) => ({
+      x: Math.max(12, Math.min(window.innerWidth - 60, x)),
+      y: Math.max(12, Math.min(window.innerHeight - 60, y)),
+    })
+    try {
+      const saved = localStorage.getItem(POS_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved) as { x?: number; y?: number }
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          setPos(clamp(parsed.x, parsed.y))
+          return
+        }
+      }
+    } catch {
+      // ignore
+    }
+    setPos(clamp(window.innerWidth - 64, window.innerHeight - (window.innerWidth < 768 ? 160 : 64)))
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onResize = () => {
+      setPos((p) =>
+        p
+          ? {
+              x: Math.max(12, Math.min(window.innerWidth - 60, p.x)),
+              y: Math.max(12, Math.min(window.innerHeight - 60, p.y)),
+            }
+          : p,
+      )
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const sections: RouteSection[] = [
     {
@@ -187,10 +235,72 @@ export default function DevMenu() {
     setSwitchingRole(null)
   }
 
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!pos) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: pos.x,
+      origY: pos.y,
+      moved: false,
+    }
+    setDragging(true)
+  }
+
+  const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current
+    if (!d) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.moved && Math.hypot(dx, dy) > 5) {
+      d.moved = true
+    }
+    if (d.moved) {
+      const nx = Math.max(12, Math.min(window.innerWidth - 60, d.origX + dx))
+      const ny = Math.max(12, Math.min(window.innerHeight - 60, d.origY + dy))
+      setPos({ x: nx, y: ny })
+    }
+  }
+
+  const onPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current
+    dragRef.current = null
+    setDragging(false)
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    if (!d) return
+    if (d.moved) {
+      if (pos) {
+        try {
+          localStorage.setItem(POS_KEY, JSON.stringify(pos))
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      setOpen((o) => !o)
+    }
+  }
+
+  if (!pos) return null
+  const openLeft = typeof window !== 'undefined' ? pos.x > window.innerWidth / 2 : true
+  const openUp = typeof window !== 'undefined' ? pos.y > window.innerHeight / 2 : true
+
   return (
-    <div className="fixed right-4 bottom-28 z-50 flex flex-col items-end gap-2 md:bottom-4">
+    <div
+      className="fixed z-50 select-none"
+      style={{ left: pos.x, top: pos.y }}
+    >
       {open && (
-        <nav className="animate-rise max-h-[82vh] w-[310px] overflow-y-auto rounded-card bg-card p-3 shadow-card ring-1 ring-black/5">
+        <nav
+          className={cn(
+            'animate-rise absolute max-h-[80vh] w-[310px] overflow-y-auto rounded-card bg-card p-3 shadow-card ring-1 ring-black/5',
+            openLeft ? 'right-0' : 'left-0',
+            openUp ? 'bottom-14' : 'top-14',
+          )}
+        >
           {/* Phần 1: Phiên đăng nhập & Chuyển nhanh Role Demo */}
           <div className="mb-2.5 rounded-tile bg-surface p-3">
             <div className="flex items-center justify-between gap-2">
@@ -317,9 +427,16 @@ export default function DevMenu() {
         </nav>
       )}
       <button
-        onClick={() => setOpen(!open)}
+        type="button"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        title="Kéo để di chuyển · Bấm để mở Menu màn hình"
         aria-label="Menu màn hình theo vai trò"
-        className="flex size-12 items-center justify-center rounded-full bg-ink text-white shadow-card transition active:scale-95"
+        className={cn(
+          'flex size-12 touch-none items-center justify-center rounded-full bg-ink text-white shadow-card transition-transform',
+          dragging ? 'scale-105 cursor-grabbing opacity-90' : 'cursor-grab hover:scale-105 active:scale-95',
+        )}
       >
         {open ? <X size={20} {...ic} /> : <Menu size={20} {...ic} />}
       </button>
