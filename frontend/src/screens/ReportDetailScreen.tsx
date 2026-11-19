@@ -5,10 +5,9 @@ import { Image as ImageIcon, Send, Star, Trash2 } from 'lucide-react'
 import { Avatar, Button, ErrorState, Skeleton, StatusPill, cn, ic } from '../components/primitives'
 import { EvidenceUploadCard, InputField, MapBentoViewport, Timeline } from '../components/data'
 import { ModalDialog } from '../components/nav'
-import SamplePhoto from '../components/SamplePhoto'
 import CitizenShell from './CitizenShell'
 import { getReports, steps } from './citizenData'
-import { useTicketVersion } from '../data/tickets'
+import { getTicket, useTicketVersion } from '../data/tickets'
 
 type Msg = { from: 'me' | 'ioc'; text?: string; photo?: boolean; time: string }
 const nowStr = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
@@ -16,6 +15,7 @@ const nowStr = () => { const d = new Date(); return `${String(d.getHours()).padS
 export default function ReportDetailScreen({ id }: { id: string }) {
   useTicketVersion()
   const r = getReports().find((x) => x.id === id)
+  const tk = getTicket(id)
   const [loading, setLoading] = useState(true)
   const [cancelled, setCancelled] = useState(false)
   const [confirm, setConfirm] = useState(false)
@@ -91,7 +91,7 @@ export default function ReportDetailScreen({ id }: { id: string }) {
             {loading ? <Skeleton className="h-20" /> : <Timeline rejected={rejected} current={rejected ? 2 : r.step} steps={tlSteps} />}
           </section>
           <section className="animate-rise rounded-card bg-card p-2 shadow-card" style={{ animationDelay: '140ms' }}>
-            <EvidenceUploadCard state={loading ? 'scanning' : 'done'} height={260} />
+            <EvidenceUploadCard state={loading ? 'scanning' : 'done'} imageUrl={tk.imageUrl} height={260} />
           </section>
         </div>
 
@@ -106,7 +106,13 @@ export default function ReportDetailScreen({ id }: { id: string }) {
                 <div key={i} className={cn('flex animate-rise items-end gap-2', m.from === 'me' && 'flex-row-reverse')}>
                   {m.from === 'ioc' && <Avatar name="IOC Đà Nẵng" size={32} color={1} />}
                   <div className={cn('max-w-[75%] rounded-card p-3 text-[14px]', m.from === 'me' ? 'rounded-br-md bg-ink text-white' : 'rounded-bl-md bg-surface')}>
-                    {m.photo ? <div className="h-24 w-36 overflow-hidden rounded-tile"><SamplePhoto className="size-full" /></div> : m.text}
+                    {m.photo ? (
+                      <div className="h-24 w-36 overflow-hidden rounded-tile bg-surface">
+                        {tk.imageUrl && <img src={tk.imageUrl} alt="Ảnh đính kèm" className="size-full object-cover" />}
+                      </div>
+                    ) : (
+                      m.text
+                    )}
                     <p className={cn('mt-1 text-[12px]', m.from === 'me' ? 'text-white/60' : 'text-muted')}>{m.time}</p>
                   </div>
                 </div>

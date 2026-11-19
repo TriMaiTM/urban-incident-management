@@ -1,11 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronUp, Plus, Clock, Construction, Droplets, Lightbulb, Send, Sparkles, Trash2, TreeDeciduous, Users, Wrench } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronUp, Clock, Construction, Droplets, Lightbulb, Send, Sparkles, Trash2, TreeDeciduous, Users, Wrench } from 'lucide-react'
 import {
   Button,
   IconChip,
-  PillTab,
   Skeleton,
   StatusPill,
   Toast,
@@ -29,8 +28,8 @@ import {
   reverseGeocodeDaNang,
   xyToLngLat,
 } from '../components/GoongBentoMap'
-import { DEMO_ID, agoText, getTickets, isOpen, submitDemoTicket, upsertBackendIncident, useTicketVersion } from '../data/tickets'
-import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, getStoredUser, loadSampleFieldPhotoFile } from '../lib/backend-api'
+import { agoText, getTickets, isOpen, upsertBackendIncident, useTicketVersion } from '../data/tickets'
+import { apiAnalyzeImage, apiCreateIncident, apiVoteDuplicate, getStoredUser } from '../lib/backend-api'
 
 type Photo = 'empty' | 'scanning' | 'done'
 type Pt = { x: number; y: number; lng?: number; lat?: number }
@@ -50,7 +49,7 @@ const M_PER_PCT = 15
 type ExistingPin = {
   x: number; y: number; lat?: number; lng?: number; level: Level; title: string; address: string; time: string; kind: 'road' | 'flood' | 'tree' | 'trash' | 'light'; code: string
 }
-const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t) && t.id !== DEMO_ID).map((t) => ({
+const buildExisting = (): ExistingPin[] => getTickets().filter((t) => isOpen(t)).map((t) => ({
   x: t.x, y: t.y, lat: t.gps.lat, lng: t.gps.lng, level: t.priority as Level, title: t.title, address: `${t.district}, Đà Nẵng`, time: agoText(t.submittedAt), kind: t.kind, code: t.id,
 }))
 
@@ -173,12 +172,6 @@ export default function ReportScreen() {
   // ALL HOOKS MUST RUN UNCONDITIONALLY AT THE TOP (Before any early return!)
   const version = useTicketVersion()
   const existing = useMemo(buildExisting, [version])
-  const allTickets = useMemo(getTickets, [version])
-  const stat = useMemo(() => ({
-    total: allTickets.length,
-    working: allTickets.filter((t) => ['ASSIGNED', 'IN_PROGRESS', 'REOPENED'].includes(t.status)).length,
-    done: allTickets.filter((t) => ['RESOLVED', 'CONFIRMED', 'CLOSED'].includes(t.status)).length,
-  }), [allTickets])
 
   const desktop = useMedia('(min-width: 768px)')
   const [photo, setPhoto] = useState<Photo>('empty')
@@ -196,8 +189,25 @@ export default function ReportScreen() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [result, setResult] = useState<null | { code: string; merged: boolean }>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined)
+  const [submitErr, setSubmitErr] = useState<string | null>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const applyAiResult = (ai: { category_code: string; priority: string }) => {
+    const c = ai.category_code.toUpperCase()
+    if (c.includes('FLOOD')) setType('Ngập úng')
+    else if (c.includes('TREE')) setType('Cây đổ')
+    else if (c.includes('WASTE') || c.includes('TRASH') || c.includes('GARBAGE')) setType('Rác')
+    else if (c.includes('LIGHT')) setType('Đèn')
+    else if (c.includes('OTHER')) setType('Khác')
+    else setType('Đường')
+    const p = ai.priority.toUpperCase()
+    if (p === 'URGENT' || p === 'EMERGENCY' || p === 'CRITICAL') setLevelLabel('Khẩn cấp')
+    else if (p === 'HIGH') setLevelLabel('Cao')
+    else if (p === 'LOW') setLevelLabel('Thấp')
+    else setLevelLabel('Trung bình')
+  }
 
   const applyPinAndGeocode = (nextPin: Pt) => {
     setPin(nextPin)
@@ -231,35 +241,34 @@ export default function ReportScreen() {
       .catch(() => {})
   }
 
-  const startUpload = (file?: File) => {
+  const startUpload = (file: File) => {
     if (photo === 'scanning') return
+    setSubmitErr(null)
+    setSelectedFile(file)
+    setPreviewUrl((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
     setPhoto('scanning')
     setPin(null)
     setLiveAddress(null)
     setIsOutside(false)
     setDupHandled(false)
-    const runAnalyze = (f: File) => {
-      setSelectedFile(f)
-      apiAnalyzeImage(f, note).then((ai) => {
-        const c = ai.category_code.toUpperCase()
-        if (c.includes('FLOOD')) setType('Ngập úng')
-        else if (c.includes('TREE')) setType('Cây đổ')
-        else if (c.includes('WASTE') || c.includes('TRASH') || c.includes('GARBAGE')) setType('Rác')
-        else if (c.includes('LIGHT')) setType('Đèn')
-        else setType('Đường')
-        const p = ai.priority.toUpperCase()
-        if (p === 'URGENT' || p === 'EMERGENCY' || p === 'CRITICAL') setLevelLabel('Khẩn cấp')
-        else if (p === 'HIGH') setLevelLabel('Cao')
-        else if (p === 'LOW') setLevelLabel('Thấp')
-        else setLevelLabel('Trung bình')
-      }).catch(() => {})
-    }
-    if (file) {
-      runAnalyze(file)
-    } else {
-      loadSampleFieldPhotoFile().then(runAnalyze).catch(() => {})
-    }
+    apiAnalyzeImage(file, note)
+      .then(applyAiResult)
+      .catch(() => {})
   }
+
+  useEffect(() => {
+    if (!selectedFile || photo !== 'done' || !note.trim()) return
+    const t = setTimeout(() => {
+      apiAnalyzeImage(selectedFile, note)
+        .then(applyAiResult)
+        .catch(() => {})
+    }, 450)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note, selectedFile, photo])
 
   useEffect(() => {
     if (photo !== 'scanning') return
@@ -285,60 +294,55 @@ export default function ReportScreen() {
   const near = pin && !outside ? nearest(pin, existing) : null
   const dup = near && near.m <= 50 && !dupHandled ? { ...existing[near.i], m: Math.round(near.m) } : null
   const phoneBad = phone.length > 0 && !/^0\d{9}$/.test(phone)
-  const ready = photo === 'done' && !!pin && !outside && /^0\d{9}$/.test(phone)
-  const current = photo === 'empty' ? 0 : photo === 'scanning' ? 1 : !pin || outside ? 2 : 3
-  const steps = ['Ảnh', 'AI', 'Ghim', 'Gửi']
+  const ready = photo === 'done' && !!selectedFile && !!pin && !outside && /^0\d{9}$/.test(phone)
 
   const submit = async () => {
-    setSending(true)
-    if (pin) {
-      const [lon, lat] =
-        pin.lng !== undefined && pin.lat !== undefined ? [pin.lng, pin.lat] : xyToLngLat(pin.x, pin.y)
-      const catCode =
-        type === 'Ngập úng'
-          ? 'FLOODING'
-          : type === 'Cây đổ'
-            ? 'FALLEN_TREE'
-            : type === 'Đèn'
-              ? 'STREETLIGHT'
-              : type === 'Rác'
-                ? 'GARBAGE'
-                : type === 'Khác'
-                  ? 'OTHER'
-                  : 'ROAD_DAMAGE'
-      const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
-      const distName = liveDistrict || addr?.split(',').pop()?.trim() || 'Hải Châu'
-      try {
-        const fileToUpload = selectedFile ?? (await loadSampleFieldPhotoFile())
-        const created = await apiCreateIncident({
-          title: note.trim() ? `${type}: ${note.trim().slice(0, 48)}` : `${type} tại ${addr ?? 'Đà Nẵng'}`,
-          description: note.trim() || `${type} tại ${addr ?? 'Đà Nẵng'}`,
-          latitude: lat,
-          longitude: lon,
-          address_text: addr ?? 'Đà Nẵng',
-          district: distName,
-          category_code: catCode,
-          priority: prio,
-          citizen_contact: phone,
-          image: fileToUpload,
-        })
-        upsertBackendIncident(created)
-        setSending(false)
-        setResult({ code: created.ticket_code, merged: false })
-        return
-      } catch {
-        // Fallback to demo ticket if backend is unreachable
-      }
+    if (!selectedFile || !pin) {
+      setSubmitErr('Vui lòng tải ảnh hiện trường thực tế và chọn vị trí trước khi gửi.')
+      return
     }
-    setTimeout(() => {
+    setSending(true)
+    setSubmitErr(null)
+    const [lon, lat] =
+      pin.lng !== undefined && pin.lat !== undefined ? [pin.lng, pin.lat] : xyToLngLat(pin.x, pin.y)
+    const catCode =
+      type === 'Ngập úng'
+        ? 'FLOODING'
+        : type === 'Cây đổ'
+          ? 'FALLEN_TREE'
+          : type === 'Đèn'
+            ? 'STREETLIGHT'
+            : type === 'Rác'
+              ? 'GARBAGE'
+              : type === 'Khác'
+                ? 'OTHER'
+                : 'ROAD_DAMAGE'
+    const prio = lv.level === 'urgent' ? 'EMERGENCY' : lv.level === 'high' ? 'HIGH' : lv.level === 'low' ? 'LOW' : 'NORMAL'
+    const distName = liveDistrict || addr?.split(',').pop()?.trim() || 'Hải Châu'
+    try {
+      const created = await apiCreateIncident({
+        title: note.trim() ? `${type}: ${note.trim().slice(0, 48)}` : `${type} tại ${addr ?? 'Đà Nẵng'}`,
+        description: note.trim() || `${type} tại ${addr ?? 'Đà Nẵng'}`,
+        latitude: lat,
+        longitude: lon,
+        address_text: addr ?? 'Đà Nẵng',
+        district: distName,
+        category_code: catCode,
+        priority: prio,
+        citizen_contact: phone,
+        image: selectedFile,
+      })
+      upsertBackendIncident(created)
       setSending(false)
-      submitDemoTicket()
-      setResult({ code: DEMO_ID, merged: false })
-    }, 1000)
+      setResult({ code: created.ticket_code, merged: false })
+    } catch (err) {
+      setSending(false)
+      setSubmitErr(err instanceof Error ? err.message : 'Không thể gửi phản ánh lên hệ thống.')
+    }
   }
 
   const reset = () => {
-    setPhoto('empty'); setPin(null); setLiveAddress(null); setLiveDistrict(null); setIsOutside(false); setDupHandled(false); setNote(''); setResult(null); setSheetOpen(false); setSelectedFile(null)
+    setPhoto('empty'); setPin(null); setLiveAddress(null); setLiveDistrict(null); setIsOutside(false); setDupHandled(false); setNote(''); setResult(null); setSheetOpen(false); setSelectedFile(null); setPreviewUrl(undefined); setSubmitErr(null)
   }
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -351,34 +355,35 @@ export default function ReportScreen() {
   if (result)
     return (
       <ScreenFrame title={result.merged ? 'Đã ghi nhận' : 'Gửi thành công'} sub={result.merged ? 'Cộng thêm vào phiếu đã có' : 'Lưu mã để theo dõi'}>
-        <ResultView code={result.code} merged={result.merged} type={type} level={lv.level} hours={lv.hours} address={addr ?? ''} pin={pin!} existing={existing} onReset={reset} />
+        <ResultView code={result.code} merged={result.merged} type={type} level={lv.level} hours={lv.hours} address={addr ?? ''} pin={pin!} existing={existing} imageUrl={previewUrl} onReset={reset} />
       </ScreenFrame>
     )
 
   const photoCard = (
     <section
-      className="animate-rise shrink-0 rounded-card bg-card p-1.5 shadow-card transition hover:-translate-y-0.5"
+      className="animate-rise shrink-0 rounded-card bg-card shadow-card transition hover:-translate-y-0.5"
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) startUpload(f) }}
     >
       <EvidenceUploadCard
-        height={desktop ? 172 : 185}
+        height={desktop ? 210 : 190}
         state={photo}
+        imageUrl={previewUrl}
         dragging={dragging}
         onCapture={() => camRef.current?.click()}
         onChoose={() => fileRef.current?.click()}
-        onSample={() => startUpload()}
       />
     </section>
   )
   const aiCard = <AiSuggestCard photo={photo} type={type} level={lv} address={addr ?? ''} onType={cycleType} onLevel={cycleLevel} />
   const formCard = (
-    <section className="animate-rise shrink-0 rounded-card bg-card p-3.5 shadow-card md:p-4" style={{ animationDelay: '120ms' }}>
-      <div className="grid gap-2.5">
-        <InputField kind="textarea" height={54} placeholder="Mô tả hiện trường" onChange={setNote} value={note} />
+    <section className="animate-rise shrink-0 rounded-card bg-card p-4 shadow-card md:p-5" style={{ animationDelay: '120ms' }}>
+      <div className="grid gap-3.5">
+        <InputField kind="textarea" height={68} placeholder="Mô tả hiện trường" onChange={setNote} value={note} />
         <InputField placeholder="Số điện thoại" value={phone} onChange={setPhone} error={phoneBad ? 'Số điện thoại chưa đúng' : undefined} />
-        <Button variant="hero" size="md" icon={Send} loading={sending} disabled={!ready} onClick={submit}>Gửi phản ánh</Button>
+        {submitErr && <p className="text-[12px] text-urgent">{submitErr}</p>}
+        <Button variant="hero" size="lg" icon={Send} loading={sending} disabled={!ready} onClick={submit}>Gửi phản ánh</Button>
       </div>
     </section>
   )
@@ -388,12 +393,9 @@ export default function ReportScreen() {
 
   const mapOverlay = (
     <>
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div className="pointer-events-auto rounded-full shadow-card md:w-[380px]">
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-center">
+        <div className="pointer-events-auto rounded-full shadow-card md:w-[400px]">
           <InputField key={addr ?? 'x'} kind="search" placeholder="Chạm hoặc kéo ghim trên bản đồ" value={addr ?? ''} error={undefined} onChange={() => {}} />
-        </div>
-        <div className="pointer-events-auto self-start rounded-full shadow-card md:self-auto">
-          <PillTab tone="ink" items={steps} value={steps[current]} onChange={() => {}} />
         </div>
       </div>
       {outside && (
@@ -416,31 +418,23 @@ export default function ReportScreen() {
       }}
     />
   )
-  const metrics = (
-    <div className="grid grid-cols-3 gap-2 md:gap-3">
-      <MetricBentoCard compact title="Tiếp nhận" value={stat.total} icon={Plus} chart="bars" series={[3, 5, 4, 7, 6, 9, 12]} />
-      <MetricBentoCard compact title="Đang xử lý" value={stat.working} icon={Wrench} tone="high" chart="spark" series={[4, 6, 5, 8, 7, 9, 10]} />
-      <MetricBentoCard compact title="Đã hoàn tất" value={stat.done} icon={CheckCircle2} tone="done" chart="bars" series={[2, 3, 5, 4, 6, 7, 9]} />
-    </div>
-  )
 
   return (
     <div className="min-h-screen bg-page pb-28 md:h-dvh md:overflow-hidden md:pb-0">
       <input ref={camRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
       <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
-      <div className="mx-auto flex h-full w-full max-w-[1440px] flex-col p-4 md:px-6 md:py-3">
+      <div className="mx-auto flex h-full w-full max-w-[1440px] flex-col p-4 md:px-6 md:py-4">
         <div className="hidden shrink-0 md:block"><TopPillNav active={1} /></div>
-        <header className="mt-2 mb-3 flex shrink-0 flex-col gap-3 md:mt-2.5 md:mb-2.5 md:flex-row md:items-center md:justify-between">
+        <header className="mt-2 mb-3 flex shrink-0 items-center justify-between md:mt-3 md:mb-3.5">
           <div className="animate-rise">
             <h1 className="text-[22px] leading-tight font-bold md:text-[24px]">Báo cáo hiện trường</h1>
-            <p className="mt-0.5 text-[12px] text-muted">Ảnh, định vị GPS, gửi: dưới một phút</p>
+            <p className="mt-0.5 text-[12px] text-muted">Ảnh thực tế, định vị GPS, gửi nhanh dưới một phút</p>
           </div>
-          <div className="md:w-[600px]">{metrics}</div>
         </header>
 
         {desktop ? (
-          <div className="grid min-h-0 flex-1 grid-cols-12 gap-3.5">
-            <div className="col-span-4 flex min-h-0 flex-col justify-between gap-2.5 overflow-y-auto pr-0.5">
+          <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
+            <div className="col-span-4 flex min-h-0 flex-col gap-4">
               {photoCard}
               {aiCard}
               {formCard}
@@ -482,8 +476,8 @@ export default function ReportScreen() {
   )
 }
 
-function ResultView({ code, merged, type, level, hours, address, pin, existing, onReset }: {
-  code: string; merged: boolean; type: string; level: Level; hours: number; address: string; pin: Pt; existing: ExistingPin[]; onReset: () => void
+function ResultView({ code, merged, type, level, hours, address, pin, existing, imageUrl, onReset }: {
+  code: string; merged: boolean; type: string; level: Level; hours: number; address: string; pin: Pt; existing: ExistingPin[]; imageUrl?: string; onReset: () => void
 }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -514,7 +508,7 @@ function ResultView({ code, merged, type, level, hours, address, pin, existing, 
 
       <section className="animate-rise rounded-card bg-card p-4 shadow-card md:col-span-7 md:p-6" style={{ animationDelay: '180ms' }}>
         <h2 className="mb-4 text-[16px] font-semibold">Phiếu của bạn</h2>
-        <IncidentListItem kind={kindOf[type]} title={merged ? 'Ngập úng đường Lê Duẩn' : `${type} ${address.split(',')[0]}`} address={merged ? 'Hải Châu, Đà Nẵng' : address} time="Vừa xong" level={level} />
+        <IncidentListItem kind={kindOf[type]} imageUrl={imageUrl} title={merged ? 'Đã gộp vào phiếu hiện có' : `${type} ${address.split(',')[0]}`} address={address || 'Đà Nẵng'} time="Vừa xong" level={level} />
       </section>
       <section className="animate-rise rounded-card bg-card p-4 shadow-card md:col-span-5 md:p-6" style={{ animationDelay: '240ms' }}>
         <h2 className="mb-4 text-[16px] font-semibold">Tiếp theo</h2>
