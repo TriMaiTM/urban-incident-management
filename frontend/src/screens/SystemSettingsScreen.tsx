@@ -148,13 +148,15 @@ export default function SystemSettingsScreen() {
         id,
         backendId: f.properties.zone_id,
         name,
-        open: openCountsByDistrict[name.toLowerCase()] ?? 0,
+        open: 0,
         on: f.properties.is_active !== false,
         labelLngLat: LABEL_LNG_LAT[id] ?? [108.2, 16.06],
         geometry: f.geometry,
       }
     })
-  }, [openCountsByDistrict])
+  }, [])
+
+  const loadedZoneIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -169,7 +171,7 @@ export default function SystemSettingsScreen() {
             ...seed,
             backendId: match.id,
             name: match.name || seed.name,
-            open: openCountsByDistrict[(match.name || seed.name).toLowerCase()] ?? match.open_incident_count ?? 0,
+            open: match.open_incident_count ?? 0,
             on: match.is_active,
             geometry: (match.geojson_geometry as unknown as GeoJSON.Geometry) ?? seed.geometry,
           }
@@ -185,21 +187,22 @@ export default function SystemSettingsScreen() {
     return () => {
       active = false
     }
-  }, [defaultZones, openCountsByDistrict])
+  }, [defaultZones])
 
   const selectedZone = useMemo(
     () => zones.find((z) => z.id === selectedId) ?? zones[0],
     [zones, selectedId],
   )
 
-  // Whenever selectedZone changes, load its vertices into the editor (auto-simplified to 36 control points if huge)
+  // Load 100% of the exact saved vertices from PostGIS when selecting a zone (NEVER auto-simplify!)
   useEffect(() => {
     if (!selectedZone) return
+    if (loadedZoneIdRef.current === selectedZone.id) return
+    loadedZoneIdRef.current = selectedZone.id
     const rawPts = extractPrimaryRing(selectedZone.geometry)
-    const editablePts = rawPts.length > 48 ? simplifyRingPoints(rawPts, 36) : rawPts
-    setPoints(editablePts)
+    setPoints(rawPts)
     setHistory([])
-  }, [selectedZone?.id])
+  }, [selectedZone])
 
   const say = (kind: 'success' | 'info' | 'error', text: string) => {
     setToast({ kind, text })
@@ -262,10 +265,10 @@ export default function SystemSettingsScreen() {
     const def = defaultZones.find((d) => d.id === selectedZone.id)
     if (!def) return
     const rawPts = extractPrimaryRing(def.geometry)
-    pushPoints(simplifyRingPoints(rawPts, 36))
+    pushPoints(rawPts)
     setZones((prev) => prev.map((z) => (z.id === selectedZone.id ? { ...z, geometry: def.geometry } : z)))
     setMode('edit')
-    say('info', `Đã nạp lại ranh giới mặc định cho ${selectedZone.name} (Bấm Lưu để ghi vào PostGIS)`)
+    say('info', `Đã nạp lại ranh giới mặc định cho ${selectedZone.name} (${rawPts.length} đỉnh)`)
   }
 
   const handleSaveBoundary = async () => {

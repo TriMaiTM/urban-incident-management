@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -131,6 +132,28 @@ async def update_zone(
     db.add(zone)
     await db.commit()
     await db.refresh(zone)
+
+    if updated_geojson is not None:
+        # Also persist updated geometry to local GeoJSON boundary files so static seed/fallbacks stay in sync
+        repo_root = Path(__file__).resolve().parents[5]
+        for rel_path in (
+            repo_root / "backend" / "data" / "danang_districts_boundary.geojson",
+            repo_root / "frontend" / "src" / "data" / "danang_districts_boundary.json",
+        ):
+            try:
+                if rel_path.is_file():
+                    fc = json.loads(rel_path.read_text(encoding="utf-8"))
+                    for feat in fc.get("features", []):
+                        if str(feat.get("properties", {}).get("zone_id", "")).upper() == zone.id.upper():
+                            feat["geometry"] = updated_geojson
+                            if body.is_active is not None:
+                                feat["properties"]["is_active"] = bool(zone.is_active)
+                    rel_path.write_text(
+                        json.dumps(fc, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+            except Exception:
+                pass
 
     if updated_geojson is None and getattr(zone, "boundary", None) is not None:
         try:
