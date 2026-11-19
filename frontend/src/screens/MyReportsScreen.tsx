@@ -6,13 +6,14 @@ import { Button, EmptyState, ErrorState, IconChip, PillTab, Skeleton, cn, ic } f
 import { IncidentListItem, MetricBentoCard } from '../components/data'
 import CitizenShell from './CitizenShell'
 import { getReports, statusTab, type Report } from './citizenData'
-import { useTicketVersion } from '../data/tickets'
+import { getTicket, useTicketVersion } from '../data/tickets'
 
 const kindIcon = { flood: Droplets, road: Construction, tree: TreeDeciduous, trash: Trash2, light: Lightbulb }
 const TABS = ['Đang xử lý', 'Đã hoàn tất', 'Bị từ chối']
 
 function ReportCard({ r, delay }: { r: Report; delay: number }) {
   const I = kindIcon[r.kind]
+  const imgUrl = getTicket(r.id).imageUrl
   return (
     <div
       role="button"
@@ -34,7 +35,7 @@ function ReportCard({ r, delay }: { r: Report; delay: number }) {
           <span className="inline-flex h-6 items-center gap-1 rounded-full bg-ink px-3 text-[12px] font-semibold text-white"><X size={12} {...ic} />Từ chối</span>
         </div>
       ) : (
-        <IncidentListItem kind={r.kind} title={r.title} address={r.address.split(', ')[1]} time={r.ago} level={r.status === 'done' ? 'done' : r.level} />
+        <IncidentListItem kind={r.kind} imageUrl={imgUrl} title={r.title} address={r.address.split(', ')[1]} time={r.ago} level={r.status === 'done' ? 'done' : r.level} />
       )}
     </div>
   )
@@ -67,8 +68,8 @@ export default function MyReportsScreen() {
 
   return (
     <CitizenShell title="Phản ánh của tôi" sub="Theo dõi mọi phiếu bạn đã gửi">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[360px_1fr]">
-        <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[360px_1fr] md:items-start">
+        <div className="flex flex-col gap-4 md:sticky md:top-6 md:self-start">
           <MetricBentoCard dark title="Tổng phiếu của tôi" value={getReports().length} icon={FileText} chart="bars" series={[1, 0, 2, 1, 3, 2, 4]} caption="Từ đầu năm" />
           <div className="grid grid-cols-2 gap-4">
             <MetricBentoCard compact title="Đang xử lý" value={count('Đang xử lý')} icon={Clock} tone="high" />

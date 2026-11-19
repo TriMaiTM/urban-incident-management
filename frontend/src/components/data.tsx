@@ -72,7 +72,7 @@ export function MetricBentoCard({
   const max = Math.max(...series, 1)
   const pts = series.map((s, i) => `${(i / (series.length - 1)) * 100},${32 - (s / max) * 28}`).join(' ')
   return (
-    <div className={cn('flex h-full flex-col justify-between rounded-card shadow-card transition hover:-translate-y-1', compact ? 'min-h-[88px] gap-2 p-3 md:min-h-[104px] md:p-4' : 'min-h-[148px] p-4', dark ? 'bg-ink text-white' : 'bg-card')}>
+    <div className={cn('flex flex-col justify-between rounded-card shadow-card transition hover:-translate-y-1', compact ? 'min-h-[88px] gap-2 p-3 md:min-h-[104px] md:p-4' : 'min-h-[144px] gap-3 p-4', dark ? 'bg-ink text-white' : 'bg-card')}>
       <div className="flex items-center justify-between">
         <span className={cn('font-semibold', compact ? 'text-[12px] md:text-[14px]' : 'text-[14px]', dark && 'text-white')}>{title}</span>
         <span className={cn(compact && 'hidden md:block')}><IconChip icon={icon} tone={dark ? 'neutral' : tone} size={32} /></span>
@@ -275,76 +275,69 @@ export function EvidenceUploadCard({
   return (
     <div
       className={cn(
-        'flex h-full min-h-[200px] flex-col rounded-card bg-surface p-3 transition',
-        dragging && 'bg-card shadow-[0_0_0_3px_#111111,0_0_32px_rgba(17,17,17,0.18)]',
+        'relative flex w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-card bg-card p-4 transition',
+        state === 'empty' && 'border-2 border-dashed border-low/80 bg-card',
+        state === 'error' && 'border-2 border-dashed border-urgent/60 bg-card',
+        dragging && 'ring-2 ring-ink shadow-[0_0_0_3px_#111111,0_0_32px_rgba(17,17,17,0.18)]',
       )}
-      style={height ? { height } : undefined}
+      style={height ? { height } : { minHeight: 190 }}
     >
-      <div
-        className={cn(
-          'relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-tile bg-card',
-          state === 'empty' && 'border-2 border-dashed border-low/70 bg-surface/60',
-          state === 'error' && 'border-2 border-dashed border-low',
-          dragging && 'ring-2 ring-ink',
-        )}
-      >
-        {showImage && (
-          <img
-            src={imageUrl}
-            alt="Ảnh hiện trường"
-            className={cn(
-              'absolute inset-0 size-full object-cover transition duration-500',
-              dragging && 'animate-pulse',
-            )}
-          />
-        )}
-        {!showImage && (state === 'scanning' || state === 'done') && (
-          <div className="flex flex-col items-center gap-2 text-muted">
-            <ImageIcon size={28} {...ic} />
-            <span className="text-[12px]">Ảnh hiện trường</span>
+      {showImage && (
+        <img
+          src={imageUrl}
+          alt="Ảnh hiện trường"
+          className={cn(
+            'absolute inset-0 size-full object-cover transition duration-500',
+            dragging && 'animate-pulse',
+          )}
+        />
+      )}
+      {!showImage && (state === 'scanning' || state === 'done') && (
+        <div className="flex flex-col items-center gap-2 text-muted">
+          <ImageIcon size={28} {...ic} />
+          <span className="text-[12px]">Ảnh hiện trường</span>
+        </div>
+      )}
+      {state === 'empty' && (
+        <>
+          <IconChip icon={dragging ? ImageIcon : Camera} tone="ink" size={48} />
+          <p className="text-[12px] text-muted">Tải lên hoặc kéo thả ảnh hiện trường thật</p>
+          <div className="relative flex flex-wrap justify-center gap-2">
+            <Button size="sm" icon={Camera} onClick={onCapture}>Chụp ảnh</Button>
+            <Button size="sm" variant="secondary" icon={ImageIcon} onClick={onChoose}>Chọn ảnh</Button>
+            {onSample && <Button size="sm" variant="subtle" icon={Sparkles} onClick={onSample}>Ảnh mẫu</Button>}
           </div>
-        )}
-        {state === 'empty' && (
-          <>
-            <IconChip icon={dragging ? ImageIcon : Camera} tone="ink" size={48} />
-            <p className="text-[12px] text-muted">Tải lên hoặc kéo thả ảnh hiện trường thật</p>
-            <div className="relative flex flex-wrap justify-center gap-2">
-              <Button size="sm" icon={Camera} onClick={onCapture}>Chụp ảnh</Button>
-              <Button size="sm" variant="secondary" icon={ImageIcon} onClick={onChoose}>Chọn ảnh</Button>
-              {onSample && <Button size="sm" variant="subtle" icon={Sparkles} onClick={onSample}>Ảnh mẫu</Button>}
-            </div>
-          </>
-        )}
-        {state === 'scanning' && (
-          <>
-            <div className="absolute inset-x-0 top-0 bottom-0"><div className="animate-scan absolute inset-x-0 h-1 bg-white shadow-[0_0_16px_#fff]" /></div>
-            <span className="absolute bottom-3 inline-flex h-6 items-center gap-1 rounded-full bg-card px-3 text-[12px] font-semibold shadow-card"><Sparkles size={12} {...ic} />Đang quét AI</span>
-          </>
-        )}
-        {state === 'done' && (
-          <>
-            <span className="absolute bottom-3 left-3 inline-flex h-6 items-center gap-1 rounded-full bg-done px-3 text-[12px] font-semibold text-white shadow-card"><ShieldCheck size={12} {...ic} />NĐ13 Đã mờ</span>
-            {onChoose ? (
-              <button
-                type="button"
-                onClick={onChoose}
-                className="absolute top-3 right-3 inline-flex h-7 items-center gap-1.5 rounded-full bg-card/95 px-3 text-[12px] font-semibold text-ink shadow-card transition hover:bg-card"
-              >
-                <ImageIcon size={13} {...ic} />Đổi ảnh
-              </button>
-            ) : (
-              <span className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-full bg-card shadow-card"><Check size={16} {...ic} /></span>
-            )}
-          </>
-        )}
-        {state === 'error' && (
-          <>
-            <IconChip icon={Camera} tone="urgent" size={48} />
-            <p className="text-[12px] text-urgent">Ảnh quá mờ</p>
-            <Button size="sm" variant="secondary" onClick={onChoose}>Thử lại</Button>
-          </>
-        )}
-      </div>
+        </>
+      )}
+      {state === 'scanning' && (
+        <>
+          <div className="absolute inset-x-0 top-0 bottom-0"><div className="animate-scan absolute inset-x-0 h-1 bg-white shadow-[0_0_16px_#fff]" /></div>
+          <span className="absolute bottom-3 inline-flex h-6 items-center gap-1 rounded-full bg-card px-3 text-[12px] font-semibold shadow-card"><Sparkles size={12} {...ic} />Đang quét AI</span>
+        </>
+      )}
+      {state === 'done' && (
+        <>
+          <span className="absolute bottom-3 left-3 inline-flex h-6 items-center gap-1 rounded-full bg-done px-3 text-[12px] font-semibold text-white shadow-card"><ShieldCheck size={12} {...ic} />NĐ13 Đã mờ</span>
+          {onChoose ? (
+            <button
+              type="button"
+              onClick={onChoose}
+              className="absolute top-3 right-3 inline-flex h-7 items-center gap-1.5 rounded-full bg-card/95 px-3 text-[12px] font-semibold text-ink shadow-card transition hover:bg-card"
+            >
+              <ImageIcon size={13} {...ic} />Đổi ảnh
+            </button>
+          ) : (
+            <span className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-full bg-card shadow-card"><Check size={16} {...ic} /></span>
+          )}
+        </>
+      )}
+      {state === 'error' && (
+        <>
+          <IconChip icon={Camera} tone="urgent" size={48} />
+          <p className="text-[12px] text-urgent">Ảnh quá mờ</p>
+          <Button size="sm" variant="secondary" onClick={onChoose}>Thử lại</Button>
+        </>
+      )}
     </div>
   )
 }

@@ -94,7 +94,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`) và `py -m pytest backend/tests/test_ai_vision.py`
 - **Commit 2:** `feat(full-stack): remove all mock tickets and sample photos in favor of real uploaded images and OpenCV visual triage`
 
-### [ ] Bước 3: Sửa Thẻ Thống Kê Khổng Lồ Ở `/citizen/my-reports` & Thiết Kế Lại Bố Cục `/report` Thoáng Đãng (Hạng mục 1 & 4)
+### [x] Bước 3: Sửa Thẻ Thống Kê Khổng Lồ Ở `/citizen/my-reports` & Thiết Kế Lại Bố Cục `/report` Thoáng Đãng (Hạng mục 1 & 4)
 - Trong `frontend/src/components/data.tsx` & `frontend/src/screens/MyReportsScreen.tsx`: bỏ `h-full` gây phình thẻ `MetricBentoCard`, cố định cột trái với `md:self-start` để thẻ **"Tổng phiếu của tôi"** gọn chuẩn thiết kế và không đẩy các thẻ dưới.
 - Trong `frontend/src/screens/ReportScreen.tsx` & `EvidenceUploadCard`: bỏ lớp panel lồng nhau, bỏ 3 thẻ KPI chiếm chỗ trên header, bỏ thanh `PillTab` (`Ảnh / AI / Ghim / Gửi`) vô nghĩa trên bản đồ, giúp cột trái và bản đồ thoáng đãng, không còn thanh cuộn phụ.
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`)
