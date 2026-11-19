@@ -20,7 +20,7 @@ import {
   apiSubmitIncidentFeedback,
   apiTriageIncident,
   apiUpdateIncidentStatus,
-  ensureRoleToken,
+  fetchDefaultTechnicianId,
   loadSampleFieldPhotoFile,
 } from '../lib/backend-api'
 
@@ -353,10 +353,8 @@ async function syncStatusMutationToBackend(
   try {
     if (status === 'ASSIGNED') {
       if (!cachedTechId) {
-        const techUser = await ensureRoleToken('TECHNICIAN')
-        cachedTechId = techUser?.id ?? null
+        cachedTechId = await fetchDefaultTechnicianId()
       }
-      await ensureRoleToken('DISPATCHER')
       if (!cachedCategories) cachedCategories = await apiListCategories()
       if (!cachedDepartments) cachedDepartments = await apiListDepartments()
 
@@ -388,7 +386,6 @@ async function syncStatusMutationToBackend(
         return
       }
     } else if (status === 'IN_PROGRESS') {
-      await ensureRoleToken('TECHNICIAN')
       const updated = await apiUpdateIncidentStatus(id, {
         to_status: 'IN_PROGRESS',
         note: extra?.note || 'Kỹ thuật viên đã có mặt tại hiện trường và bắt đầu xử lý',
@@ -396,7 +393,6 @@ async function syncStatusMutationToBackend(
       upsertBackendIncident(updated)
       return
     } else if (status === 'RESOLVED') {
-      await ensureRoleToken('TECHNICIAN')
       if (cur.status !== 'IN_PROGRESS') {
         await apiUpdateIncidentStatus(id, {
           to_status: 'IN_PROGRESS',
@@ -414,7 +410,6 @@ async function syncStatusMutationToBackend(
       upsertBackendIncident(updated)
       return
     } else if (status === 'CONFIRMED' || status === 'REJECTED' || (status === 'REOPENED' && cur.status === 'RESOLVED')) {
-      await ensureRoleToken('DISPATCHER')
       const updated = await apiUpdateIncidentStatus(id, {
         to_status: status,
         note:
@@ -429,7 +424,6 @@ async function syncStatusMutationToBackend(
       upsertBackendIncident(updated)
       return
     } else if (status === 'CLOSED') {
-      await ensureRoleToken('CITIZEN')
       await apiSubmitIncidentFeedback(id, {
         action: 'CONFIRM',
         rating: extra?.rated,
@@ -439,7 +433,6 @@ async function syncStatusMutationToBackend(
       upsertBackendIncident(detail)
       return
     } else if (status === 'REOPENED' && cur.status === 'CONFIRMED') {
-      await ensureRoleToken('CITIZEN')
       await apiSubmitIncidentFeedback(id, {
         action: 'DISPUTE',
         rating: extra?.rated,

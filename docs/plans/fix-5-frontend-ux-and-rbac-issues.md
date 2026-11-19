@@ -87,7 +87,7 @@
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`)
 - **Commit 1:** `fix(frontend): resolve ReportScreen hook crash, fit desktop layouts in single viewport, and fix GPS geocoding`
 
-### [ ] Bước 2: Triển Khai Phân Quyền RBAC Chặt Chẽ Giữa Các Role & Bắt Buộc Đăng Nhập (Lỗi 4)
+### [x] Bước 2: Triển Khai Phân Quyền RBAC Chặt Chẽ Giữa Các Role & Bắt Buộc Đăng Nhập (Lỗi 4)
 - Trong `ClientRouteShell.tsx`: kiểm tra JWT Token và `user.role` trước khi cho phép truy cập các route thuộc `/citizen/*`, `/report`, `/dispatcher/*`, `/technician/*`, `/admin/*`, `/profile`.
 - Nếu chưa đăng nhập: chuyển hướng về `/auth/login?next=...`.
 - Nếu đăng nhập sai role: hiển thị màn chắn `403 Từ chối truy cập` kèm nút chuyển về đúng phân hệ hoặc đăng nhập tài khoản đúng quyền.
