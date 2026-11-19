@@ -6,12 +6,13 @@ import { Button, EmptyState, ErrorState, IconChip, Skeleton, StatusPill, Toast, 
 import { EvidenceUploadCard, MapBentoViewport, Timeline } from '../components/data'
 import { TechnicianNav } from '../components/nav'
 import { fmtClock, getTask, plan, routeTo, useMedia, useTick } from './technicianData'
-import { setStatus, useTicketVersion } from '../data/tickets'
+import { getTicket, setStatus, useTicketVersion } from '../data/tickets'
 
 export default function TaskDetailScreen({ id }: { id: string }) {
   const desktop = useMedia('(min-width: 768px)')
   useTicketVersion()
   const task = getTask(id)
+  const tk = getTicket(id)
   useTick()
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(false)
@@ -40,7 +41,7 @@ export default function TaskDetailScreen({ id }: { id: string }) {
 
   const photo = (
     <section className="animate-rise rounded-card bg-card p-2 shadow-card">
-      <EvidenceUploadCard state={loading ? 'scanning' : 'done'} height={desktop ? 400 : 240} />
+      <EvidenceUploadCard state={loading ? 'scanning' : 'done'} imageUrl={tk.imageUrl} height={desktop ? 400 : 240} />
     </section>
   )
   const ai = (

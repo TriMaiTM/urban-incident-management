@@ -81,7 +81,7 @@
 - **Lệnh kiểm tra:** `py -m compileall -q backend/app && py -m pytest backend/tests/test_zones.py -q` và `npx tsc --noEmit` (trong `frontend/`).
 - **Commit 1:** `feat(admin): add gear settings sidebar item with interactive GIS polygon boundary editor and enforce clean citizen map`
 
-### [ ] Bước 2: Xóa Sạch 100% Dữ Liệu Mock Trong Toàn Bộ Các Màn Hình Admin & Hệ Thống (Hạng mục 3)
+### [x] Bước 2: Xóa Sạch 100% Dữ Liệu Mock Trong Toàn Bộ Các Màn Hình Admin & Hệ Thống (Hạng mục 3)
 - Cập nhật `AnalyticsScreen.tsx`, `AuditLogsScreen.tsx`, `UsersScreen.tsx`, `SettingsScreen.tsx`, `ZonesScreen.tsx`, `IntegrationsScreen.tsx`, `NotificationsScreen.tsx`, `TaskDetailScreen.tsx`, `TechnicianHistoryScreen.tsx` để xóa toàn bộ mảng dữ liệu mock cứng và chỉ hiển thị dữ liệu, số liệu, nhật ký và hình ảnh thực tế từ PostgreSQL.
 - **Lệnh kiểm tra:** `npx tsc --noEmit` (trong `frontend/`).
 - **Commit 2:** `fix(admin): remove all remaining mock datasets across admin analytics, users, settings, audit logs, and technician screens`
