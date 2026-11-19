@@ -169,7 +169,7 @@ export default function VerifyScreen() {
         </section>
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-3 pt-0.5 pr-14">
+      <div className="flex shrink-0 items-center justify-end gap-3 pt-0.5">
         <Button size="md" variant="subtle" disabled={busy || drafts.includes(c.id)} onClick={draft}>{drafts.includes(c.id) ? 'Đã lưu nháp' : 'Lưu nháp'}</Button>
         <Button size="md" variant="secondary" icon={RotateCcw} disabled={busy} onClick={redo}>Yêu cầu làm lại</Button>
         <Button size="md" icon={Check} disabled={busy || !pass || loading} onClick={approve}>Duyệt nghiệm thu</Button>
