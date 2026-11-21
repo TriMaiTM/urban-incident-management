@@ -503,6 +503,7 @@ export default function GoongBentoMap({
             on: z.on,
             selected: selectedZoneId === z.id,
             interactive: true,
+            studio: polygonPoints !== undefined,
           },
           geometry: z.geometry,
         })),
@@ -645,14 +646,25 @@ export default function GoongBentoMap({
             id: LAYER_DISTRICTS_ACTIVE_LINE,
             type: 'line',
             source: SOURCE_DISTRICTS,
-            filter: ['==', ['boolean', ['get', 'on'], true], true],
+            filter: [
+              'any',
+              ['==', ['boolean', ['get', 'on'], true], true],
+              ['boolean', ['get', 'studio'], false],
+            ],
             paint: {
-              'line-color': '#e5251b',
+              'line-color': [
+                'case',
+                ['boolean', ['get', 'selected'], false],
+                '#e5251b',
+                ['boolean', ['get', 'on'], true],
+                '#e5251b',
+                '#64748b',
+              ],
               'line-width': [
                 'case',
                 ['boolean', ['get', 'selected'], false],
-                3.5,
-                2,
+                3,
+                1.75,
               ],
               'line-opacity': [
                 'case',
@@ -670,7 +682,11 @@ export default function GoongBentoMap({
             id: LAYER_DISTRICTS_PAUSED_LINE,
             type: 'line',
             source: SOURCE_DISTRICTS,
-            filter: ['==', ['boolean', ['get', 'on'], true], false],
+            filter: [
+              'all',
+              ['==', ['boolean', ['get', 'on'], true], false],
+              ['!', ['boolean', ['get', 'studio'], false]],
+            ],
             paint: {
               'line-color': '#6b6b70',
               'line-width': [
