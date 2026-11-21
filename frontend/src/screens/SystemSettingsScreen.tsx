@@ -410,12 +410,15 @@ export default function SystemSettingsScreen() {
 
   const handleSaveBoundary = async () => {
     if (!selectedZone) return
-    if (points.length < 3) {
-      say('error', 'Vui lòng chấm tối thiểu 3 điểm đỉnh để tạo đa giác hợp lệ')
+    if (points.length > 0 && points.length < 3) {
+      say('error', 'Vui lòng chấm tối thiểu 3 điểm đỉnh (hoặc 0 điểm để xóa ranh giới vùng này)')
       return
     }
     setSaving(true)
-    const newGeom = ringToMultiPolygon(points)
+    const newGeom: GeoJSON.MultiPolygon =
+      points.length === 0
+        ? { type: 'MultiPolygon', coordinates: [] }
+        : ringToMultiPolygon(points)
     try {
       const zoneCode = selectedZone.backendId ?? selectedZone.id.toUpperCase()
       await apiUpdateZone(zoneCode, {
@@ -514,13 +517,16 @@ export default function SystemSettingsScreen() {
     }
   }
 
-  // Build zones preview where the currently selected zone uses the live draft polygon points
+  // Build zones preview where the currently selected zone uses the live draft polygon points (or empty when cleared)
   const previewZones = useMemo<InteractiveZoneItem[]>(() => {
     return zones.map((z) => {
-      if (z.id === selectedZone?.id && points.length >= 3) {
+      if (z.id === selectedZone?.id) {
         return {
           ...z,
-          geometry: ringToMultiPolygon(points),
+          geometry:
+            points.length >= 3
+              ? ringToMultiPolygon(points)
+              : ({ type: 'MultiPolygon', coordinates: [] } as GeoJSON.MultiPolygon),
         }
       }
       return z
@@ -540,10 +546,10 @@ export default function SystemSettingsScreen() {
               size="lg"
               icon={Save}
               loading={saving}
-              disabled={points.length < 3}
+              disabled={points.length > 0 && points.length < 3}
               onClick={handleSaveBoundary}
             >
-              Lưu ranh giới vào PostGIS
+              {points.length === 0 ? 'Xóa ranh giới trong PostGIS' : 'Lưu ranh giới vào PostGIS'}
             </Button>
           )}
         </div>
@@ -920,10 +926,10 @@ export default function SystemSettingsScreen() {
                   size="sm"
                   icon={Save}
                   loading={saving}
-                  disabled={points.length < 3}
+                  disabled={points.length > 0 && points.length < 3}
                   onClick={handleSaveBoundary}
                 >
-                  Lưu vào PostGIS
+                  {points.length === 0 ? 'Xóa khỏi PostGIS' : 'Lưu vào PostGIS'}
                 </Button>
               </div>
             </div>

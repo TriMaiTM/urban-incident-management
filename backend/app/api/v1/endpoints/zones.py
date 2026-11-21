@@ -137,77 +137,92 @@ async def update_zone(
     synced_geojsons: dict[str, dict[str, object]] = {}
     if body.geojson_geometry is not None:
         try:
-            old_geom = to_shape(zone.boundary) if getattr(zone, "boundary", None) is not None else None
-            raw_geom = shape(body.geojson_geometry)
-            new_geom = _to_multipolygon(raw_geom)
-            if new_geom is None:
-                raise ValueError("Hình học phải là Polygon hoặc MultiPolygon hợp lệ, không rỗng.")
-            min_lon, min_lat, max_lon, max_lat = new_geom.bounds
-            zone.boundary = from_shape(new_geom, srid=4326)
-            zone.bounding_box = {
-                "min_lon": round(float(min_lon), 6),
-                "min_lat": round(float(min_lat), 6),
-                "max_lon": round(float(max_lon), 6),
-                "max_lat": round(float(max_lat), 6),
-            }
-            updated_geojson = dict(mapping(new_geom))
-            synced_geojsons[zone.id.upper()] = updated_geojson
+            coords = body.geojson_geometry.get("coordinates")
+            is_explicit_empty = (
+                body.geojson_geometry.get("type") in {"Polygon", "MultiPolygon"}
+                and isinstance(coords, list)
+                and len(coords) == 0
+            )
+            if is_explicit_empty:
+                empty_mp = MultiPolygon()
+                zone.boundary = from_shape(empty_mp, srid=4326)
+                zone.bounding_box = None
+                updated_geojson = {"type": "MultiPolygon", "coordinates": []}
+                synced_geojsons[zone.id.upper()] = updated_geojson
+            else:
+                old_geom = to_shape(zone.boundary) if getattr(zone, "boundary", None) is not None else None
+                raw_geom = shape(body.geojson_geometry)
+                new_geom = _to_multipolygon(raw_geom)
+                if new_geom is None:
+                    raise ValueError("Hình học phải là Polygon hoặc MultiPolygon hợp lệ, không rỗng.")
+                min_lon, min_lat, max_lon, max_lat = new_geom.bounds
+                zone.boundary = from_shape(new_geom, srid=4326)
+                zone.bounding_box = {
+                    "min_lon": round(float(min_lon), 6),
+                    "min_lat": round(float(min_lat), 6),
+                    "max_lon": round(float(max_lon), 6),
+                    "max_lat": round(float(max_lat), 6),
+                }
+                updated_geojson = dict(mapping(new_geom))
+                synced_geojsons[zone.id.upper()] = updated_geojson
 
-            # Topological shared-border sync with neighboring districts (prevent overlaps & inland gaps)
-            if body.sync_adjacent and zone.id.upper() != "DANANG_CORE":
-                other_stmt = select(SystemZone).where(
-                    SystemZone.id != zone.id,
-                    SystemZone.id != "DANANG_CORE",
-                )
-                neighbors = list((await db.execute(other_stmt)).scalars().all())
-                neighbor_shapes: dict[str, BaseGeometry] = {}
-                orig_neighbor_shapes: dict[str, BaseGeometry] = {}
-                for nz in neighbors:
-                    if getattr(nz, "boundary", None) is not None:
-                        ng = to_shape(nz.boundary)
-                        orig_neighbor_shapes[nz.id] = ng
-                        # Trim any overlap where the edited zone expanded into this neighbor
-                        if ng.intersects(new_geom):
-                            trimmed = _to_multipolygon(ng.difference(new_geom))
-                            if trimmed is not None:
-                                ng = trimmed
-                        neighbor_shapes[nz.id] = ng
+                # Topological shared-border sync with neighboring districts (prevent overlaps & inland gaps)
+                if body.sync_adjacent and zone.id.upper() != "DANANG_CORE":
+                    other_stmt = select(SystemZone).where(
+                        SystemZone.id != zone.id,
+                        SystemZone.id != "DANANG_CORE",
+                    )
+                    neighbors = list((await db.execute(other_stmt)).scalars().all())
+                    neighbor_shapes: dict[str, BaseGeometry] = {}
+                    orig_neighbor_shapes: dict[str, BaseGeometry] = {}
+                    for nz in neighbors:
+                        if getattr(nz, "boundary", None) is not None:
+                            ng = to_shape(nz.boundary)
+                            if ng.is_empty:
+                                continue
+                            orig_neighbor_shapes[nz.id] = ng
+                            # Trim any overlap where the edited zone expanded into this neighbor
+                            if ng.intersects(new_geom):
+                                trimmed = _to_multipolygon(ng.difference(new_geom))
+                                if trimmed is not None:
+                                    ng = trimmed
+                            neighbor_shapes[nz.id] = ng
 
-                # Fill inland gaps where the edited zone shrank away from an adjacent neighbor
-                if old_geom is not None and neighbor_shapes:
-                    shrunk = old_geom.difference(new_geom)
-                    for gap_poly in _extract_polygons(shrunk):
-                        if gap_poly.area <= 1e-10:
-                            continue
-                        best_nid: str | None = None
-                        best_shared_len = 0.0
-                        for nid, orig_ng in orig_neighbor_shapes.items():
-                            try:
-                                shared_len = gap_poly.boundary.intersection(orig_ng.boundary).length
-                            except Exception:
-                                shared_len = 0.0
-                            if shared_len > best_shared_len:
-                                best_shared_len = shared_len
-                                best_nid = nid
-                        if best_nid is not None and best_shared_len > 1e-5:
-                            merged_ng = _to_multipolygon(unary_union([neighbor_shapes[best_nid], gap_poly]))
-                            if merged_ng is not None:
-                                neighbor_shapes[best_nid] = merged_ng
+                    # Fill inland gaps where the edited zone shrank away from an adjacent neighbor
+                    if old_geom is not None and not old_geom.is_empty and neighbor_shapes:
+                        shrunk = old_geom.difference(new_geom)
+                        for gap_poly in _extract_polygons(shrunk):
+                            if gap_poly.area <= 1e-10:
+                                continue
+                            best_nid: str | None = None
+                            best_shared_len = 0.0
+                            for nid, orig_ng in orig_neighbor_shapes.items():
+                                try:
+                                    shared_len = gap_poly.boundary.intersection(orig_ng.boundary).length
+                                except Exception:
+                                    shared_len = 0.0
+                                if shared_len > best_shared_len:
+                                    best_shared_len = shared_len
+                                    best_nid = nid
+                            if best_nid is not None and best_shared_len > 1e-5:
+                                merged_ng = _to_multipolygon(unary_union([neighbor_shapes[best_nid], gap_poly]))
+                                if merged_ng is not None:
+                                    neighbor_shapes[best_nid] = merged_ng
 
-                for nz in neighbors:
-                    if nz.id in neighbor_shapes and not neighbor_shapes[nz.id].equals(orig_neighbor_shapes[nz.id]):
-                        final_ng = _to_multipolygon(neighbor_shapes[nz.id])
-                        if final_ng is not None:
-                            n_minx, n_miny, n_maxx, n_maxy = final_ng.bounds
-                            nz.boundary = from_shape(final_ng, srid=4326)
-                            nz.bounding_box = {
-                                "min_lon": round(float(n_minx), 6),
-                                "min_lat": round(float(n_miny), 6),
-                                "max_lon": round(float(n_maxx), 6),
-                                "max_lat": round(float(n_maxy), 6),
-                            }
-                            db.add(nz)
-                            synced_geojsons[nz.id.upper()] = dict(mapping(final_ng))
+                    for nz in neighbors:
+                        if nz.id in neighbor_shapes and not neighbor_shapes[nz.id].equals(orig_neighbor_shapes[nz.id]):
+                            final_ng = _to_multipolygon(neighbor_shapes[nz.id])
+                            if final_ng is not None:
+                                n_minx, n_miny, n_maxx, n_maxy = final_ng.bounds
+                                nz.boundary = from_shape(final_ng, srid=4326)
+                                nz.bounding_box = {
+                                    "min_lon": round(float(n_minx), 6),
+                                    "min_lat": round(float(n_miny), 6),
+                                    "max_lon": round(float(n_maxx), 6),
+                                    "max_lat": round(float(n_maxy), 6),
+                                }
+                                db.add(nz)
+                                synced_geojsons[nz.id.upper()] = dict(mapping(final_ng))
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
