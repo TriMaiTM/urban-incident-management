@@ -134,7 +134,7 @@ export default function SystemSettingsScreen() {
   const [history, setHistory] = useState<[number, number][][]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [syncAdjacent, setSyncAdjacent] = useState(true)
+  const [syncAdjacent, setSyncAdjacent] = useState(false)
   const [borrowSourceId, setBorrowSourceId] = useState<string | null>(null)
   const [borrowStartIdx, setBorrowStartIdx] = useState<number | null>(null)
   const [borrowEndIdx, setBorrowEndIdx] = useState<number | null>(null)
