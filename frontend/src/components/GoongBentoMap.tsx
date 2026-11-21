@@ -434,6 +434,8 @@ export default function GoongBentoMap({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [webglError, setWebglError] = useState(false)
+  const [retryNonce, setRetryNonce] = useState(0)
   const [is3D, setIs3D] = useState(false)
   const [liveZones, setLiveZones] = useState<ApiZoneOut[] | null>(cachedLiveZones)
   const fallbackAppliedRef = useRef(false)
@@ -544,16 +546,34 @@ export default function GoongBentoMap({
 
     const defaultZoom = initialZoom ?? (interactiveZones ? 10.4 : compact ? 12.2 : 12.6)
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: getGoongOrFallbackStyle(),
-      center: defaultCenter,
-      zoom: defaultZoom,
-      maxBounds: DANANG_MAX_BOUNDS,
-      attributionControl: false,
-    })
+    let map: maplibregl.Map
+    try {
+      setWebglError(false)
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: getGoongOrFallbackStyle(),
+        center: defaultCenter,
+        zoom: defaultZoom,
+        maxBounds: DANANG_MAX_BOUNDS,
+        attributionControl: false,
+      })
+    } catch {
+      setWebglError(true)
+      return
+    }
 
     mapRef.current = map
+
+    const canvas = map.getCanvas()
+    const handleContextLost = (ev: Event) => {
+      ev.preventDefault()
+      setWebglError(true)
+    }
+    const handleContextRestored = () => {
+      setWebglError(false)
+    }
+    canvas.addEventListener('webglcontextlost', handleContextLost)
+    canvas.addEventListener('webglcontextrestored', handleContextRestored)
 
     map.on('error', (e) => {
       const msg = String(e.error?.message || e || '')
@@ -795,6 +815,8 @@ export default function GoongBentoMap({
 
     return () => {
       setLoaded(false)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
       markersRef.current.forEach((m) => m.remove())
       markersRef.current = []
       editorMarkersRef.current.forEach((m) => m.remove())
@@ -803,7 +825,7 @@ export default function GoongBentoMap({
       mapRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [retryNonce])
 
   // ResizeObserver for responsive containers
   useEffect(() => {
@@ -1294,11 +1316,26 @@ export default function GoongBentoMap({
         </div>
       )}
 
-      {state !== 'normal' && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-card/80 backdrop-blur-sm">
-          {state === 'loading' && <div className="size-10 animate-spin rounded-full border-4 border-surface border-t-ink" />}
-          {state === 'empty' && <EmptyState icon={MapPin} text="Chưa có sự cố" />}
-          {state === 'error' && <ErrorState text="Không tải bản đồ" />}
+      {(state !== 'normal' || webglError) && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-card/90 p-6 text-center backdrop-blur-sm">
+          {webglError ? (
+            <>
+              <ErrorState text="Trình duyệt vừa tạm ngắt WebGL2 (quá nhiều tab bản đồ hoặc GPU vừa khởi động lại)" />
+              <button
+                type="button"
+                onClick={() => setRetryNonce((n) => n + 1)}
+                className="inline-flex h-10 items-center gap-2 rounded-full bg-ink px-5 text-[13px] font-semibold text-white shadow-card transition hover:opacity-90"
+              >
+                Thử khởi tạo lại bản đồ
+              </button>
+            </>
+          ) : (
+            <>
+              {state === 'loading' && <div className="size-10 animate-spin rounded-full border-4 border-surface border-t-ink" />}
+              {state === 'empty' && <EmptyState icon={MapPin} text="Chưa có sự cố" />}
+              {state === 'error' && <ErrorState text="Không tải bản đồ" />}
+            </>
+          )}
         </div>
       )}
     </div>
