@@ -391,6 +391,7 @@ const LAYER_DISTRICTS_PAUSED_LINE = 'bento-gadm-districts-paused-line'
 const SOURCE_EDITOR_POLY = 'bento-editor-poly'
 const LAYER_EDITOR_FILL = 'bento-editor-poly-fill'
 const LAYER_EDITOR_LINE = 'bento-editor-poly-line'
+const LAYER_EDITOR_VERTEX_CIRCLES = 'bento-editor-vertex-circles'
 
 const SOURCE_RADIUS = 'bento-user-radius'
 const LAYER_RADIUS_FILL = 'bento-user-radius-fill'
@@ -710,10 +711,33 @@ export default function GoongBentoMap({
           id: LAYER_EDITOR_LINE,
           type: 'line',
           source: SOURCE_EDITOR_POLY,
+          filter: ['!=', '$type', 'Point'],
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#111111',
-            'line-width': 3,
+            'line-color': [
+              'case',
+              ['boolean', ['get', 'isArc'], false],
+              '#2563eb',
+              '#111111',
+            ],
+            'line-width': [
+              'case',
+              ['boolean', ['get', 'isArc'], false],
+              4,
+              3,
+            ],
+          },
+        })
+        map.addLayer({
+          id: LAYER_EDITOR_VERTEX_CIRCLES,
+          type: 'circle',
+          source: SOURCE_EDITOR_POLY,
+          filter: ['==', '$type', 'Point'],
+          paint: {
+            'circle-radius': 5,
+            'circle-color': '#e5251b',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
           },
         })
       }
@@ -822,6 +846,12 @@ export default function GoongBentoMap({
       editorMarkersRef.current.forEach((m) => m.remove())
       editorMarkersRef.current = []
       map.remove()
+      try {
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+        gl?.getExtension('WEBGL_lose_context')?.loseContext()
+      } catch {
+        // ignore
+      }
       mapRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -892,111 +922,150 @@ export default function GoongBentoMap({
         },
       })
     }
-    src?.setData({ type: 'FeatureCollection', features })
-
-    // Reference zone vertices for borrowing a shared border segment (e.g. NHS left border -> CL right border)
-    if (refPts.length > 0 && onSelectReferenceVertexRef.current) {
-      refPts.forEach((pt, idx) => {
-        const isStart = referenceSelection?.startIdx === idx
-        const isEnd = referenceSelection?.endIdx === idx
-        const wrap = document.createElement('div')
-        wrap.className = 'flex items-center justify-center'
-        const dot = document.createElement('button')
-        dot.type = 'button'
-        dot.title = `Điểm nguồn #${idx + 1} · Bấm để chọn mốc A/B`
-        dot.className = isStart || isEnd
-          ? 'flex size-6 items-center justify-center rounded-full bg-[#2563eb] text-[10px] font-bold text-white shadow-card ring-2 ring-white cursor-pointer'
-          : 'flex size-3.5 items-center justify-center rounded-full bg-[#2563eb]/85 shadow-card ring-1 ring-white transition-transform duration-150 hover:scale-150 cursor-pointer'
-        if (isStart) dot.textContent = 'A'
-        else if (isEnd) dot.textContent = 'B'
-        dot.addEventListener('mousedown', (ev) => ev.stopPropagation())
-        dot.addEventListener('click', (ev) => {
-          ev.stopPropagation()
-          onSelectReferenceVertexRef.current?.(idx)
+    if (polygonMode !== 'view') {
+      pts.forEach((pt) => {
+        features.push({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Point', coordinates: pt },
         })
-        wrap.appendChild(dot)
-        const m = new maplibregl.Marker({ element: wrap, anchor: 'center' })
-          .setLngLat(pt)
-          .addTo(map)
-        editorMarkersRef.current.push(m)
       })
     }
+    src?.setData({ type: 'FeatureCollection', features })
 
-    if (polygonMode === 'view' || pts.length === 0) {
-      return
-    }
+    const renderVisibleHandles = () => {
+      editorMarkersRef.current.forEach((m) => m.remove())
+      editorMarkersRef.current = []
+      const bounds = map.getBounds()
 
-    // Midpoint '+' handles to insert a new vertex on any edge when >= 2 vertices exist
-    // IMPORTANT: Never put CSS `transition` or `hover:scale-*` on the Marker root element, because MapLibre uses inline `transform: translate(...)` on the root!
-    if (pts.length >= 2 && onPolygonInsertVertexRef.current) {
-      const edgeCount = pts.length >= 3 ? pts.length : pts.length - 1
-      for (let i = 0; i < edgeCount; i++) {
-        const a = pts[i]
-        const b = pts[(i + 1) % pts.length]
-        const mid: [number, number] = [
-          +((a[0] + b[0]) / 2).toFixed(6),
-          +((a[1] + b[1]) / 2).toFixed(6),
-        ]
-        const midWrap = document.createElement('div')
-        midWrap.className = 'flex items-center justify-center'
-        const midEl = document.createElement('button')
-        midEl.type = 'button'
-        midEl.title = 'Chèn thêm điểm đỉnh tại cạnh này'
-        midEl.className =
-          'flex size-5 items-center justify-center rounded-full bg-white text-[12px] font-bold text-ink shadow-card ring-2 ring-ink/70 transition-transform duration-150 hover:scale-125 hover:bg-ink hover:text-white cursor-pointer'
-        midEl.textContent = '+'
-        midEl.addEventListener('mousedown', (ev) => {
+      // Reference zone vertices for borrowing a shared border segment (only visible in viewport, max 120)
+      if (refPts.length > 0 && onSelectReferenceVertexRef.current) {
+        const visibleRef = refPts
+          .map((pt, idx) => ({ pt, idx }))
+          .filter(
+            ({ pt, idx }) =>
+              referenceSelection?.startIdx === idx ||
+              referenceSelection?.endIdx === idx ||
+              bounds.contains(pt),
+          )
+          .slice(0, 120)
+
+        for (const { pt, idx } of visibleRef) {
+          const isStart = referenceSelection?.startIdx === idx
+          const isEnd = referenceSelection?.endIdx === idx
+          const wrap = document.createElement('div')
+          wrap.className = 'flex items-center justify-center'
+          const dot = document.createElement('button')
+          dot.type = 'button'
+          dot.title = `Điểm nguồn #${idx + 1} · Bấm để chọn mốc A/B`
+          dot.className =
+            isStart || isEnd
+              ? 'flex size-6 items-center justify-center rounded-full bg-[#2563eb] text-[10px] font-bold text-white shadow-card ring-2 ring-white cursor-pointer'
+              : 'flex size-3.5 items-center justify-center rounded-full bg-[#2563eb]/85 shadow-card ring-1 ring-white transition-transform duration-150 hover:scale-150 cursor-pointer'
+          if (isStart) dot.textContent = 'A'
+          else if (isEnd) dot.textContent = 'B'
+          dot.addEventListener('mousedown', (ev) => ev.stopPropagation())
+          dot.addEventListener('click', (ev) => {
+            ev.stopPropagation()
+            onSelectReferenceVertexRef.current?.(idx)
+          })
+          wrap.appendChild(dot)
+          const m = new maplibregl.Marker({ element: wrap, anchor: 'center' })
+            .setLngLat(pt)
+            .addTo(map)
+          editorMarkersRef.current.push(m)
+        }
+      }
+
+      // In 'draw' mode, WebGL circles already render all vertices with zero DOM overhead!
+      if (polygonMode !== 'edit' || pts.length === 0) {
+        return
+      }
+
+      // Viewport-culled midpoint '+' handles (max 100 visible to prevent GPU compositor bloat)
+      if (pts.length >= 2 && onPolygonInsertVertexRef.current) {
+        const edgeCount = pts.length >= 3 ? pts.length : pts.length - 1
+        let shownMids = 0
+        for (let i = 0; i < edgeCount && shownMids < 100; i++) {
+          const a = pts[i]
+          const b = pts[(i + 1) % pts.length]
+          const mid: [number, number] = [
+            +((a[0] + b[0]) / 2).toFixed(6),
+            +((a[1] + b[1]) / 2).toFixed(6),
+          ]
+          if (!bounds.contains(mid)) continue
+          shownMids++
+          const midWrap = document.createElement('div')
+          midWrap.className = 'flex items-center justify-center'
+          const midEl = document.createElement('button')
+          midEl.type = 'button'
+          midEl.title = 'Chèn thêm điểm đỉnh tại cạnh này'
+          midEl.className =
+            'flex size-5 items-center justify-center rounded-full bg-white text-[12px] font-bold text-ink shadow-card ring-2 ring-ink/70 transition-transform duration-150 hover:scale-125 hover:bg-ink hover:text-white cursor-pointer'
+          midEl.textContent = '+'
+          midEl.addEventListener('mousedown', (ev) => {
+            ev.stopPropagation()
+          })
+          midEl.addEventListener('click', (ev) => {
+            ev.stopPropagation()
+            onPolygonInsertVertexRef.current?.(i, mid)
+          })
+          midWrap.appendChild(midEl)
+          const midMarker = new maplibregl.Marker({ element: midWrap, anchor: 'center' })
+            .setLngLat(mid)
+            .addTo(map)
+          editorMarkersRef.current.push(midMarker)
+        }
+      }
+
+      // Viewport-culled draggable vertex handles (max 100 visible in viewport)
+      let shownVerts = 0
+      for (let idx = 0; idx < pts.length && shownVerts < 100; idx++) {
+        const pt = pts[idx]
+        if (!bounds.contains(pt)) continue
+        shownVerts++
+        const wrap = document.createElement('div')
+        wrap.className = 'flex items-center justify-center'
+        const el = document.createElement('div')
+        el.title = `Đỉnh #${idx + 1} (${pt[1].toFixed(4)}, ${pt[0].toFixed(4)}) · Kéo để di chuyển, nhấp đúp/chuột phải để xóa`
+        el.className =
+          'flex size-6 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white shadow-card ring-2 ring-white transition-transform duration-150 hover:scale-125 cursor-grab active:cursor-grabbing'
+        el.textContent = String(idx + 1)
+
+        el.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault()
           ev.stopPropagation()
+          onPolygonRemoveVertexRef.current?.(idx)
         })
-        midEl.addEventListener('click', (ev) => {
+        el.addEventListener('dblclick', (ev) => {
+          ev.preventDefault()
           ev.stopPropagation()
-          onPolygonInsertVertexRef.current?.(i, mid)
+          onPolygonRemoveVertexRef.current?.(idx)
         })
-        midWrap.appendChild(midEl)
-        const midMarker = new maplibregl.Marker({ element: midWrap, anchor: 'center' })
-          .setLngLat(mid)
+
+        wrap.appendChild(el)
+        const m = new maplibregl.Marker({
+          element: wrap,
+          anchor: 'center',
+          draggable: true,
+        })
+          .setLngLat(pt)
           .addTo(map)
-        editorMarkersRef.current.push(midMarker)
+
+        m.on('dragend', () => {
+          const p = m.getLngLat()
+          onPolygonMoveVertexRef.current?.(idx, [+p.lng.toFixed(6), +p.lat.toFixed(6)])
+        })
+
+        editorMarkersRef.current.push(m)
       }
     }
 
-    // Draggable vertex handles (wrapper stays transform-free for MapLibre; inner badge handles hover scale)
-    pts.forEach((pt, idx) => {
-      const wrap = document.createElement('div')
-      wrap.className = 'flex items-center justify-center'
-      const el = document.createElement('div')
-      el.title = `Đỉnh #${idx + 1} (${pt[1].toFixed(4)}, ${pt[0].toFixed(4)}) · Kéo để di chuyển, nhấp đúp/chuột phải để xóa`
-      el.className =
-        'flex size-6 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white shadow-card ring-2 ring-white transition-transform duration-150 hover:scale-125 cursor-grab active:cursor-grabbing'
-      el.textContent = String(idx + 1)
-
-      el.addEventListener('contextmenu', (ev) => {
-        ev.preventDefault()
-        ev.stopPropagation()
-        onPolygonRemoveVertexRef.current?.(idx)
-      })
-      el.addEventListener('dblclick', (ev) => {
-        ev.preventDefault()
-        ev.stopPropagation()
-        onPolygonRemoveVertexRef.current?.(idx)
-      })
-
-      wrap.appendChild(el)
-      const m = new maplibregl.Marker({
-        element: wrap,
-        anchor: 'center',
-        draggable: true,
-      })
-        .setLngLat(pt)
-        .addTo(map)
-
-      m.on('dragend', () => {
-        const p = m.getLngLat()
-        onPolygonMoveVertexRef.current?.(idx, [+p.lng.toFixed(6), +p.lat.toFixed(6)])
-      })
-
-      editorMarkersRef.current.push(m)
-    })
+    renderVisibleHandles()
+    map.on('moveend', renderVisibleHandles)
+    return () => {
+      map.off('moveend', renderVisibleHandles)
+    }
   }, [loaded, polygonPoints, polygonMode, referenceRing, referenceSelection])
 
   // Update route / dispatchRoute line
@@ -1320,7 +1389,7 @@ export default function GoongBentoMap({
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-card/90 p-6 text-center backdrop-blur-sm">
           {webglError ? (
             <>
-              <ErrorState text="Trình duyệt vừa tạm ngắt WebGL2 (quá nhiều tab bản đồ hoặc GPU vừa khởi động lại)" />
+              <ErrorState text="Trình duyệt vừa khởi động lại tiến trình đồ họa WebGL2" />
               <button
                 type="button"
                 onClick={() => setRetryNonce((n) => n + 1)}
